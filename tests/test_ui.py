@@ -280,9 +280,10 @@ def test_variants_page_and_server_side_tempo_api_include_links_and_totals():
     assert payload[0]["lines"][0]["produkt_url"].endswith("/mg996r")
     assert payload[0]["shops"][0]["name"] == "Servo Shop"
     assert scenarios.status_code == 200
-    assert [item["key"] for item in scenarios.json()["scenarios"]] == [
-        "cheapest", "fastest", "one_shop", "balanced"
-    ]
+    grouped = scenarios.json()["scenarios"]
+    assert len(grouped) == 1
+    assert grouped[0]["keys"] == ["cheapest", "fastest", "one_shop", "balanced"]
+    assert grouped[0]["same_result_note"]
 
 
 def test_history_repeat_arrival_and_shop_moderation_are_available():

@@ -280,14 +280,50 @@ class ProcurementService:
             "one_shop": "Ein Shop",
             "balanced": "Ausgewogen",
         }
-        scenarios = []
+        grouped: dict[tuple[Any, ...], dict[str, Any]] = {}
         for key in ("cheapest", "fastest", "one_shop", "balanced"):
             if key not in presets:
                 continue
             variant = self._enrich_variant(self._serialize_variant(presets[key]), data)
-            variant["key"] = key
-            variant["label"] = labels[key]
-            scenarios.append(variant)
+            max_lines = [
+                line
+                for line in variant["lines"]
+                if variant["max_liefertage"] is not None
+                and line["lieferzeit_tage"] == variant["max_liefertage"]
+            ]
+            fastest_estimated_max = (
+                key == "fastest"
+                and bool(max_lines)
+                and all(line["lieferzeit_geschaetzt"] for line in max_lines)
+            )
+            identity = (
+                tuple(sorted(variant["assignments"].items())),
+                tuple(variant["shop_ids"]),
+                variant["total_chf"],
+                variant["max_liefertage"],
+                tuple(variant["missing_line_ids"]),
+            )
+            if identity not in grouped:
+                variant["key"] = key
+                variant["label"] = labels[key]
+                variant["keys"] = [key]
+                variant["labels"] = [labels[key]]
+                variant["fastest_max_exclusively_estimated"] = fastest_estimated_max
+                grouped[identity] = variant
+            else:
+                grouped[identity]["keys"].append(key)
+                grouped[identity]["labels"].append(labels[key])
+                grouped[identity]["fastest_max_exclusively_estimated"] = (
+                    grouped[identity]["fastest_max_exclusively_estimated"]
+                    or fastest_estimated_max
+                )
+        scenarios = list(grouped.values())
+        for variant in scenarios:
+            variant["same_result_note"] = (
+                "Gleiches Bestellergebnis für mehrere Ziele – bei diesem Angebots-Pool erwartbar."
+                if len(variant["keys"]) > 1
+                else None
+            )
         fine_tuned = [
             self._enrich_variant(self._serialize_variant(variant), data)
             for variant in tuned_variants

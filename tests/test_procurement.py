@@ -239,23 +239,46 @@ def test_plan_order_calls_pure_optimizer_and_serializes_variant():
     assert variants[0]["score"] == "43.000"
 
 
-def test_plan_scenarios_serializes_presets_source_delivery_and_estimate_flag():
+def test_plan_scenarios_groups_identical_presets_and_keeps_badges():
     procurement = service()
 
     result = procurement.plan_scenarios(5)
 
-    assert [item["key"] for item in result["scenarios"]] == [
-        "cheapest",
-        "fastest",
-        "one_shop",
-        "balanced",
+    assert len(result["scenarios"]) == 1
+    scenario = result["scenarios"][0]
+    assert scenario["keys"] == ["cheapest", "fastest", "one_shop", "balanced"]
+    assert scenario["labels"] == [
+        "Am günstigsten",
+        "Am schnellsten",
+        "Ein Shop",
+        "Ausgewogen",
     ]
-    cheapest = result["scenarios"][0]
-    assert cheapest["label"] == "Am günstigsten"
-    assert cheapest["contains_estimates"] is False
-    assert cheapest["lines"][0]["lieferzeit_text"] == "2 Tage"
-    assert cheapest["lines"][0]["produkt_url"].endswith("/mg996r")
-    assert cheapest["complete"] is True
+    assert scenario["contains_estimates"] is False
+    assert scenario["fastest_max_exclusively_estimated"] is False
+    assert scenario["lines"][0]["lieferzeit_text"] == "2 Tage"
+    assert scenario["lines"][0]["produkt_url"].endswith("/mg996r")
+    assert scenario["complete"] is True
+
+
+def test_fastest_marks_when_its_maximum_is_based_only_on_estimates():
+    repository = FakeProcurementRepository()
+    repository.optimization_input = lambda job_id: {
+        **FakeProcurementRepository().optimization_input(job_id),
+        "offers": [
+            {
+                **FakeProcurementRepository().optimization_input(job_id)["offers"][0],
+                "lieferzeit_tage": None,
+                "lieferzeit_text": None,
+            }
+        ],
+    }
+    procurement = ProcurementService(repository)
+
+    scenario = procurement.plan_scenarios(5)["scenarios"][0]
+
+    assert "fastest" in scenario["keys"]
+    assert scenario["max_liefertage"] == 3
+    assert scenario["fastest_max_exclusively_estimated"] is True
 
 
 def test_plan_order_returns_no_partial_variant_when_a_required_line_lacks_confirmation():

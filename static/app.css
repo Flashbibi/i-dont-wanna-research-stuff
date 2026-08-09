@@ -144,7 +144,11 @@ textarea {
   margin-bottom: 14px;
 }
 .scenario-card { min-width: 0; padding: 17px; }
+.scenario-targets { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 13px; }
+.badge.target { background: var(--accent-soft); color: var(--accent); }
 .scenario-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.scenario-head > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.same-result-note { margin: 10px 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .scenario-card h2 { font-size: 25px; }
 .scenario-card details { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 11px; }
 summary { cursor: pointer; }

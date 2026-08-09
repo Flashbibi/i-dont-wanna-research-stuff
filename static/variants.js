@@ -33,11 +33,22 @@ const normalize = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+
 function renderVariant(variant, choices, scenario = false) {
   const estimate = variant.contains_estimates ? '<span class="badge estimate">enthält Schätzungen</span>' : '';
   const unknown = variant.contains_unknown_delivery ? '<span class="badge warning">Lieferzeit teilweise unbekannt</span>' : '';
+  const targets = scenario
+    ? `<div class="scenario-targets">${(variant.labels || [variant.label]).map(label => `<span class="badge target">${esc(label)}</span>`).join('')}</div>`
+    : '';
+  const fastestEstimate = variant.fastest_max_exclusively_estimated
+    ? '<span class="badge warning">Schnellstes Maximum nur geschätzt</span>'
+    : '';
+  const sameResult = variant.same_result_note
+    ? `<p class="same-result-note">${esc(variant.same_result_note)}</p>`
+    : '';
   const missing = variant.missing_lines?.length
     ? `<p class="error"><strong>Fehlende Zeilen:</strong> ${variant.missing_lines.map(line => esc(line.suchtext || `#${line.line_id}`)).join(', ')}</p>`
     : '';
-  return `<section class="panel variant scenario-card" data-key="${esc(variant.key || '')}">
-    <div class="scenario-head"><div><p class="eyebrow">${scenario ? esc(variant.label) : 'Feineinstellung'}</p><h2>CHF ${esc(variant.total_chf)}</h2></div><div>${estimate}${unknown}</div></div>
+  return `<section class="panel variant scenario-card" data-key="${esc((variant.keys || [variant.key]).join(','))}">
+    ${targets}
+    <div class="scenario-head"><div><p class="eyebrow">${scenario ? 'Bestellergebnis' : 'Feineinstellung'}</p><h2>CHF ${esc(variant.total_chf)}</h2></div><div>${estimate}${unknown}${fastestEstimate}</div></div>
+    ${sameResult}
     <p class="muted">Max. ${days(variant.max_liefertage)} · ${esc(variant.shop_ids.length)} Shop(s)</p>
     ${missing}
     <details ${scenario ? '' : 'open'}><summary>Zuordnungen anzeigen</summary><ul class="assignment-list">${variant.lines.map(line => assignmentRow(line, choices)).join('')}</ul></details>
