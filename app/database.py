@@ -116,7 +116,7 @@ class PostgresRepository:
                 """
                 SELECT id, bezeichnung, menge, einheit, aktualisiert_am
                 FROM stock
-                WHERE menge > 0 AND lower(bezeichnung) = lower(%s)
+                WHERE menge > 0 AND lower(bezeichnung) = lower(CAST(%s AS TEXT))
                 ORDER BY aktualisiert_am DESC
                 """,
                 (line["suchtext"],),
@@ -131,7 +131,7 @@ class PostgresRepository:
                 JOIN bom_line old_line ON old_line.id = pi.line_id
                 JOIN offer o ON o.id = pi.offer_id
                 JOIN shop s ON s.id = o.shop_id
-                WHERE lower(old_line.suchtext) = lower(%s)
+                WHERE lower(old_line.suchtext) = lower(CAST(%s AS TEXT))
                 ORDER BY p.bestellt_am DESC
                 LIMIT 10
                 """,
@@ -145,7 +145,7 @@ class PostgresRepository:
                 FROM offer o
                 JOIN bom_line cached_line ON cached_line.id = o.line_id
                 JOIN shop s ON s.id = o.shop_id
-                WHERE lower(cached_line.suchtext) = lower(%s)
+                WHERE lower(cached_line.suchtext) = lower(CAST(%s AS TEXT))
                   AND o.gesehen_am >= NOW() - INTERVAL '14 days'
                   AND s.status <> 'gesperrt'
                 ORDER BY o.gesehen_am DESC
@@ -226,7 +226,7 @@ class PostgresRepository:
                     stock_rows = connection.execute(
                         """
                         SELECT id, menge FROM stock
-                        WHERE lower(bezeichnung) = lower(%s) AND menge > 0
+                        WHERE lower(bezeichnung) = lower(CAST(%s AS TEXT)) AND menge > 0
                         ORDER BY aktualisiert_am, id FOR UPDATE
                         """,
                         (line["suchtext"],),
