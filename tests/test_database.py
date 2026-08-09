@@ -47,6 +47,25 @@ def test_database_value_decoder_normalizes_sql_ascii_text_bytes():
     assert decode_database_value("ungeprueft") == "ungeprueft"
 
 
+class JobListConnection(Connection):
+    def __init__(self):
+        self.sql = ""
+
+    def execute(self, sql, params=None):
+        self.sql = " ".join(sql.split())
+        return Result(many=[])
+
+
+def test_job_list_excludes_marked_e2e_jobs():
+    repository = PostgresRepository("unused")
+    connection = JobListConnection()
+    repository._connect = lambda: connection
+
+    repository.list_jobs()
+
+    assert "WHERE NOT j.is_test" in connection.sql
+
+
 class OfferConnection:
     def __init__(self):
         self.statements = []

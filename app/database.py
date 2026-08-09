@@ -60,6 +60,84 @@ class PostgresRepository:
                     )
         return job_id
 
+    def create_e2e_test_job(self) -> dict[str, Any]:
+        """Create one isolated, disposable browser-test job.
+
+        This is the only code path allowed to create synthetic offer observations.
+        Cleanup verifies the marker again before deleting the complete test graph.
+        """
+        with self._connect() as connection:
+            with connection.transaction():
+                shop = connection.execute(
+                    "SELECT id FROM shop WHERE status <> 'gesperrt' ORDER BY id LIMIT 1"
+                ).fetchone()
+                if shop is None:
+                    raise ValueError("Für den E2E-Test ist kein Shop vorhanden")
+                job = connection.execute(
+                    """
+                    INSERT INTO job(quelltext, status, is_test)
+                    VALUES ('[E2E-TEST] Klickhygiene – automatisch entsorgen', 'in_arbeit', TRUE)
+                    RETURNING id
+                    """
+                ).fetchone()
+                line = connection.execute(
+                    """
+                    INSERT INTO bom_line(job_id, position, originaltext, suchtext, menge, status)
+                    VALUES (%s, 1, '[E2E-TEST] Wegwerfposition', '[E2E-TEST] Wegwerfposition', 1, 'kandidaten')
+                    RETURNING id
+                    """,
+                    (job["id"],),
+                ).fetchone()
+                offer = connection.execute(
+                    """
+                    INSERT INTO offer(
+                        line_id, shop_id, produktname, produkt_url, quelle_url,
+                        preis_chf, lieferzeit_tage, lieferzeit_text, lager, lager_text
+                    ) VALUES (
+                        %s, %s, '[E2E-TEST] Wegwerfprodukt', %s, %s,
+                        1.00, 1, '1 Testtag', 'Testbestand', 'Testbestand'
+                    ) RETURNING id
+                    """,
+                    (
+                        line["id"],
+                        shop["id"],
+                        f"https://e2e.invalid/jobs/{job['id']}",
+                        f"https://e2e.invalid/jobs/{job['id']}",
+                    ),
+                ).fetchone()
+                return {
+                    "job_id": int(job["id"]),
+                    "offer_id": int(offer["id"]),
+                    "marker": "[E2E-TEST]",
+                }
+
+    def delete_e2e_test_job(self, job_id: int) -> dict[str, Any]:
+        """Delete only a job carrying the database test marker and its artifacts."""
+        with self._connect() as connection:
+            with connection.transaction():
+                job = connection.execute(
+                    "SELECT id, is_test FROM job WHERE id = %s FOR UPDATE", (job_id,)
+                ).fetchone()
+                if job is None or not job["is_test"]:
+                    raise ValueError("Nur markierte Test-Jobs dürfen gelöscht werden")
+                connection.execute(
+                    """
+                    DELETE FROM decision WHERE offer_id IN (
+                        SELECT o.id FROM offer o
+                        JOIN bom_line bl ON bl.id = o.line_id
+                        WHERE bl.job_id = %s
+                    )
+                    """,
+                    (job_id,),
+                )
+                connection.execute(
+                    "DELETE FROM offer WHERE line_id IN (SELECT id FROM bom_line WHERE job_id = %s)",
+                    (job_id,),
+                )
+                connection.execute("DELETE FROM bom_line WHERE job_id = %s", (job_id,))
+                connection.execute("DELETE FROM job WHERE id = %s AND is_test", (job_id,))
+                return {"job_id": job_id, "deleted": True}
+
     def get_job(self, job_id: int) -> dict[str, Any] | None:
         with self._connect() as connection:
             job = connection.execute(
@@ -89,6 +167,7 @@ class PostgresRepository:
                 SELECT j.id, j.status, j.quelltext, j.erstellt_am
                 FROM job j
                 WHERE j.status IN ('offen', 'in_arbeit')
+                  AND NOT j.is_test
                   AND EXISTS (
                     SELECT 1 FROM bom_line bl
                     WHERE bl.job_id = j.id AND bl.status IN ('offen', 'in_arbeit')
@@ -404,6 +483,7 @@ class PostgresRepository:
                 SELECT j.id, j.status, j.quelltext, j.erstellt_am,
                        COUNT(bl.id)::int AS line_count
                 FROM job j LEFT JOIN bom_line bl ON bl.job_id = j.id
+                WHERE NOT j.is_test
                 GROUP BY j.id ORDER BY j.erstellt_am DESC LIMIT %s
                 """,
                 (limit,),

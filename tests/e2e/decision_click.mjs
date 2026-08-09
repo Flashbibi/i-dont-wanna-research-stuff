@@ -5,63 +5,76 @@ const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT_CORE || '/home/hermes/.local/share/beschaffung-browser/node_modules/playwright-core');
 
 const baseUrl = process.env.BASE_URL || 'http://192.168.1.60:8000';
-const offerId = process.env.OFFER_ID || '13';
+const markerHeaders = {'X-E2E-Marker': 'beschaffung-e2e-disposable'};
 const executablePath = process.env.CHROME_BIN || '/home/hermes/.local/share/beschaffung-browser/chrome-linux64/chrome';
 const profile = process.env.BROWSER_PROFILE || '/home/hermes/.local/share/beschaffung-browser/e2e-profile';
-const context = await chromium.launchPersistentContext(profile, {headless: true, executablePath});
-const page = await context.newPage();
-const evidence = {baseUrl, offerId, consoleErrors: [], failedRequests: [], badResponses: [], decisionResponses: []};
-page.on('console', message => {
-  if (message.type() === 'error') evidence.consoleErrors.push(message.text());
-});
-page.on('pageerror', error => evidence.consoleErrors.push(error.message));
-page.on('requestfailed', request => evidence.failedRequests.push({url: request.url(), error: request.failure()?.errorText}));
-page.on('response', response => {
-  if (response.status() >= 400) evidence.badResponses.push({url: response.url(), status: response.status()});
-  if (response.url().includes(`/api/offers/${offerId}/decision`)) {
-    evidence.decisionResponses.push({url: response.url(), status: response.status()});
-  }
-});
+let testJob = null;
+let context = null;
 
 try {
-  await page.goto(`${baseUrl}/jobs/1`, {waitUntil: 'networkidle'});
+  const setup = await fetch(`${baseUrl}/api/e2e/jobs`, {method: 'POST', headers: markerHeaders});
+  assert.equal(setup.status, 201, `Test-Job konnte nicht angelegt werden: HTTP ${setup.status}`);
+  testJob = await setup.json();
+  assert.equal(testJob.marker, '[E2E-TEST]');
+
+  context = await chromium.launchPersistentContext(profile, {headless: true, executablePath});
+  const page = await context.newPage();
+  const {job_id: jobId, offer_id: offerId} = testJob;
+  const evidence = {
+    baseUrl,
+    testJobId: jobId,
+    testOfferId: offerId,
+    marker: testJob.marker,
+    consoleErrors: [],
+    failedRequests: [],
+    badResponses: [],
+    decisionResponses: [],
+  };
+  page.on('console', message => {
+    if (message.type() === 'error') evidence.consoleErrors.push(message.text());
+  });
+  page.on('pageerror', error => evidence.consoleErrors.push(error.message));
+  page.on('requestfailed', request => evidence.failedRequests.push({url: request.url(), error: request.failure()?.errorText}));
+  page.on('response', response => {
+    if (response.status() >= 400) evidence.badResponses.push({url: response.url(), status: response.status()});
+    if (response.url().includes(`/api/offers/${offerId}/decision`)) {
+      evidence.decisionResponses.push({url: response.url(), status: response.status()});
+    }
+  });
+
+  await page.goto(`${baseUrl}/jobs/${jobId}`, {waitUntil: 'networkidle'});
   const card = page.locator(`#offer-${offerId}`);
   await card.waitFor();
-  const initialClass = await card.getAttribute('class');
-  const initialStatus = initialClass.includes('override-pin')
-    ? 'pin'
-    : initialClass.includes('override-exclude') ? 'exclude' : null;
-  assert.ok(initialStatus, 'Testangebot braucht einen wiederherstellbaren Ausgangsstatus');
-  const targetStatus = initialStatus === 'pin' ? 'exclude' : 'pin';
-  const targetLabel = targetStatus === 'pin' ? 'Pin' : 'Ausschließen';
-  const targetFeedback = targetStatus === 'pin' ? 'Gepinnt' : 'Ausgeschlossen';
+  assert.ok((await card.getAttribute('class')).includes('decision-offen'));
 
-  await card.getByRole('button', {name: targetLabel, exact: true}).click();
-  await card.locator('[role="status"]').filter({hasText: targetFeedback}).waitFor();
-  assert.ok((await card.getAttribute('class')).includes(`override-${targetStatus}`));
+  await card.getByRole('button', {name: 'Pin', exact: true}).click();
+  await card.locator('[role="status"]').filter({hasText: 'Gepinnt'}).waitFor();
+  assert.ok((await card.getAttribute('class')).includes('override-pin'));
 
   await page.reload({waitUntil: 'networkidle'});
   const reloaded = page.locator(`#offer-${offerId}`);
-  assert.ok((await reloaded.getAttribute('class')).includes(`override-${targetStatus}`));
-  assert.equal((await reloaded.locator('[role="status"]').innerText()).trim(), targetFeedback);
+  assert.ok((await reloaded.getAttribute('class')).includes('override-pin'));
+  assert.equal((await reloaded.locator('[role="status"]').innerText()).trim(), 'Gepinnt');
 
-  const restoreLabel = initialStatus === 'pin' ? 'Pin' : 'Ausschließen';
-  await reloaded.getByRole('button', {name: restoreLabel, exact: true}).click();
-  await reloaded.locator('[role="status"]').filter({hasText: initialStatus === 'pin' ? 'Gepinnt' : 'Ausgeschlossen'}).waitFor();
-  await page.reload({waitUntil: 'networkidle'});
-  assert.ok((await page.locator(`#offer-${offerId}`).getAttribute('class')).includes(`override-${initialStatus}`));
+  await page.goto(`${baseUrl}/`, {waitUntil: 'networkidle'});
+  assert.equal(await page.getByText(`[E2E-TEST]`, {exact: false}).count(), 0, 'Test-Job darf nicht in der UI erscheinen');
 
   assert.deepEqual(evidence.consoleErrors, []);
   assert.deepEqual(evidence.failedRequests, []);
   assert.deepEqual(evidence.badResponses, []);
-  assert.equal(evidence.decisionResponses.length, 2);
-  assert.ok(evidence.decisionResponses.every(response => response.status === 200));
-  evidence.initialStatus = initialStatus;
-  evidence.clickedStatus = targetStatus;
+  assert.equal(evidence.decisionResponses.length, 1);
+  assert.equal(evidence.decisionResponses[0].status, 200);
   evidence.visibleAfterClick = true;
   evidence.persistedAfterReload = true;
-  evidence.restoredInitialStatus = true;
+  evidence.hiddenFromJobList = true;
   console.log(JSON.stringify(evidence));
 } finally {
-  await context.close();
+  if (context) await context.close();
+  if (testJob) {
+    const cleanup = await fetch(`${baseUrl}/api/e2e/jobs/${testJob.job_id}`, {
+      method: 'DELETE',
+      headers: markerHeaders,
+    });
+    assert.equal(cleanup.status, 200, `Test-Job-Cleanup fehlgeschlagen: HTTP ${cleanup.status}`);
+  }
 }

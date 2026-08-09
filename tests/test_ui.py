@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.web import create_app
@@ -9,6 +11,8 @@ class UIRepository:
         self.decision_by_offer = {}
         self.shop_status = None
         self.arrived = []
+        self.test_jobs = {}
+        self.next_test_job_id = 9000
 
     def create_job(self, source_text, lines):
         return 7
@@ -26,7 +30,48 @@ class UIRepository:
     def list_jobs(self, limit=20):
         return [{"id": 7, "status": "in_arbeit", "quelltext": "2x Servo", "erstellt_am": "heute", "line_count": 1}]
 
+    def create_e2e_test_job(self):
+        job_id = self.next_test_job_id
+        self.next_test_job_id += 1
+        record = {"job_id": job_id, "offer_id": 9001, "marker": "[E2E-TEST]"}
+        self.test_jobs[job_id] = record
+        return record
+
+    def delete_e2e_test_job(self, job_id):
+        if job_id not in self.test_jobs:
+            raise ValueError("Nur markierte Test-Jobs dürfen gelöscht werden")
+        del self.test_jobs[job_id]
+        return {"job_id": job_id, "deleted": True}
+
     def get_job_detail(self, job_id):
+        if job_id in self.test_jobs:
+            return {
+                "id": job_id,
+                "status": "test",
+                "quelltext": "[E2E-TEST] Klickhygiene",
+                "lines": [{
+                    "id": 9002,
+                    "position": 1,
+                    "suchtext": "[E2E-TEST] Wegwerfangebot",
+                    "menge": 1,
+                    "status": "kandidaten",
+                    "kommentar": None,
+                    "offers": [{
+                        "id": 9001,
+                        "produktname": "[E2E-TEST] Wegwerfprodukt",
+                        "produkt_url": "https://example.invalid/e2e",
+                        "preis_chf": "1.00",
+                        "lieferzeit_tage": 1,
+                        "lieferzeit_text": "1 Testtag",
+                        "lager_text": "Testbestand",
+                        "shop_id": 1,
+                        "shop_name": "E2E Test",
+                        "shop_status": "bestaetigt",
+                        "lieferzeit_default_tage": 1,
+                        "decision": self.decision_by_offer.get(9001),
+                    }],
+                }],
+            }
         job = self.get_job(job_id)
         if not job:
             return None
@@ -148,14 +193,39 @@ def test_job_page_shows_progressive_candidates_badge_and_decision_buttons():
 def test_dashboard_uses_sidebar_and_places_scenarios_before_collapsible_offers():
     client, _ = client_and_repo()
 
-    page = client.get("/jobs/7")
+    page = client.get("/jobs/7").text
 
-    assert '<aside class="sidebar"' in page.text
-    for label in ("Jobs", "Historie", "Shops", "Bestand"):
-        assert label in page.text
-    assert page.text.index('id="scenarios"') < page.text.index('class="bom"')
-    assert 'class="offers-drawer"' in page.text
-    assert 'id="tempo"' in page.text
+    assert '<aside class="sidebar">' in page
+    assert all(label in page for label in ("Jobs", "Historie", "Shops", "Bestand"))
+    assert page.index('id="scenarios"') < page.index('class="bom"')
+    assert '<details class="offers-drawer" open>' in page
+    assert 'id="tempo"' in page
+
+
+def test_e2e_jobs_are_marker_guarded_disposable_and_not_real_job_ids():
+    client, repository = client_and_repo()
+    marker = {"X-E2E-Marker": "beschaffung-e2e-disposable"}
+
+    assert client.post("/api/e2e/jobs").status_code == 404
+    created = client.post("/api/e2e/jobs", headers=marker)
+    assert created.status_code == 201
+    job_id = created.json()["job_id"]
+    assert job_id >= 9000
+    assert job_id in repository.test_jobs
+    assert "[E2E-TEST]" in client.get(f"/jobs/{job_id}").text
+
+    deleted = client.delete(f"/api/e2e/jobs/{job_id}", headers=marker)
+    assert deleted.status_code == 200
+    assert job_id not in repository.test_jobs
+    assert client.delete("/api/e2e/jobs/7", headers=marker).status_code == 422
+
+
+def test_browser_e2e_creates_and_cleans_marked_job_instead_of_using_job_one():
+    script = Path("tests/e2e/decision_click.mjs").read_text()
+
+    assert "/jobs/1" not in script
+    assert "/api/e2e/jobs" in script
+    assert "method: 'DELETE'" in script
 
 
 def test_decision_has_form_fallback_and_persists_after_redirect_reload():

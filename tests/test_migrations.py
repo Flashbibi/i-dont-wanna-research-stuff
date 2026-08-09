@@ -121,3 +121,11 @@ def test_decision_override_migration_reuses_rows_additively():
     assert "WHEN status = 'verworfen' THEN 'exclude'" in sql
     assert "DELETE " not in sql.upper()
     assert "DROP " not in sql.upper()
+
+
+def test_e2e_job_marker_migration_is_additive():
+    sql = Path("migrations/006_e2e_test_jobs.sql").read_text()
+
+    assert "ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE" in sql
+    assert "DELETE " not in sql.upper()
+    assert "DROP " not in sql.upper()

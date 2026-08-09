@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -146,6 +146,29 @@ def create_app(
             raise HTTPException(422, "Die Liste braucht mindestens eine Position")
         job_id = active_repository.create_job(request.parts, lines)
         return {"job_id": job_id, "status": "offen", "line_count": len(lines)}
+
+    def require_e2e_marker(marker: str | None) -> None:
+        if marker != "beschaffung-e2e-disposable":
+            raise HTTPException(404, "Nicht gefunden")
+
+    @application.post("/api/e2e/jobs", status_code=201)
+    def create_e2e_job(x_e2e_marker: str | None = Header(default=None)) -> dict[str, Any]:
+        require_e2e_marker(x_e2e_marker)
+        try:
+            return active_repository.create_e2e_test_job()
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @application.delete("/api/e2e/jobs/{job_id}")
+    def delete_e2e_job(
+        job_id: int,
+        x_e2e_marker: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        require_e2e_marker(x_e2e_marker)
+        try:
+            return active_repository.delete_e2e_test_job(job_id)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
 
     @application.get("/api/jobs/{job_id}")
     def get_job(job_id: int) -> dict[str, Any]:
