@@ -217,21 +217,57 @@ class PostgresRepository:
 
     def mark_line(self, line_id: int, status: str, kommentar: str | None) -> dict[str, Any]:
         with self._connect() as connection:
-            row = connection.execute(
-                """
-                UPDATE bom_line SET status = %s, kommentar = %s
-                WHERE id = %s RETURNING id, status, kommentar
-                """,
-                (status, kommentar, line_id),
-            ).fetchone()
-            return dict(row)
+            with connection.transaction():
+                if status == "bestand":
+                    line = connection.execute(
+                        "SELECT suchtext, menge FROM bom_line WHERE id = %s FOR UPDATE",
+                        (line_id,),
+                    ).fetchone()
+                    stock_rows = connection.execute(
+                        """
+                        SELECT id, menge FROM stock
+                        WHERE lower(bezeichnung) = lower(%s) AND menge > 0
+                        ORDER BY aktualisiert_am, id FOR UPDATE
+                        """,
+                        (line["suchtext"],),
+                    ).fetchall()
+                    if sum(row["menge"] for row in stock_rows) < line["menge"]:
+                        raise ValueError("Bestand deckt die benoetigte Menge nicht")
+                    remaining = line["menge"]
+                    for stock_row in stock_rows:
+                        taken = min(remaining, stock_row["menge"])
+                        connection.execute(
+                            "UPDATE stock SET menge = menge - %s, aktualisiert_am = NOW() WHERE id = %s",
+                            (taken, stock_row["id"]),
+                        )
+                        remaining -= taken
+                        if remaining == 0:
+                            break
+                row = connection.execute(
+                    """
+                    UPDATE bom_line SET status = %s, kommentar = %s
+                    WHERE id = %s RETURNING id, status, kommentar
+                    """,
+                    (status, kommentar, line_id),
+                ).fetchone()
+                return dict(row)
 
     def optimization_input(self, job_id: int) -> dict[str, Any]:
         with self._connect() as connection:
+            required_rows = connection.execute(
+                """
+                SELECT id FROM bom_line
+                WHERE job_id = %s AND status NOT IN ('bestand', 'nichts_gefunden', 'erledigt')
+                ORDER BY position
+                """,
+                (job_id,),
+            ).fetchall()
+            required_line_ids = [row["id"] for row in required_rows]
             offers = connection.execute(
                 """
                 SELECT o.id, o.line_id, o.shop_id, o.preis_chf,
-                       o.lieferzeit_tage, bl.menge
+                       o.lieferzeit_tage, o.produktname, o.produkt_url,
+                       bl.menge, bl.suchtext
                 FROM offer o
                 JOIN bom_line bl ON bl.id = o.line_id
                 JOIN decision d ON d.offer_id = o.id AND d.status = 'bestaetigt'
@@ -243,10 +279,10 @@ class PostgresRepository:
             ).fetchall()
             shop_ids = sorted({row["shop_id"] for row in offers})
             if not shop_ids:
-                return {"offers": [], "shops": []}
+                return {"offers": [], "shops": [], "required_line_ids": required_line_ids}
             shops = connection.execute(
                 """
-                SELECT id, name, versand_chf, gratis_ab_chf,
+                SELECT id, name, url, versand_chf, gratis_ab_chf,
                        mindestbestellwert_chf, lieferzeit_default_tage
                 FROM shop WHERE id = ANY(%s)
                 """,
@@ -255,6 +291,7 @@ class PostgresRepository:
             return {
                 "offers": [dict(row) for row in offers],
                 "shops": [dict(row) for row in shops],
+                "required_line_ids": required_line_ids,
             }
 
     def create_purchase(
@@ -312,3 +349,168 @@ class PostgresRepository:
                     (job_id,),
                 )
                 return dict(purchase)
+
+    def list_jobs(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT j.id, j.status, j.quelltext, j.erstellt_am,
+                       COUNT(bl.id)::int AS line_count
+                FROM job j LEFT JOIN bom_line bl ON bl.job_id = j.id
+                GROUP BY j.id ORDER BY j.erstellt_am DESC LIMIT %s
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_job_detail(self, job_id: int) -> dict[str, Any] | None:
+        job = self.get_job(job_id)
+        if job is None:
+            return None
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT o.id, o.line_id, o.produktname, o.produkt_url,
+                       o.preis_chf, o.lieferzeit_tage, o.lager, o.gesehen_am,
+                       s.id AS shop_id, s.name AS shop_name, s.status AS shop_status,
+                       d.status AS decision
+                FROM offer o JOIN shop s ON s.id = o.shop_id
+                LEFT JOIN decision d ON d.offer_id = o.id
+                JOIN bom_line bl ON bl.id = o.line_id
+                WHERE bl.job_id = %s ORDER BY o.gesehen_am DESC
+                """,
+                (job_id,),
+            ).fetchall()
+        by_line: dict[int, list[dict[str, Any]]] = {}
+        for row in rows:
+            by_line.setdefault(row["line_id"], []).append(dict(row))
+        for line in job["lines"]:
+            line["offers"] = by_line.get(line["id"], [])
+        return job
+
+    def record_decision(self, offer_id: int, status: str) -> dict[str, Any]:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                INSERT INTO decision(line_id, offer_id, status)
+                SELECT line_id, id, %s FROM offer WHERE id = %s
+                ON CONFLICT (offer_id) DO UPDATE
+                SET status = EXCLUDED.status, entschieden_am = NOW()
+                RETURNING offer_id, status
+                """,
+                (status, offer_id),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Angebot {offer_id} ist unbekannt")
+            return dict(row)
+
+    def list_purchases(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            purchases = connection.execute(
+                """
+                SELECT id, job_id, total_chf, bestellt_am,
+                       zugesagt_liefertage, angekommen_am
+                FROM purchase ORDER BY bestellt_am DESC
+                """
+            ).fetchall()
+            result = []
+            for purchase in purchases:
+                item_rows = connection.execute(
+                    """
+                    SELECT pi.menge, pi.einzelpreis_chf, o.produktname,
+                           o.produkt_url, s.name AS shop_name
+                    FROM purchase_item pi
+                    JOIN offer o ON o.id = pi.offer_id
+                    JOIN shop s ON s.id = o.shop_id
+                    WHERE pi.purchase_id = %s ORDER BY pi.id
+                    """,
+                    (purchase["id"],),
+                ).fetchall()
+                item = dict(purchase)
+                item["items"] = [dict(row) for row in item_rows]
+                result.append(item)
+            return result
+
+    def repeat_purchase(self, purchase_id: int) -> int:
+        with self._connect() as connection:
+            source = connection.execute(
+                """
+                SELECT j.quelltext FROM purchase p
+                JOIN job j ON j.id = p.job_id WHERE p.id = %s
+                """,
+                (purchase_id,),
+            ).fetchone()
+        if source is None:
+            raise ValueError(f"Kauf {purchase_id} ist unbekannt")
+        from .jobs import parse_bom
+
+        new_job_id = self.create_job(source["quelltext"], parse_bom(source["quelltext"]))
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE job SET wiederholt_von_purchase_id = %s WHERE id = %s",
+                (purchase_id, new_job_id),
+            )
+        return new_job_id
+
+    def mark_purchase_arrived(self, purchase_id: int) -> dict[str, Any]:
+        with self._connect() as connection:
+            with connection.transaction():
+                purchase = connection.execute(
+                    "SELECT id, angekommen_am FROM purchase WHERE id = %s FOR UPDATE",
+                    (purchase_id,),
+                ).fetchone()
+                if purchase is None:
+                    raise ValueError(f"Kauf {purchase_id} ist unbekannt")
+                if purchase["angekommen_am"] is None:
+                    purchase = connection.execute(
+                        "UPDATE purchase SET angekommen_am = NOW() WHERE id = %s RETURNING *",
+                        (purchase_id,),
+                    ).fetchone()
+                    items = connection.execute(
+                        """
+                        SELECT pi.id, pi.menge, bl.suchtext
+                        FROM purchase_item pi
+                        JOIN bom_line bl ON bl.id = pi.line_id
+                        WHERE pi.purchase_id = %s
+                        """,
+                        (purchase_id,),
+                    ).fetchall()
+                    for item in items:
+                        connection.execute(
+                            """
+                            INSERT INTO stock(bezeichnung, menge, purchase_item_id)
+                            VALUES (%s, %s, %s)
+                            """,
+                            (item["suchtext"], item["menge"], item["id"]),
+                        )
+                    connection.execute(
+                        """
+                        UPDATE job SET status = 'abgeschlossen', aktualisiert_am = NOW()
+                        WHERE id = (SELECT job_id FROM purchase WHERE id = %s)
+                        """,
+                        (purchase_id,),
+                    )
+                return dict(purchase)
+
+    def list_shops(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, name, url, domain, land, versand_chf, gratis_ab_chf,
+                       mindestbestellwert_chf, lieferzeit_default_tage, status
+                FROM shop ORDER BY name
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def update_shop_status(self, shop_id: int, status: str) -> dict[str, Any]:
+        if status not in {"bestaetigt", "gesperrt"}:
+            raise ValueError("Shop-Status muss bestaetigt oder gesperrt sein")
+        with self._connect() as connection:
+            row = connection.execute(
+                "UPDATE shop SET status = %s WHERE id = %s RETURNING id, status",
+                (status, shop_id),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Shop {shop_id} ist unbekannt")
+            return dict(row)

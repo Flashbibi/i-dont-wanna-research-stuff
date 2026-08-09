@@ -85,3 +85,10 @@ def test_core_schema_is_additive_and_contains_long_term_fields():
     ):
         assert field in sql
     assert "DROP " not in sql.upper()
+
+
+def test_repeat_purchase_migration_is_additive():
+    sql = Path("migrations/002_repeat_purchase.sql").read_text()
+
+    assert "ADD COLUMN IF NOT EXISTS wiederholt_von_purchase_id" in sql
+    assert "DROP " not in sql.upper()

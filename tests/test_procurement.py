@@ -132,6 +132,21 @@ def test_plan_order_calls_pure_optimizer_and_serializes_variant():
     assert variants[0]["score"] == "43.000"
 
 
+def test_plan_order_returns_no_partial_variant_when_a_required_line_lacks_confirmation():
+    procurement = service()
+    original = procurement.repository.optimization_input
+
+    def incomplete(job_id):
+        data = original(job_id)
+        data["required_line_ids"] = [10, 11]
+        return data
+
+    procurement.repository.optimization_input = incomplete
+
+    assert procurement.plan_order(5, 0.5) == []
+
+
+
 def test_record_purchase_requires_valid_timestamp_shop_promises_and_variant():
     procurement = service()
     variant = procurement.plan_order(5, 0)[0]

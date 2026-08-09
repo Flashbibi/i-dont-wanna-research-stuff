@@ -3,21 +3,25 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from typing import Any, Protocol
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from .database import PostgresRepository
-from .jobs import BomInputLine, parse_bom
+from .jobs import parse_bom
 from .mcp_server import build_mcp
 from .migrations import current_schema_version
-from .procurement import ProcurementService
+from .procurement import ProcurementService, ValidationError
 
 
-class Repository(Protocol):
-    def create_job(self, source_text: str, lines: list[BomInputLine]) -> int: ...
-    def get_job(self, job_id: int) -> dict[str, Any] | None: ...
+ROOT = Path(__file__).resolve().parent.parent
+TEMPLATES = Jinja2Templates(directory=ROOT / "templates")
 
 
 class _LazyRepository:
@@ -29,6 +33,15 @@ class JobRequest(BaseModel):
     parts: str
 
 
+class DecisionRequest(BaseModel):
+    status: Literal["bestaetigt", "verworfen"]
+
+
+class PurchaseRequest(BaseModel):
+    variante: dict[str, Any]
+    zugesagt_liefertage_pro_shop: dict[str, int]
+
+
 def _database_url() -> str:
     value = os.environ.get("DATABASE_URL")
     if not value:
@@ -37,7 +50,7 @@ def _database_url() -> str:
 
 
 def create_app(
-    repository: Repository | None = None,
+    repository: Any | None = None,
     schema_version_provider: Callable[[], int] | None = None,
 ) -> FastAPI:
     active_repository = repository or _LazyRepository()
@@ -53,6 +66,7 @@ def create_app(
     application = FastAPI(title="Beschaffung", version="0.1.0", lifespan=lifespan)
     application.state.procurement = procurement
     application.state.mcp = mcp
+    application.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
     def get_schema_version() -> int:
         if schema_version_provider is not None:
@@ -62,6 +76,62 @@ def create_app(
     @application.get("/health")
     def health() -> dict[str, int | str]:
         return {"status": "ok", "schema_version": get_schema_version()}
+
+    @application.get("/", response_class=HTMLResponse)
+    def home(request: Request):
+        return TEMPLATES.TemplateResponse(
+            request, "home.html", {"jobs": active_repository.list_jobs()}
+        )
+
+    @application.post("/jobs")
+    def create_job_form(parts: str = Form(...)):
+        lines = parse_bom(parts)
+        if not lines:
+            raise HTTPException(422, "Die Liste braucht mindestens eine Position")
+        job_id = active_repository.create_job(parts, lines)
+        return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+
+    @application.get("/jobs/{job_id}", response_class=HTMLResponse)
+    def job_page(request: Request, job_id: int):
+        job = active_repository.get_job_detail(job_id)
+        if job is None:
+            raise HTTPException(404, "Job nicht gefunden")
+        return TEMPLATES.TemplateResponse(request, "job.html", {"job": job})
+
+    @application.get("/jobs/{job_id}/variants", response_class=HTMLResponse)
+    def variants_page(request: Request, job_id: int):
+        if active_repository.get_job(job_id) is None:
+            raise HTTPException(404, "Job nicht gefunden")
+        return TEMPLATES.TemplateResponse(
+            request, "variants.html", {"job_id": job_id}
+        )
+
+    @application.get("/history", response_class=HTMLResponse)
+    def history(request: Request):
+        return TEMPLATES.TemplateResponse(
+            request, "history.html", {"purchases": active_repository.list_purchases()}
+        )
+
+    @application.post("/purchases/{purchase_id}/repeat")
+    def repeat_purchase(purchase_id: int):
+        job_id = active_repository.repeat_purchase(purchase_id)
+        return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+
+    @application.post("/purchases/{purchase_id}/arrived")
+    def purchase_arrived(purchase_id: int):
+        active_repository.mark_purchase_arrived(purchase_id)
+        return RedirectResponse("/history", status_code=303)
+
+    @application.get("/shops", response_class=HTMLResponse)
+    def shops(request: Request):
+        return TEMPLATES.TemplateResponse(
+            request, "shops.html", {"shops": active_repository.list_shops()}
+        )
+
+    @application.post("/shops/{shop_id}/status")
+    def update_shop(shop_id: int, status: str = Form(...)):
+        active_repository.update_shop_status(shop_id, status)
+        return RedirectResponse("/shops", status_code=303)
 
     @application.post("/api/jobs", status_code=201)
     def create_job(request: JobRequest) -> dict[str, int | str]:
@@ -77,6 +147,32 @@ def create_app(
         if job is None:
             raise HTTPException(404, "Job nicht gefunden")
         return job
+
+    @application.post("/api/offers/{offer_id}/decision")
+    def decide_offer(offer_id: int, request: DecisionRequest) -> dict[str, Any]:
+        try:
+            return active_repository.record_decision(offer_id, request.status)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @application.get("/api/jobs/{job_id}/variants")
+    def variants(job_id: int, tempo: float = 0.5) -> list[dict[str, Any]]:
+        try:
+            return procurement.plan_order(job_id, tempo)
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @application.post("/api/jobs/{job_id}/purchase")
+    def purchase(job_id: int, request: PurchaseRequest) -> dict[str, Any]:
+        try:
+            return procurement.record_purchase(
+                job_id,
+                request.variante,
+                datetime.now(timezone.utc).isoformat(),
+                request.zugesagt_liefertage_pro_shop,
+            )
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
 
     application.mount("/", mcp_http_app)
     return application

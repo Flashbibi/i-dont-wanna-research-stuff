@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Shops{% endblock %}
+{% block content %}
+<div class="section-head"><div><p class="eyebrow">Profile</p><h1>Shops</h1></div></div>
+<div class="list">
+{% for shop in shops %}
+<section class="panel shop-row">
+  <div><h2><a href="{{ shop.url }}" target="_blank" rel="noopener">{{ shop.name }}</a></h2><p class="muted">Versand CHF {{ shop.versand_chf }} · Standard {{ shop.lieferzeit_default_tage }} Tage</p></div>
+  <span class="badge {% if shop.status == 'gesperrt' %}danger{% endif %}">{{ shop.status }}</span>
+  <div class="actions"><form method="post" action="/shops/{{ shop.id }}/status"><input type="hidden" name="status" value="bestaetigt"><button class="primary">Bestätigen</button></form><form method="post" action="/shops/{{ shop.id }}/status"><input type="hidden" name="status" value="gesperrt"><button>Sperren</button></form></div>
+</section>
+{% else %}<p class="muted">Noch keine Shops.</p>{% endfor %}
+</div>
+{% endblock %}

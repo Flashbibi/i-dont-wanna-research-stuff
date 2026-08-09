@@ -154,7 +154,44 @@ class ProcurementService:
             raise ValidationError("tempo muss zwischen 0 und 1 liegen")
         data = self.repository.optimization_input(job_id)
         offers, shops = self._optimizer_objects(data)
-        return [self._serialize_variant(variant) for variant in optimize_orders(offers, shops, tempo)]
+        required_line_ids = {
+            int(value) for value in data.get("required_line_ids", [offer.line_id for offer in offers])
+        }
+        if required_line_ids - {offer.line_id for offer in offers}:
+            return []
+        variants = [
+            self._serialize_variant(variant)
+            for variant in optimize_orders(offers, shops, tempo)
+        ]
+        offer_rows = {int(row["id"]): row for row in data.get("offers", [])}
+        shop_rows = {int(row["id"]): row for row in data.get("shops", [])}
+        for variant in variants:
+            variant["shops"] = [
+                {
+                    "id": shop_id,
+                    "name": shop_rows[shop_id]["name"],
+                    "url": shop_rows[shop_id].get("url"),
+                    "subtotal_chf": variant["subtotals"][str(shop_id)],
+                    "versand_chf": variant["shipping"][str(shop_id)],
+                }
+                for shop_id in variant["shop_ids"]
+            ]
+            variant["lines"] = []
+            for line_id_text, offer_id in variant["assignments"].items():
+                row = offer_rows[offer_id]
+                variant["lines"].append(
+                    {
+                        "line_id": int(line_id_text),
+                        "offer_id": offer_id,
+                        "suchtext": row.get("suchtext"),
+                        "menge": int(row["menge"]),
+                        "shop_id": int(row["shop_id"]),
+                        "produktname": row.get("produktname"),
+                        "produkt_url": row.get("produkt_url"),
+                        "einzelpreis_chf": str(row["preis_chf"]),
+                    }
+                )
+        return variants
 
     def record_purchase(
         self,
@@ -171,6 +208,11 @@ class ProcurementService:
             raise ValidationError("bestellt_am braucht eine Zeitzone")
         data = self.repository.optimization_input(job_id)
         offers, shops = self._optimizer_objects(data)
+        required_line_ids = {
+            int(value) for value in data.get("required_line_ids", [offer.line_id for offer in offers])
+        }
+        if required_line_ids - {offer.line_id for offer in offers}:
+            raise ValidationError("Variante ist nicht komplett; mindestens eine Zeile ist unbestaetigt")
         valid_variants = [
             self._serialize_variant(item)
             for item in optimize_orders(offers, shops, tempo=0, limit=max(1, 1000))

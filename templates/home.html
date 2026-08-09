@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Neuer Auftrag · Beschaffung{% endblock %}
+{% block content %}
+<section class="panel hero">
+  <p class="eyebrow">Neuer Auftrag</p>
+  <h1>Was brauchen wir?</h1>
+  <form method="post" action="/jobs">
+    <label for="parts">Eine Position pro Zeile, Menge optional</label>
+    <textarea id="parts" name="parts" rows="9" required placeholder="2x MG996R Servo&#10;M3 Schrauben&#10;Jumper-Kabel"></textarea>
+    <button class="primary" type="submit">Auftrag anlegen</button>
+  </form>
+</section>
+<section>
+  <div class="section-head"><h2>Letzte Jobs</h2><span>{{ jobs|length }}</span></div>
+  <div class="list">
+  {% for job in jobs %}
+    <a class="row" href="/jobs/{{ job.id }}"><strong>Job #{{ job.id }}</strong><span>{{ job.line_count }} Positionen</span><span class="badge">{{ job.status }}</span></a>
+  {% else %}<p class="muted">Noch keine Aufträge.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}

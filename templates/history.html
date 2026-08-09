@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Kaufhistorie{% endblock %}
+{% block content %}
+<div class="section-head"><div><p class="eyebrow">Gedächtnis</p><h1>Kaufhistorie</h1></div></div>
+<div class="list purchases">
+{% for purchase in purchases %}
+<section class="panel">
+  <div class="section-head"><div><strong>Bestellung #{{ purchase.id }}</strong><p class="muted">Job #{{ purchase.job_id }} · {{ purchase.bestellt_am }}</p></div><div class="price">CHF {{ purchase.total_chf }}</div></div>
+  <ul>{% for item in purchase["items"] %}<li>{{ item.menge }}× <a href="{{ item.produkt_url }}" target="_blank" rel="noopener">{{ item.produktname }}</a> · {{ item.shop_name }}</li>{% endfor %}</ul>
+  <div class="actions">
+    <form method="post" action="/purchases/{{ purchase.id }}/repeat"><button>Nochmal bestellen</button></form>
+    {% if not purchase.angekommen_am %}<form method="post" action="/purchases/{{ purchase.id }}/arrived"><button class="primary">Angekommen</button></form>{% else %}<span class="badge success">angekommen</span>{% endif %}
+  </div>
+</section>
+{% else %}<p class="muted">Noch keine Bestellung erfasst.</p>{% endfor %}
+</div>
+{% endblock %}

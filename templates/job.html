@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Job #{{ job.id }} · Beschaffung{% endblock %}
+{% block content %}
+<div class="section-head"><div><p class="eyebrow">{{ job.status }}</p><h1>Job #{{ job.id }}</h1></div><a class="button primary" href="/jobs/{{ job.id }}/variants">Varianten rechnen</a></div>
+<p class="muted">Kandidaten werden ergänzt, während der Auftrag bearbeitet wird. Nach rechts = bestätigen, nach links = verwerfen.</p>
+<div class="bom">
+{% for line in job.lines %}
+<section class="panel line">
+  <div class="line-head"><div><span class="quantity">{{ line.menge }}×</span><h2>{{ line.suchtext }}</h2></div><span class="badge">{{ line.status }}</span></div>
+  {% if line.kommentar %}<p>{{ line.kommentar }}</p>{% endif %}
+  <div class="offers">
+  {% for offer in line.offers %}
+    <article class="offer swipe-card decision-{{ offer.decision or 'offen' }}" data-offer="{{ offer.id }}">
+      <div><span class="shop">{{ offer.shop_name }}</span>{% if offer.shop_status == 'ungeprueft' %}<span class="badge warning">ungeprueft</span>{% endif %}</div>
+      <h3><a href="{{ offer.produkt_url }}" target="_blank" rel="noopener">{{ offer.produktname }}</a></h3>
+      <div class="price">CHF {{ offer.preis_chf }}</div>
+      <p class="muted">{% if offer.lieferzeit_tage %}{{ offer.lieferzeit_tage }} Tage · {% endif %}{{ offer.lager or 'Lager unbekannt' }}</p>
+      <div class="actions"><button data-decision="verworfen">Verwerfen</button><button class="primary" data-decision="bestaetigt">Bestaetigen</button></div>
+    </article>
+  {% else %}<p class="muted waiting">Noch keine Kandidaten – diese Seite aktualisiert sich automatisch.</p>{% endfor %}
+  </div>
+</section>
+{% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/job.js"></script>{% endblock %}
