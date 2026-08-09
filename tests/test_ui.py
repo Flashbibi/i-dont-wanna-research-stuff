@@ -6,6 +6,7 @@ from app.web import create_app
 class UIRepository:
     def __init__(self):
         self.decisions = []
+        self.decision_by_offer = {}
         self.shop_status = None
         self.arrived = []
 
@@ -42,7 +43,7 @@ class UIRepository:
                 "shop_name": "Servo Shop",
                 "shop_status": "ungeprueft",
                 "lieferzeit_default_tage": 3,
-                "decision": None,
+                "decision": self.decision_by_offer.get(31),
             },
             {
                 "id": 32,
@@ -63,6 +64,7 @@ class UIRepository:
 
     def record_decision(self, offer_id, status):
         self.decisions.append((offer_id, status))
+        self.decision_by_offer[offer_id] = status
         return {"offer_id": offer_id, "status": status}
 
     def optimization_input(self, job_id):
@@ -123,9 +125,30 @@ def test_job_page_shows_progressive_candidates_badge_and_decision_buttons():
     assert page.status_code == 200
     assert "MG996R Servo" in page.text
     assert "ungeprueft" in page.text
-    assert "Bestaetigen" in page.text
+    assert "Bestätigen" in page.text
     assert decision.status_code == 200
     assert repository.decisions == [(31, "bestaetigt")]
+
+
+def test_decision_has_form_fallback_and_persists_after_redirect_reload():
+    client, repository = client_and_repo()
+
+    initial = client.get("/jobs/7")
+    submitted = client.post(
+        "/offers/31/decision",
+        data={"status": "bestaetigt", "job_id": "7"},
+        follow_redirects=False,
+    )
+    reloaded = client.get("/jobs/7")
+
+    assert 'action="/offers/31/decision"' in initial.text
+    assert 'role="status"' in initial.text
+    assert submitted.status_code == 303
+    assert submitted.headers["location"] == "/jobs/7#offer-31"
+    assert repository.decisions == [(31, "bestaetigt")]
+    assert 'id="offer-31"' in reloaded.text
+    assert "decision-bestaetigt" in reloaded.text
+    assert "Bestätigt" in reloaded.text
 
 
 def test_job_page_shows_literal_delivery_and_lager_text_with_labeled_fallback():

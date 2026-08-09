@@ -148,6 +148,16 @@ def create_app(
             raise HTTPException(404, "Job nicht gefunden")
         return job
 
+    @application.post("/offers/{offer_id}/decision")
+    def decide_offer_form(offer_id: int, status: str = Form(...), job_id: int = Form(...)):
+        if status not in {"bestaetigt", "verworfen"}:
+            raise HTTPException(422, "Ungültige Entscheidung")
+        try:
+            active_repository.record_decision(offer_id, status)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        return RedirectResponse(f"/jobs/{job_id}#offer-{offer_id}", status_code=303)
+
     @application.post("/api/offers/{offer_id}/decision")
     def decide_offer(offer_id: int, request: DecisionRequest) -> dict[str, Any]:
         try:
