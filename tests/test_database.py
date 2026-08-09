@@ -1,4 +1,4 @@
-from app.database import PostgresRepository
+from app.database import PostgresRepository, decode_database_value
 
 
 class Result:
@@ -38,3 +38,8 @@ def test_check_line_explicitly_casts_case_insensitive_query_parameters_to_text()
     assert checked["stock"] == []
     assert checked["previous_purchases"] == []
     assert checked["cached_offers"] == []
+
+
+def test_database_value_decoder_normalizes_sql_ascii_text_bytes():
+    assert decode_database_value(b"bastelgarage.ch") == "bastelgarage.ch"
+    assert decode_database_value("ungeprueft") == "ungeprueft"

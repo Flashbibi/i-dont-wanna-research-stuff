@@ -12,12 +12,34 @@ from psycopg.types.json import Jsonb
 from .jobs import BomInputLine
 
 
+def decode_database_value(value):
+    return value.decode("utf-8") if isinstance(value, bytes) else value
+
+
+def decoded_dict_row(cursor):
+    """Return dict rows and normalize SQL_ASCII text values to Unicode.
+
+    PostgreSQL databases using SQL_ASCII expose textual columns as bytes in
+    psycopg. The application schema has no binary columns, so decoding here
+    keeps validation and JSON serialization consistent at the DB boundary.
+    """
+    make_row = dict_row(cursor)
+
+    def decode_row(values):
+        return {
+            key: decode_database_value(value)
+            for key, value in make_row(values).items()
+        }
+
+    return decode_row
+
+
 class PostgresRepository:
     def __init__(self, database_url: str):
         self.database_url = database_url
 
     def _connect(self):
-        return psycopg.connect(self.database_url, row_factory=dict_row)
+        return psycopg.connect(self.database_url, row_factory=decoded_dict_row)
 
     def create_job(self, source_text: str, lines: list[BomInputLine]) -> int:
         with self._connect() as connection:
