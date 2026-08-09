@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from typing import Any, Protocol
 
 from fastapi import FastAPI, HTTPException
@@ -9,12 +10,19 @@ from pydantic import BaseModel
 
 from .database import PostgresRepository
 from .jobs import BomInputLine, parse_bom
+from .mcp_server import build_mcp
 from .migrations import current_schema_version
+from .procurement import ProcurementService
 
 
 class Repository(Protocol):
     def create_job(self, source_text: str, lines: list[BomInputLine]) -> int: ...
     def get_job(self, job_id: int) -> dict[str, Any] | None: ...
+
+
+class _LazyRepository:
+    def __getattr__(self, name: str):
+        return getattr(PostgresRepository(_database_url()), name)
 
 
 class JobRequest(BaseModel):
@@ -32,10 +40,19 @@ def create_app(
     repository: Repository | None = None,
     schema_version_provider: Callable[[], int] | None = None,
 ) -> FastAPI:
-    application = FastAPI(title="Beschaffung", version="0.1.0")
+    active_repository = repository or _LazyRepository()
+    procurement = ProcurementService(active_repository)
+    mcp = build_mcp(procurement)
+    mcp_http_app = mcp.streamable_http_app()
 
-    def get_repository() -> Repository:
-        return repository or PostgresRepository(_database_url())
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        async with mcp.session_manager.run():
+            yield
+
+    application = FastAPI(title="Beschaffung", version="0.1.0", lifespan=lifespan)
+    application.state.procurement = procurement
+    application.state.mcp = mcp
 
     def get_schema_version() -> int:
         if schema_version_provider is not None:
@@ -51,16 +68,17 @@ def create_app(
         lines = parse_bom(request.parts)
         if not lines:
             raise HTTPException(422, "Die Liste braucht mindestens eine Position")
-        job_id = get_repository().create_job(request.parts, lines)
+        job_id = active_repository.create_job(request.parts, lines)
         return {"job_id": job_id, "status": "offen", "line_count": len(lines)}
 
     @application.get("/api/jobs/{job_id}")
     def get_job(job_id: int) -> dict[str, Any]:
-        job = get_repository().get_job(job_id)
+        job = active_repository.get_job(job_id)
         if job is None:
             raise HTTPException(404, "Job nicht gefunden")
         return job
 
+    application.mount("/", mcp_http_app)
     return application
 
 
