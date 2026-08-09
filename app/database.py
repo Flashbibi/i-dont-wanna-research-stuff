@@ -162,7 +162,8 @@ class PostgresRepository:
             cached = connection.execute(
                 """
                 SELECT o.id, o.produktname, o.produkt_url, o.preis_chf,
-                       o.lieferzeit_tage, o.lager, o.gesehen_am,
+                       o.lieferzeit_tage, o.lieferzeit_text, o.lager_text,
+                       o.lager, o.gesehen_am,
                        s.id AS shop_id, s.name AS shop_name, s.status AS shop_status
                 FROM offer o
                 JOIN bom_line cached_line ON cached_line.id = o.line_id
@@ -214,10 +215,21 @@ class PostgresRepository:
                         """
                         INSERT INTO offer(
                             line_id, shop_id, produktname, produkt_url, quelle_url,
-                            preis_chf, lieferzeit_tage, lager
+                            preis_chf, lieferzeit_tage, lieferzeit_text, lager_text, lager
                         ) VALUES (%(line_id)s, %(shop_id)s, %(produktname)s,
                                   %(produkt_url)s, %(quelle_url)s, %(preis_chf)s,
-                                  %(lieferzeit_tage)s, %(lager)s)
+                                  %(lieferzeit_tage)s, %(lieferzeit_text)s,
+                                  %(lager_text)s, %(lager)s)
+                        ON CONFLICT (line_id, produkt_url) DO UPDATE SET
+                            shop_id = EXCLUDED.shop_id,
+                            produktname = EXCLUDED.produktname,
+                            quelle_url = EXCLUDED.quelle_url,
+                            preis_chf = EXCLUDED.preis_chf,
+                            lieferzeit_tage = EXCLUDED.lieferzeit_tage,
+                            lieferzeit_text = EXCLUDED.lieferzeit_text,
+                            lager_text = EXCLUDED.lager_text,
+                            lager = EXCLUDED.lager,
+                            gesehen_am = NOW()
                         RETURNING *
                         """,
                         values,
@@ -393,9 +405,10 @@ class PostgresRepository:
             rows = connection.execute(
                 """
                 SELECT o.id, o.line_id, o.produktname, o.produkt_url,
-                       o.preis_chf, o.lieferzeit_tage, o.lager, o.gesehen_am,
+                       o.preis_chf, o.lieferzeit_tage, o.lieferzeit_text,
+                       o.lager_text, o.lager, o.gesehen_am,
                        s.id AS shop_id, s.name AS shop_name, s.status AS shop_status,
-                       d.status AS decision
+                       s.lieferzeit_default_tage, d.status AS decision
                 FROM offer o JOIN shop s ON s.id = o.shop_id
                 LEFT JOIN decision d ON d.offer_id = o.id
                 JOIN bom_line bl ON bl.id = o.line_id

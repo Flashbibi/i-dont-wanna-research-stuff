@@ -92,3 +92,11 @@ def test_repeat_purchase_migration_is_additive():
 
     assert "ADD COLUMN IF NOT EXISTS wiederholt_von_purchase_id" in sql
     assert "DROP " not in sql.upper()
+
+
+def test_offer_source_text_migration_is_additive():
+    sql = Path("migrations/003_offer_source_text.sql").read_text()
+
+    assert "ADD COLUMN IF NOT EXISTS lieferzeit_text TEXT" in sql
+    assert "ADD COLUMN IF NOT EXISTS lager_text TEXT" in sql
+    assert "DROP " not in sql.upper()

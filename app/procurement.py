@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+import re
 from typing import Any, Protocol
 from urllib.parse import urlparse
 
@@ -48,6 +49,22 @@ def _hostname(url: str, field: str) -> str:
         raise ValidationError(f"{field} muss eine gueltige HTTP(S)-URL ohne Zugangsdaten sein")
     host = parsed.hostname.lower().rstrip(".")
     return host.removeprefix("www.")
+
+
+def parse_delivery_upper_days(text: str | None) -> int | None:
+    """Parse an explicit day count using the conservative range upper bound."""
+    if not text or not text.strip():
+        return None
+    day_word = r"(?:Arbeits|Werk)?tag(?:e|en)?"
+    range_match = re.search(
+        rf"\b(\d+)\s*(?:-|–|—|bis)\s*(\d+)\s*{day_word}\b",
+        text,
+        re.IGNORECASE,
+    )
+    if range_match:
+        return max(int(range_match.group(1)), int(range_match.group(2)))
+    single_match = re.search(rf"\b(\d+)\s*{day_word}\b", text, re.IGNORECASE)
+    return int(single_match.group(1)) if single_match else None
 
 
 class ProcurementService:
@@ -105,8 +122,8 @@ class ProcurementService:
         produktname: str,
         produkt_url: str,
         preis_chf: Any,
-        lieferzeit_tage: int | None = None,
-        lager: str | None = None,
+        lieferzeit_text: str | None = None,
+        lager_text: str | None = None,
     ) -> dict[str, Any]:
         if self.repository.get_line(line_id) is None:
             raise ValidationError(f"Zeile {line_id} ist unbekannt")
@@ -124,10 +141,9 @@ class ProcurementService:
             raise ValidationError(
                 f"Produkt-URL passt nicht zur Shop-Domain {shop_domain}"
             )
-        if lieferzeit_tage is not None and (
-            not isinstance(lieferzeit_tage, int) or lieferzeit_tage <= 0
-        ):
-            raise ValidationError("Lieferzeit muss eine positive ganze Tageszahl sein")
+        normalized_delivery_text = lieferzeit_text.strip() if lieferzeit_text else None
+        normalized_stock_text = lager_text.strip() if lager_text else None
+        delivery_days = parse_delivery_upper_days(normalized_delivery_text)
         return self.repository.create_offer(
             line_id=line_id,
             shop_id=shop_id,
@@ -135,8 +151,10 @@ class ProcurementService:
             produkt_url=produkt_url,
             quelle_url=produkt_url,
             preis_chf=price,
-            lieferzeit_tage=lieferzeit_tage,
-            lager=lager.strip() if lager else None,
+            lieferzeit_tage=delivery_days,
+            lieferzeit_text=normalized_delivery_text,
+            lager_text=normalized_stock_text,
+            lager=normalized_stock_text,
         )
 
     def mark_line(

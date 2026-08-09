@@ -36,12 +36,28 @@ class UIRepository:
                 "produkt_url": "https://shop.example.ch/mg996r",
                 "preis_chf": "10.00",
                 "lieferzeit_tage": 2,
-                "lager": "lagernd",
+                "lieferzeit_text": "1-2 Tage ab Lager",
+                "lager_text": "Filiale grün; 5 Stück lagernd",
                 "shop_id": 1,
                 "shop_name": "Servo Shop",
                 "shop_status": "ungeprueft",
+                "lieferzeit_default_tage": 3,
                 "decision": None,
-            }
+            },
+            {
+                "id": 32,
+                "produktname": "Servo ohne Lieferangabe",
+                "produkt_url": "https://shop.example.ch/servo-ohne-angabe",
+                "preis_chf": "12.00",
+                "lieferzeit_tage": None,
+                "lieferzeit_text": None,
+                "lager_text": None,
+                "shop_id": 1,
+                "shop_name": "Servo Shop",
+                "shop_status": "ungeprueft",
+                "lieferzeit_default_tage": 3,
+                "decision": None,
+            },
         ]
         return job
 
@@ -110,6 +126,19 @@ def test_job_page_shows_progressive_candidates_badge_and_decision_buttons():
     assert "Bestaetigen" in page.text
     assert decision.status_code == 200
     assert repository.decisions == [(31, "bestaetigt")]
+
+
+def test_job_page_shows_literal_delivery_and_lager_text_with_labeled_fallback():
+    client, _ = client_and_repo()
+
+    page = client.get("/jobs/7")
+
+    assert "2 Tage" in page.text
+    assert "1-2 Tage ab Lager" in page.text
+    assert "Filiale grün; 5 Stück lagernd" in page.text
+    assert "3 Tage" in page.text
+    assert "Schätzung (Shop-Standard)" in page.text
+    assert "Lagerstatus nicht angegeben" in page.text
 
 
 def test_variants_page_and_server_side_tempo_api_include_links_and_totals():

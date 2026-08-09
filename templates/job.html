@@ -14,7 +14,23 @@
       <div><span class="shop">{{ offer.shop_name }}</span>{% if offer.shop_status == 'ungeprueft' %}<span class="badge warning">ungeprueft</span>{% endif %}</div>
       <h3><a href="{{ offer.produkt_url }}" target="_blank" rel="noopener">{{ offer.produktname }}</a></h3>
       <div class="price">CHF {{ offer.preis_chf }}</div>
-      <p class="muted">{% if offer.lieferzeit_tage %}{{ offer.lieferzeit_tage }} Tage · {% endif %}{{ offer.lager or 'Lager unbekannt' }}</p>
+      <div class="source-facts">
+        <p>
+          <strong>Lieferzeit:</strong>
+          {% if offer.lieferzeit_tage %}
+            {{ offer.lieferzeit_tage }} Tage
+            {% if offer.lieferzeit_text %}<span class="source-text">· Original: {{ offer.lieferzeit_text }}</span>{% endif %}
+          {% elif offer.lieferzeit_text %}
+            <span class="source-text">{{ offer.lieferzeit_text }}</span>
+          {% elif offer.lieferzeit_default_tage %}
+            {{ offer.lieferzeit_default_tage }} Tage
+            <span class="badge estimate">Schätzung (Shop-Standard)</span>
+          {% else %}
+            nicht angegeben
+          {% endif %}
+        </p>
+        <p><strong>Lager:</strong> {{ offer.lager_text or 'Lagerstatus nicht angegeben' }}</p>
+      </div>
       <div class="actions"><button data-decision="verworfen">Verwerfen</button><button class="primary" data-decision="bestaetigt">Bestaetigen</button></div>
     </article>
   {% else %}<p class="muted waiting">Noch keine Kandidaten – diese Seite aktualisiert sich automatisch.</p>{% endfor %}

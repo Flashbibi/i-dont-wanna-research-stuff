@@ -43,3 +43,49 @@ def test_check_line_explicitly_casts_case_insensitive_query_parameters_to_text()
 def test_database_value_decoder_normalizes_sql_ascii_text_bytes():
     assert decode_database_value(b"bastelgarage.ch") == "bastelgarage.ch"
     assert decode_database_value("ungeprueft") == "ungeprueft"
+
+
+class OfferConnection:
+    def __init__(self):
+        self.statements = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def transaction(self):
+        return self
+
+    def execute(self, sql, params=None):
+        normalized = " ".join(sql.split())
+        self.statements.append((normalized, params))
+        if normalized.startswith("INSERT INTO offer"):
+            return Result(one={"id": 12, **dict(params or {})})
+        return Result()
+
+
+def test_create_offer_reaudits_existing_url_and_persists_literal_text_fields():
+    repository = PostgresRepository("unused")
+    connection = OfferConnection()
+    repository._connect = lambda: connection
+    values = {
+        "line_id": 1,
+        "shop_id": 5,
+        "produktname": "Servo",
+        "produkt_url": "https://shop.ch/servo",
+        "quelle_url": "https://shop.ch/servo",
+        "preis_chf": "63.62",
+        "lieferzeit_tage": 4,
+        "lieferzeit_text": "3-4 Tage, bei Lieferant an Lager",
+        "lager_text": "Filiale rot; CH-Lieferant an Lager",
+        "lager": "Filiale rot; CH-Lieferant an Lager",
+    }
+
+    offer = repository.create_offer(**values)
+
+    insert_sql = connection.statements[0][0]
+    assert "lieferzeit_text, lager_text" in insert_sql
+    assert "ON CONFLICT (line_id, produkt_url) DO UPDATE" in insert_sql
+    assert offer["lieferzeit_tage"] == 4

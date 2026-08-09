@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.procurement import ProcurementService, ValidationError
+from app.procurement import ProcurementService, ValidationError, parse_delivery_upper_days
 
 
 class FakeProcurementRepository:
@@ -93,11 +93,48 @@ def test_record_shop_accepts_only_ch_and_starts_unverified():
         procurement.record_shop("DE", "https://de.example", "DE", 5, None, None, 3)
 
 
+def test_delivery_text_parser_uses_conservative_range_upper_bound():
+    assert parse_delivery_upper_days("3-4 Tage, bei Lieferant an Lager") == 4
+    assert parse_delivery_upper_days("Lieferung in 2 Tagen") == 2
+    assert parse_delivery_upper_days("sofort lieferbar") is None
+    assert parse_delivery_upper_days(None) is None
+
+
+def test_record_offer_stores_literal_source_text_and_parsed_upper_bound():
+    procurement = service()
+
+    offer = procurement.record_offer(
+        10,
+        1,
+        "MG996R",
+        "https://shop.example.ch/mg996r",
+        12.5,
+        "3-4 Tage, bei Lieferant an Lager",
+        "Filiale rot; CH-Lieferant an Lager",
+    )
+
+    assert offer["quelle_url"] == "https://shop.example.ch/mg996r"
+    assert offer["lieferzeit_tage"] == 4
+    assert offer["lieferzeit_text"] == "3-4 Tage, bei Lieferant an Lager"
+    assert offer["lager_text"] == "Filiale rot; CH-Lieferant an Lager"
+
+
+def test_record_offer_without_delivery_source_text_keeps_days_empty():
+    procurement = service()
+
+    offer = procurement.record_offer(
+        10, 1, "MG996R", "https://shop.example.ch/mg996r", 12.5, None, "lagernd"
+    )
+
+    assert offer["lieferzeit_tage"] is None
+    assert offer["lieferzeit_text"] is None
+
+
 def test_record_offer_validates_price_domain_shop_and_line():
     procurement = service()
 
     offer = procurement.record_offer(
-        10, 1, "MG996R", "https://shop.example.ch/mg996r", 12.5, 2, "lagernd"
+        10, 1, "MG996R", "https://shop.example.ch/mg996r", 12.5, "2 Tage", "lagernd"
     )
     assert offer["quelle_url"] == "https://shop.example.ch/mg996r"
 

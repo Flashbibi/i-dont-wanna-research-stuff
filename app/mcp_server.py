@@ -74,18 +74,18 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         produktname: str,
         produkt_url: str,
         preis_chf: float,
-        lieferzeit_tage: int | None = None,
-        lager: str | None = None,
+        lieferzeit_text: str | None = None,
+        lager_text: str | None = None,
     ) -> dict[str, Any]:
-        """Auf der Produktseite verifiziertes CHF-Angebot erfassen."""
+        """Produktangebot mit wörtlicher Lieferzeit und Lagerstatus erfassen/aktualisieren."""
         return service.record_offer(
             line_id,
             shop_id,
             produktname,
             produkt_url,
             preis_chf,
-            lieferzeit_tage,
-            lager,
+            lieferzeit_text,
+            lager_text,
         )
 
     @mcp.tool()

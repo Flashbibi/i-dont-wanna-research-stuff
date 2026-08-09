@@ -43,6 +43,12 @@ def test_mcp_exposes_exact_procurement_tools():
         "plan_order",
         "record_purchase",
     }
+    record_offer = next(tool for tool in tools if tool.name == "record_offer")
+    properties = record_offer.inputSchema["properties"]
+    assert "lieferzeit_text" in properties
+    assert "lager_text" in properties
+    assert "lieferzeit_tage" not in properties
+    assert "lager" not in properties
 
 
 def test_streamable_http_endpoint_initializes_and_lists_tools():
