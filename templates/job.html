@@ -22,8 +22,8 @@
   <div class="bom">
   {% for line in job.lines %}
   <section class="panel line">
-    <div class="section-head"><div><p class="eyebrow">Position {{ line.position }}</p><h2>{{ line.suchtext }}</h2></div><span class="badge">{{ line.status }}</span></div>
-    <p class="muted">Menge {{ line.menge }} · {{ line.angebotsanzahl }} Kandidat(en)</p>
+    <div class="section-head"><div><p class="eyebrow">Position {{ line.position }}</p><h2>{{ line.suchtext }}</h2></div><span class="badge">{{ line.offers|length }} Kandidaten</span></div>
+    <p class="muted">Menge {{ line.menge }} · Status {{ line.status }}</p>
     {% if line.kommentar %}<p>{{ line.kommentar }}</p>{% endif %}
     <div class="offers">
     {% for offer in line.offers %}
