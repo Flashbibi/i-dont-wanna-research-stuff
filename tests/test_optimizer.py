@@ -1,0 +1,112 @@
+from decimal import Decimal
+
+from app.optimizer import Offer, ShopProfile, optimize_orders
+
+
+def test_assigns_each_line_to_cheapest_shop_and_adds_shipping():
+    shops = [
+        ShopProfile(1, "A", Decimal("8.00"), Decimal("50.00"), None, 2),
+        ShopProfile(2, "B", Decimal("10.00"), None, None, 4),
+    ]
+    offers = [
+        Offer(11, 101, 1, Decimal("20.00"), 2, 2),
+        Offer(12, 102, 1, Decimal("8.00"), 1, 2),
+        Offer(13, 101, 2, Decimal("18.00"), 2, 4),
+        Offer(14, 102, 2, Decimal("12.00"), 1, 4),
+    ]
+
+    variants = optimize_orders(offers, shops, tempo=0)
+
+    best = variants[0]
+    assert best.shop_ids == (1,)
+    assert best.assignments == {101: 11, 102: 12}
+    assert best.subtotals == {1: Decimal("48.00")}
+    assert best.shipping == {1: Decimal("8.00")}
+    assert best.total_chf == Decimal("56.00")
+    assert best.max_liefertage == 2
+    assert best.score == Decimal("56.00")
+
+
+def test_free_shipping_threshold_is_inclusive():
+    shops = [ShopProfile(1, "A", Decimal("9.00"), Decimal("50.00"), None, 3)]
+    offers = [Offer(1, 1, 1, Decimal("25.00"), 2, None)]
+
+    variant = optimize_orders(offers, shops, tempo=0)[0]
+
+    assert variant.shipping == {1: Decimal("0.00")}
+    assert variant.total_chf == Decimal("50.00")
+    assert variant.max_liefertage == 3
+
+
+def test_rejects_shop_subset_below_minimum_order_value():
+    shops = [
+        ShopProfile(1, "Minimum", Decimal("0"), None, Decimal("50"), 2),
+        ShopProfile(2, "Ohne Minimum", Decimal("0"), None, None, 3),
+    ]
+    offers = [
+        Offer(1, 1, 1, Decimal("10"), 1, 2),
+        Offer(2, 1, 2, Decimal("20"), 1, 3),
+    ]
+
+    variants = optimize_orders(offers, shops, tempo=0)
+
+    assert [variant.shop_ids for variant in variants] == [(2,)]
+
+
+def test_tempo_uses_fifteen_chf_per_max_delivery_day_and_changes_ranking():
+    shops = [
+        ShopProfile(1, "Billig", Decimal("0"), None, None, 10),
+        ShopProfile(2, "Schnell", Decimal("0"), None, None, 1),
+    ]
+    offers = [
+        Offer(1, 1, 1, Decimal("10"), 1, 10),
+        Offer(2, 1, 2, Decimal("100"), 1, 1),
+    ]
+
+    cheap_first = optimize_orders(offers, shops, tempo=0)
+    fast_first = optimize_orders(offers, shops, tempo=1)
+
+    assert cheap_first[0].shop_ids == (1,)
+    assert fast_first[0].shop_ids == (2,)
+    assert fast_first[0].score == Decimal("115.00")
+    assert cheap_first[0].score == Decimal("10.00")
+
+
+def test_returns_at_most_three_variants_with_distinct_shop_sets():
+    shops = [
+        ShopProfile(shop_id, f"Shop {shop_id}", Decimal("0"), None, None, shop_id)
+        for shop_id in range(1, 5)
+    ]
+    offers = [
+        Offer(shop_id, 1, shop_id, Decimal(str(10 + shop_id)), 1, shop_id)
+        for shop_id in range(1, 5)
+    ]
+
+    variants = optimize_orders(offers, shops, tempo=0)
+
+    assert len(variants) == 3
+    assert len({variant.shop_ids for variant in variants}) == 3
+
+
+def test_never_uses_more_than_three_shops():
+    shops = [
+        ShopProfile(shop_id, f"Shop {shop_id}", Decimal("0"), None, None, 1)
+        for shop_id in range(1, 5)
+    ]
+    offers = [
+        Offer(shop_id, shop_id, shop_id, Decimal("10"), 1, 1)
+        for shop_id in range(1, 5)
+    ]
+
+    assert optimize_orders(offers, shops, tempo=0) == []
+
+
+def test_rejects_tempo_outside_unit_interval():
+    shops = [ShopProfile(1, "A", Decimal("0"), None, None, 1)]
+    offers = [Offer(1, 1, 1, Decimal("1"), 1, 1)]
+
+    import pytest
+
+    with pytest.raises(ValueError, match="tempo"):
+        optimize_orders(offers, shops, tempo=1.01)
+
