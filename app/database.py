@@ -76,7 +76,7 @@ class PostgresRepository:
                 job = connection.execute(
                     """
                     INSERT INTO job(quelltext, status, is_test)
-                    VALUES ('[E2E-TEST] Klickhygiene – automatisch entsorgen', 'in_arbeit', TRUE)
+                    VALUES ('[E2E-TEST] Klickhygiene - automatisch entsorgen', 'in_arbeit', TRUE)
                     RETURNING id
                     """
                 ).fetchone()
