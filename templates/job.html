@@ -18,12 +18,12 @@
         <p>
           <strong>Lieferzeit:</strong>
           {% if offer.lieferzeit_tage %}
-            {{ offer.lieferzeit_tage }} Tage
+            {{ offer.lieferzeit_tage }} Tag{% if offer.lieferzeit_tage != 1 %}e{% endif %}
             {% if offer.lieferzeit_text %}<span class="source-text">· Original: {{ offer.lieferzeit_text }}</span>{% endif %}
           {% elif offer.lieferzeit_text %}
             <span class="source-text">{{ offer.lieferzeit_text }}</span>
           {% elif offer.lieferzeit_default_tage %}
-            {{ offer.lieferzeit_default_tage }} Tage
+            {{ offer.lieferzeit_default_tage }} Tag{% if offer.lieferzeit_default_tage != 1 %}e{% endif %}
             <span class="badge estimate">Schätzung (Shop-Standard)</span>
           {% else %}
             nicht angegeben

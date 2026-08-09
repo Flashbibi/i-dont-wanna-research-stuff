@@ -35,8 +35,8 @@ class UIRepository:
                 "produktname": "MG996R Servo",
                 "produkt_url": "https://shop.example.ch/mg996r",
                 "preis_chf": "10.00",
-                "lieferzeit_tage": 2,
-                "lieferzeit_text": "1-2 Tage ab Lager",
+                "lieferzeit_tage": 1,
+                "lieferzeit_text": "1 Tag ab Lager",
                 "lager_text": "Filiale grün; 5 Stück lagernd",
                 "shop_id": 1,
                 "shop_name": "Servo Shop",
@@ -133,8 +133,9 @@ def test_job_page_shows_literal_delivery_and_lager_text_with_labeled_fallback():
 
     page = client.get("/jobs/7")
 
-    assert "2 Tage" in page.text
-    assert "1-2 Tage ab Lager" in page.text
+    assert "1 Tag" in page.text
+    assert "1 Tage" not in page.text
+    assert "1 Tag ab Lager" in page.text
     assert "Filiale grün; 5 Stück lagernd" in page.text
     assert "3 Tage" in page.text
     assert "Schätzung (Shop-Standard)" in page.text
