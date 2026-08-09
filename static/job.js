@@ -28,6 +28,7 @@ const decide = async (card, status) => {
     card.classList.add(status === 'pin' ? 'decision-bestaetigt' : status === 'exclude' ? 'decision-verworfen' : 'decision-offen');
     card.classList.add(`override-${status}`);
     feedback.textContent = decisionLabel[status];
+    document.dispatchEvent(new CustomEvent('overrides-changed'));
   } catch (error) {
     feedback.textContent = `Nicht gespeichert: ${error.message}`;
     feedback.classList.add('error');

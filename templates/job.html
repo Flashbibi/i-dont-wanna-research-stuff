@@ -1,48 +1,61 @@
 {% extends "base.html" %}
 {% block title %}Job #{{ job.id }} · Beschaffung{% endblock %}
 {% block content %}
-<div class="section-head"><div><p class="eyebrow">{{ job.status }}</p><h1>Job #{{ job.id }}</h1></div><a class="button primary" href="/jobs/{{ job.id }}/variants">Varianten rechnen</a></div>
-<p class="muted">Alle gültigen Angebote fließen automatisch in die Szenarien ein. Pin fixiert ein Produkt für die Zeile; Ausschließen entfernt nur dieses Angebot.</p>
-<div class="bom">
-{% for line in job.lines %}
-<section class="panel line">
-  <div class="line-head"><div><span class="quantity">{{ line.menge }}×</span><h2>{{ line.suchtext }}</h2></div><span class="badge">{{ line.status }}</span></div>
-  {% if line.kommentar %}<p>{{ line.kommentar }}</p>{% endif %}
-  <div class="offers">
-  {% for offer in line.offers %}
-    <article id="offer-{{ offer.id }}" class="offer swipe-card decision-{{ 'bestaetigt' if offer.decision == 'pin' else 'verworfen' if offer.decision == 'exclude' else 'offen' }} override-{{ offer.decision or 'neutral' }}" data-offer="{{ offer.id }}">
-      <div><span class="shop">{{ offer.shop_name }}</span>{% if offer.shop_status == 'ungeprueft' %}<span class="badge warning">ungeprueft</span>{% endif %}</div>
-      <h3><a href="{{ offer.produkt_url }}" target="_blank" rel="noopener">{{ offer.produktname }}</a></h3>
-      <div class="price">CHF {{ offer.preis_chf }}</div>
-      <div class="source-facts">
-        <p>
-          <strong>Lieferzeit:</strong>
-          {% if offer.lieferzeit_tage %}
-            {{ offer.lieferzeit_tage }} Tag{% if offer.lieferzeit_tage != 1 %}e{% endif %}
-            {% if offer.lieferzeit_text %}<span class="source-text">· Original: {{ offer.lieferzeit_text }}</span>{% endif %}
-          {% elif offer.lieferzeit_text %}
-            <span class="source-text">{{ offer.lieferzeit_text }}</span>
-          {% elif offer.lieferzeit_default_tage %}
-            {{ offer.lieferzeit_default_tage }} Tag{% if offer.lieferzeit_default_tage != 1 %}e{% endif %}
-            <span class="badge estimate">Schätzung (Shop-Standard)</span>
-          {% else %}
-            nicht angegeben
-          {% endif %}
-        </p>
-        <p><strong>Lager:</strong> {{ offer.lager_text or 'Lagerstatus nicht angegeben' }}</p>
-      </div>
-      <form class="actions decision-form" action="/offers/{{ offer.id }}/decision" method="post">
-        <input type="hidden" name="job_id" value="{{ job.id }}">
-        <button type="submit" name="status" value="exclude" data-decision="exclude">Ausschließen</button>
-        <button type="submit" name="status" value="pin" class="primary" data-decision="pin">Pin</button>
-        {% if offer.decision %}<button type="submit" name="status" value="neutral" data-decision="neutral">Override aufheben</button>{% endif %}
-      </form>
-      <p class="decision-feedback" role="status" aria-live="polite">{% if offer.decision == 'pin' %}Gepinnt{% elif offer.decision == 'exclude' %}Ausgeschlossen{% endif %}</p>
-    </article>
-  {% else %}<p class="muted waiting">Noch keine Kandidaten – diese Seite aktualisiert sich automatisch.</p>{% endfor %}
-  </div>
-</section>
-{% endfor %}
+<div class="section-head job-title">
+  <div><p class="eyebrow">{{ job.status }}</p><h1>Job #{{ job.id }}</h1></div>
+  <a class="button" href="/jobs/{{ job.id }}/variants">Szenarien separat öffnen</a>
 </div>
+
+<section class="scenario-dashboard" aria-labelledby="scenario-title">
+  <div class="section-head"><div><p class="eyebrow">Vergleich</p><h2 id="scenario-title">Bestellszenarien</h2></div></div>
+  <div id="scenarios" class="scenario-grid"><p class="muted">Szenarien werden gerechnet …</p></div>
+  <section class="panel slider-panel compact">
+    <div><h3>Feineinstellung</h3><p class="muted">Zusätzliche Varianten zwischen billig und schnell.</p></div>
+    <label for="tempo"><span>Billig</span><strong id="tempo-value">50%</strong><span>Schnell</span></label>
+    <input id="tempo" type="range" min="0" max="1" step="0.05" value="0.5" data-job="{{ job.id }}">
+  </section>
+  <div id="variants" class="fine-variants"><p class="muted">Feinvarianten werden gerechnet …</p></div>
+</section>
+
+<details class="offers-drawer" open>
+  <summary><strong>Angebote und Overrides</strong><span class="muted">Pin ist optional; Ausschließen entfernt ein Angebot.</span></summary>
+  <div class="bom">
+  {% for line in job.lines %}
+  <section class="panel line">
+    <div class="section-head"><div><p class="eyebrow">Position {{ line.position }}</p><h2>{{ line.suchtext }}</h2></div><span class="badge">{{ line.status }}</span></div>
+    <p class="muted">Menge {{ line.menge }} · {{ line.angebotsanzahl }} Kandidat(en)</p>
+    {% if line.kommentar %}<p>{{ line.kommentar }}</p>{% endif %}
+    <div class="offers">
+    {% for offer in line.offers %}
+      <article id="offer-{{ offer.id }}" class="offer swipe-card decision-{{ 'bestaetigt' if offer.decision == 'pin' else 'verworfen' if offer.decision == 'exclude' else 'offen' }} override-{{ offer.decision or 'neutral' }}" data-offer="{{ offer.id }}">
+        <div><span class="shop">{{ offer.shop_name }}</span>{% if offer.shop_status == 'ungeprueft' %}<span class="badge warning">ungeprueft</span>{% endif %}</div>
+        <h3><a href="{{ offer.produkt_url }}" target="_blank" rel="noopener">{{ offer.produktname }}</a></h3>
+        <div class="price">CHF {{ offer.preis_chf }}</div>
+        {% if offer.lieferzeit_tage %}
+          <p>{{ offer.lieferzeit_tage }} {% if offer.lieferzeit_tage == 1 %}Tag{% else %}Tage{% endif %}</p>
+        {% elif offer.lieferzeit_default_tage %}
+          <p><span class="badge warning">Schätzung (Shop-Standard)</span> {{ offer.lieferzeit_default_tage }} {% if offer.lieferzeit_default_tage == 1 %}Tag{% else %}Tage{% endif %}</p>
+        {% else %}<p class="muted">Lieferzeit unbekannt</p>{% endif %}
+        <div class="source-facts">
+          <p><span class="source-label">Original-Lieferzeit</span>{% if offer.lieferzeit_text %}{{ offer.lieferzeit_text }}{% else %}<span class="muted">Keine Angabe auf der Produktseite</span>{% endif %}</p>
+          <p><span class="source-label">Lagerstatus</span>{% if offer.lager_text %}{{ offer.lager_text }}{% else %}<span class="muted">Lagerstatus nicht angegeben</span>{% endif %}</p>
+        </div>
+        <form class="actions decision-form" action="/offers/{{ offer.id }}/decision" method="post">
+          <input type="hidden" name="job_id" value="{{ job.id }}">
+          <button type="submit" name="status" value="exclude" data-decision="exclude">Ausschließen</button>
+          <button type="submit" name="status" value="pin" class="primary" data-decision="pin">Pin</button>
+          {% if offer.decision %}<button type="submit" name="status" value="neutral" data-decision="neutral">Override aufheben</button>{% endif %}
+        </form>
+        <p class="decision-feedback" role="status" aria-live="polite">{% if offer.decision == 'pin' %}Gepinnt{% elif offer.decision == 'exclude' %}Ausgeschlossen{% endif %}</p>
+      </article>
+    {% else %}<p class="muted waiting">Noch keine Kandidaten – diese Seite aktualisiert sich automatisch.</p>{% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+  </div>
+</details>
 {% endblock %}
-{% block scripts %}<script src="/static/job.js?v=3" defer></script>{% endblock %}
+{% block scripts %}
+<script src="/static/job.js?v=4" defer></script>
+<script src="/static/variants.js?v=4" defer></script>
+{% endblock %}

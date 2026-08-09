@@ -145,6 +145,19 @@ def test_job_page_shows_progressive_candidates_badge_and_decision_buttons():
     assert repository.decisions == [(31, "pin")]
 
 
+def test_dashboard_uses_sidebar_and_places_scenarios_before_collapsible_offers():
+    client, _ = client_and_repo()
+
+    page = client.get("/jobs/7")
+
+    assert '<aside class="sidebar"' in page.text
+    for label in ("Jobs", "Historie", "Shops", "Bestand"):
+        assert label in page.text
+    assert page.text.index('id="scenarios"') < page.text.index('class="bom"')
+    assert 'class="offers-drawer"' in page.text
+    assert 'id="tempo"' in page.text
+
+
 def test_decision_has_form_fallback_and_persists_after_redirect_reload():
     client, repository = client_and_repo()
 

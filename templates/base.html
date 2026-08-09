@@ -2,17 +2,24 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Beschaffung{% endblock %}</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v=4">
 </head>
 <body>
-<header>
-  <a class="brand" href="/">Beschaffung</a>
-  <nav><a href="/">Jobs</a><a href="/history">Historie</a><a href="/shops">Shops</a></nav>
-</header>
-<main>{% block content %}{% endblock %}</main>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="/">Beschaffung</a>
+    <nav aria-label="Hauptnavigation">
+      <a href="/">Jobs</a>
+      <a href="/history">Historie</a>
+      <a href="/shops">Shops</a>
+      <a href="/#bestand">Bestand</a>
+    </nav>
+  </aside>
+  <main>{% block content %}{% endblock %}</main>
+</div>
 {% block scripts %}{% endblock %}
 </body>
 </html>

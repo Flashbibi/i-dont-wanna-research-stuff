@@ -84,6 +84,7 @@ function bindProductChanges() {
   }));
 }
 
+document.addEventListener('overrides-changed', loadScenarios);
 slider.addEventListener('input', () => {
   clearTimeout(timer);
   timer = setTimeout(loadScenarios, 120);
