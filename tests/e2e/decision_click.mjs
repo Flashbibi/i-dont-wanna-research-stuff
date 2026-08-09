@@ -10,13 +10,14 @@ const executablePath = process.env.CHROME_BIN || '/home/hermes/.local/share/besc
 const profile = process.env.BROWSER_PROFILE || '/home/hermes/.local/share/beschaffung-browser/e2e-profile';
 const context = await chromium.launchPersistentContext(profile, {headless: true, executablePath});
 const page = await context.newPage();
-const evidence = {baseUrl, offerId, consoleErrors: [], failedRequests: [], decisionResponses: []};
+const evidence = {baseUrl, offerId, consoleErrors: [], failedRequests: [], badResponses: [], decisionResponses: []};
 page.on('console', message => {
   if (message.type() === 'error') evidence.consoleErrors.push(message.text());
 });
 page.on('pageerror', error => evidence.consoleErrors.push(error.message));
 page.on('requestfailed', request => evidence.failedRequests.push({url: request.url(), error: request.failure()?.errorText}));
 page.on('response', response => {
+  if (response.status() >= 400) evidence.badResponses.push({url: response.url(), status: response.status()});
   if (response.url().includes(`/api/offers/${offerId}/decision`)) {
     evidence.decisionResponses.push({url: response.url(), status: response.status()});
   }
@@ -52,6 +53,7 @@ try {
 
   assert.deepEqual(evidence.consoleErrors, []);
   assert.deepEqual(evidence.failedRequests, []);
+  assert.deepEqual(evidence.badResponses, []);
   assert.equal(evidence.decisionResponses.length, 2);
   assert.ok(evidence.decisionResponses.every(response => response.status === 200));
   evidence.initialStatus = initialStatus;
