@@ -8,6 +8,11 @@ from itertools import product
 
 
 TEMPO_COST_PER_DAY_CHF = Decimal("15.00")
+UNKNOWN_DELIVERY_SCORE_DAYS = 10_000
+
+
+def _delivery_rank(days: int | None) -> tuple[bool, int]:
+    return (days is None, days or 0)
 
 
 @dataclass(frozen=True)
@@ -17,7 +22,7 @@ class ShopProfile:
     versand_chf: Decimal
     gratis_ab_chf: Decimal | None
     mindestbestellwert_chf: Decimal | None
-    lieferzeit_default_tage: int
+    lieferzeit_default_tage: int | None
 
 
 @dataclass(frozen=True)
@@ -42,9 +47,10 @@ class OrderVariant:
     subtotals: dict[int, Decimal]
     shipping: dict[int, Decimal]
     total_chf: Decimal
-    max_liefertage: int
+    max_liefertage: int | None
     score: Decimal
     contains_estimates: bool = False
+    contains_unknown_delivery: bool = False
     missing_line_ids: tuple[int, ...] = ()
 
 
@@ -124,11 +130,16 @@ def _build_variant(
     total = sum(subtotals.values(), Decimal("0.00")) + sum(
         shipping.values(), Decimal("0.00")
     )
-    max_days = max(
-        offer.lieferzeit_tage or shops_by_id[offer.shop_id].lieferzeit_default_tage
+    effective_days = [
+        offer.lieferzeit_tage
+        if offer.lieferzeit_tage is not None
+        else shops_by_id[offer.shop_id].lieferzeit_default_tage
         for offer in chosen.values()
-    )
-    score = total + Decimal(str(tempo)) * TEMPO_COST_PER_DAY_CHF * max_days
+    ]
+    known_days = [value for value in effective_days if value is not None]
+    max_days = None if len(known_days) != len(effective_days) else max(known_days)
+    score_days = UNKNOWN_DELIVERY_SCORE_DAYS if max_days is None else max_days
+    score = total + Decimal(str(tempo)) * TEMPO_COST_PER_DAY_CHF * score_days
     return OrderVariant(
         shop_ids=shop_ids,
         assignments={line_id: offer.id for line_id, offer in chosen.items()},
@@ -137,7 +148,12 @@ def _build_variant(
         total_chf=total,
         max_liefertage=max_days,
         score=score,
-        contains_estimates=any(offer.lieferzeit_tage is None for offer in chosen.values()),
+        contains_estimates=any(
+            offer.lieferzeit_tage is None
+            and shops_by_id[offer.shop_id].lieferzeit_default_tage is not None
+            for offer in chosen.values()
+        ),
+        contains_unknown_delivery=max_days is None,
         missing_line_ids=missing_line_ids,
     )
 
@@ -176,17 +192,29 @@ def optimize_orders(
     best_by_shop_set: dict[tuple[int, ...], OrderVariant] = {}
     for variant in variants:
         key = variant.shop_ids
-        rank = (variant.score, variant.total_chf, variant.max_liefertage, tuple(variant.assignments.items()))
+        rank = (
+            variant.score,
+            variant.total_chf,
+            _delivery_rank(variant.max_liefertage),
+            tuple(variant.assignments.items()),
+        )
         current = best_by_shop_set.get(key)
         if current is None or rank < (
             current.score,
             current.total_chf,
-            current.max_liefertage,
+            _delivery_rank(current.max_liefertage),
             tuple(current.assignments.items()),
         ):
             best_by_shop_set[key] = variant
     result = list(best_by_shop_set.values())
-    result.sort(key=lambda item: (item.score, item.total_chf, item.max_liefertage, item.shop_ids))
+    result.sort(
+        key=lambda item: (
+            item.score,
+            item.total_chf,
+            _delivery_rank(item.max_liefertage),
+            item.shop_ids,
+        )
+    )
     return result[:limit]
 
 
@@ -204,13 +232,31 @@ def plan_scenarios(
     scenarios: dict[str, OrderVariant] = {}
     if complete:
         scenarios["cheapest"] = min(
-            complete, key=lambda item: (item.total_chf, item.max_liefertage, len(item.shop_ids), item.shop_ids)
+            complete,
+            key=lambda item: (
+                item.total_chf,
+                _delivery_rank(item.max_liefertage),
+                len(item.shop_ids),
+                item.shop_ids,
+            ),
         )
         scenarios["fastest"] = min(
-            complete, key=lambda item: (item.max_liefertage, item.total_chf, len(item.shop_ids), item.shop_ids)
+            complete,
+            key=lambda item: (
+                _delivery_rank(item.max_liefertage),
+                item.total_chf,
+                len(item.shop_ids),
+                item.shop_ids,
+            ),
         )
         scenarios["balanced"] = min(
-            complete, key=lambda item: (item.score, item.total_chf, item.max_liefertage, item.shop_ids)
+            complete,
+            key=lambda item: (
+                item.score,
+                item.total_chf,
+                _delivery_rank(item.max_liefertage),
+                item.shop_ids,
+            ),
         )
 
     required = tuple(sorted(set(required_line_ids)))
@@ -224,7 +270,11 @@ def plan_scenarios(
                     candidates,
                     key=lambda offer: (
                         offer.positionspreis,
-                        offer.lieferzeit_tage or shops_by_id[shop_id].lieferzeit_default_tage,
+                        _delivery_rank(
+                            offer.lieferzeit_tage
+                            if offer.lieferzeit_tage is not None
+                            else shops_by_id[shop_id].lieferzeit_default_tage
+                        ),
                         offer.id,
                     ),
                 )
@@ -238,7 +288,7 @@ def plan_scenarios(
             key=lambda item: (
                 len(item.missing_line_ids),
                 item.total_chf,
-                item.max_liefertage,
+                _delivery_rank(item.max_liefertage),
                 item.shop_ids,
             ),
         )

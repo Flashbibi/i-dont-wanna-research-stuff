@@ -5,10 +5,14 @@ const esc = value => String(value ?? '').replace(/[&<>'"]/g, character => ({'&':
 let timer;
 let currentData;
 
-const days = value => Number(value) === 1 ? '1 Tag' : `${esc(value)} Tage`;
+const days = value => value == null
+  ? 'Lieferzeit unbekannt'
+  : (Number(value) === 1 ? '1 Tag' : `${esc(value)} Tage`);
 const deliveryText = line => line.lieferzeit_text
   ? `${days(line.lieferzeit_tage)} · ${esc(line.lieferzeit_text)}`
-  : `${days(line.lieferzeit_tage)} · Schätzung (Shop-Standard)`;
+  : (line.lieferzeit_tage == null
+    ? 'Lieferzeit unbekannt · kein belegter Shop-Standard'
+    : `${days(line.lieferzeit_tage)} · Schätzung (Shop-Standard)`);
 
 function assignmentRow(line, choices) {
   const assumption = line.assumption ? `
@@ -28,11 +32,12 @@ const normalize = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+
 
 function renderVariant(variant, choices, scenario = false) {
   const estimate = variant.contains_estimates ? '<span class="badge estimate">enthält Schätzungen</span>' : '';
+  const unknown = variant.contains_unknown_delivery ? '<span class="badge warning">Lieferzeit teilweise unbekannt</span>' : '';
   const missing = variant.missing_lines?.length
     ? `<p class="error"><strong>Fehlende Zeilen:</strong> ${variant.missing_lines.map(line => esc(line.suchtext || `#${line.line_id}`)).join(', ')}</p>`
     : '';
   return `<section class="panel variant scenario-card" data-key="${esc(variant.key || '')}">
-    <div class="scenario-head"><div><p class="eyebrow">${scenario ? esc(variant.label) : 'Feineinstellung'}</p><h2>CHF ${esc(variant.total_chf)}</h2></div>${estimate}</div>
+    <div class="scenario-head"><div><p class="eyebrow">${scenario ? esc(variant.label) : 'Feineinstellung'}</p><h2>CHF ${esc(variant.total_chf)}</h2></div><div>${estimate}${unknown}</div></div>
     <p class="muted">Max. ${days(variant.max_liefertage)} · ${esc(variant.shop_ids.length)} Shop(s)</p>
     ${missing}
     <details ${scenario ? '' : 'open'}><summary>Zuordnungen anzeigen</summary><ul class="assignment-list">${variant.lines.map(line => assignmentRow(line, choices)).join('')}</ul></details>

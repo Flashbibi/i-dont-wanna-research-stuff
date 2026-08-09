@@ -269,10 +269,12 @@ class PostgresRepository:
                     """
                     INSERT INTO shop(
                         name, url, domain, land, versand_chf, gratis_ab_chf,
-                        mindestbestellwert_chf, lieferzeit_default_tage
+                        mindestbestellwert_chf, lieferzeit_default_tage,
+                        profil_quelle_url, versand_text
                     ) VALUES (%(name)s, %(url)s, %(domain)s, %(land)s,
                               %(versand_chf)s, %(gratis_ab_chf)s,
-                              %(mindestbestellwert_chf)s, %(lieferzeit_default_tage)s)
+                              %(mindestbestellwert_chf)s, %(lieferzeit_default_tage)s,
+                              %(profil_quelle_url)s, %(versand_text)s)
                     RETURNING *
                     """,
                     values,
@@ -285,6 +287,26 @@ class PostgresRepository:
         with self._connect() as connection:
             row = connection.execute("SELECT * FROM shop WHERE id = %s", (shop_id,)).fetchone()
             return dict(row) if row else None
+
+    def update_shop_profile(self, shop_id: int, **values: Any) -> dict[str, Any]:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                UPDATE shop SET
+                    versand_chf = %(versand_chf)s,
+                    gratis_ab_chf = %(gratis_ab_chf)s,
+                    mindestbestellwert_chf = %(mindestbestellwert_chf)s,
+                    lieferzeit_default_tage = %(lieferzeit_default_tage)s,
+                    profil_quelle_url = %(profil_quelle_url)s,
+                    versand_text = %(versand_text)s
+                WHERE id = %(shop_id)s
+                RETURNING *
+                """,
+                {"shop_id": shop_id, **values},
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Shop {shop_id} ist unbekannt")
+            return dict(row)
 
     def create_offer(self, **values: Any) -> dict[str, Any]:
         if values.get("lieferzeit_tage") is not None and not values.get("lieferzeit_text"):
@@ -652,7 +674,8 @@ class PostgresRepository:
             rows = connection.execute(
                 """
                 SELECT id, name, url, domain, land, versand_chf, gratis_ab_chf,
-                       mindestbestellwert_chf, lieferzeit_default_tage, status
+                       mindestbestellwert_chf, lieferzeit_default_tage, status,
+                       profil_quelle_url, versand_text
                 FROM shop ORDER BY name
                 """
             ).fetchall()

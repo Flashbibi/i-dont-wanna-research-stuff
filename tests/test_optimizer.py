@@ -101,6 +101,34 @@ def test_never_uses_more_than_three_shops():
     assert optimize_orders(offers, shops, tempo=0) == []
 
 
+def test_scenarios_use_shop_default_as_estimate_when_offer_has_no_days():
+    shops = [ShopProfile(1, "A", Decimal("5"), None, None, 4)]
+    offers = [Offer(1, 10, 1, Decimal("10"), 1, None)]
+
+    scenarios = plan_scenarios(offers, shops, [10])
+
+    assert scenarios["fastest"].max_liefertage == 4
+    assert scenarios["fastest"].contains_estimates is True
+
+
+def test_unsourced_unknown_shop_days_stay_unknown_and_rank_after_known_delivery():
+    shops = [
+        ShopProfile(1, "Unknown", Decimal("0"), None, None, None),
+        ShopProfile(2, "Known", Decimal("0"), None, None, 3),
+    ]
+    offers = [
+        Offer(1, 10, 1, Decimal("1"), 1, None),
+        Offer(2, 10, 2, Decimal("2"), 1, None),
+    ]
+
+    scenarios = plan_scenarios(offers, shops, [10])
+
+    assert scenarios["cheapest"].max_liefertage is None
+    assert scenarios["cheapest"].contains_unknown_delivery is True
+    assert scenarios["fastest"].assignments == {10: 2}
+    assert scenarios["fastest"].max_liefertage == 3
+
+
 def test_rejects_tempo_outside_unit_interval():
     shops = [ShopProfile(1, "A", Decimal("0"), None, None, 1)]
     offers = [Offer(1, 1, 1, Decimal("1"), 1, 1)]

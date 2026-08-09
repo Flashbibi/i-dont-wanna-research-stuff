@@ -5,7 +5,12 @@
 <div class="list">
 {% for shop in shops %}
 <section class="panel shop-row">
-  <div><h2><a href="{{ shop.url }}" target="_blank" rel="noopener">{{ shop.name }}</a></h2><p class="muted">Versand CHF {{ shop.versand_chf }} · Standard {{ shop.lieferzeit_default_tage }} Tage</p></div>
+  <div>
+    <h2><a href="{{ shop.url }}" target="_blank" rel="noopener">{{ shop.name }}</a></h2>
+    <p class="muted">Versand CHF {{ shop.versand_chf }} · Standard {% if shop.lieferzeit_default_tage %}{{ shop.lieferzeit_default_tage }} Tag{% if shop.lieferzeit_default_tage != 1 %}e{% endif %}{% else %}nicht belegt{% endif %}</p>
+    {% if shop.versand_text %}<p class="source-facts"><span class="source-label">Original Versand</span>{{ shop.versand_text }}</p>{% endif %}
+    {% if shop.profil_quelle_url %}<a class="source-link" href="{{ shop.profil_quelle_url }}" target="_blank" rel="noopener">Profilquelle öffnen</a>{% else %}<span class="badge warning">Profilquelle fehlt</span>{% endif %}
+  </div>
   <span class="badge {% if shop.status == 'gesperrt' %}danger{% endif %}">{{ shop.status }}</span>
   <div class="actions"><form method="post" action="/shops/{{ shop.id }}/status"><input type="hidden" name="status" value="bestaetigt"><button class="primary">Bestätigen</button></form><form method="post" action="/shops/{{ shop.id }}/status"><input type="hidden" name="status" value="gesperrt"><button>Sperren</button></form></div>
 </section>

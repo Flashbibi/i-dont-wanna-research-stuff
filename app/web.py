@@ -43,6 +43,15 @@ class ScenarioRequest(BaseModel):
     tempo: float = 0.5
 
 
+class ShopProfileRequest(BaseModel):
+    versand_chf: float
+    gratis_ab_chf: float | None = None
+    mindestbestellwert_chf: float | None = None
+    lieferzeit_default_tage: int | None = None
+    profil_quelle_url: str
+    versand_text: str
+
+
 class PurchaseRequest(BaseModel):
     variante: dict[str, Any]
     zugesagt_liefertage_pro_shop: dict[str, int]
@@ -138,6 +147,21 @@ def create_app(
     def update_shop(shop_id: int, status: str = Form(...)):
         active_repository.update_shop_status(shop_id, status)
         return RedirectResponse("/shops", status_code=303)
+
+    @application.put("/api/shops/{shop_id}/profile")
+    def update_shop_profile(shop_id: int, profile: ShopProfileRequest) -> dict[str, Any]:
+        try:
+            return procurement.record_shop_profile(
+                shop_id,
+                versand_chf=profile.versand_chf,
+                gratis_ab_chf=profile.gratis_ab_chf,
+                mindestbestellwert_chf=profile.mindestbestellwert_chf,
+                lieferzeit_default_tage=profile.lieferzeit_default_tage,
+                profil_quelle_url=profile.profil_quelle_url,
+                versand_text=profile.versand_text,
+            )
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
 
     @application.post("/api/jobs", status_code=201)
     def create_job(request: JobRequest) -> dict[str, int | str]:

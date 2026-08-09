@@ -39,6 +39,12 @@ class FakeProcurementRepository:
     def get_shop(self, shop_id):
         return self.shops.get(shop_id)
 
+    def update_shop_profile(self, shop_id, **values):
+        if shop_id not in self.shops:
+            raise ValueError("Shop unbekannt")
+        self.shops[shop_id].update(values)
+        return self.shops[shop_id]
+
     def get_line(self, line_id):
         return self.lines.get(line_id)
 
@@ -95,17 +101,56 @@ def test_next_job_and_check_line_are_single_repository_calls():
     assert set(checked) == {"line", "stock", "previous_purchases", "cached_offers"}
 
 
-def test_record_shop_accepts_only_ch_and_starts_unverified():
+def test_record_shop_accepts_only_sourced_ch_profile_and_starts_unverified():
     procurement = service()
 
     shop = procurement.record_shop(
-        "Neu", "https://neu.ch/versand", "CH", 7.9, 100, None, 3
+        "Neu",
+        "https://neu.ch/",
+        "CH",
+        7.9,
+        100,
+        None,
+        3,
+        "https://neu.ch/versand",
+        "Pauschale Versand CHF 7.90; Lieferung in 3 Arbeitstagen",
     )
 
     assert shop["status"] == "ungeprueft"
     assert shop["domain"] == "neu.ch"
+    assert shop["profil_quelle_url"] == "https://neu.ch/versand"
     with pytest.raises(ValidationError, match="nur Shops aus der Schweiz"):
-        procurement.record_shop("DE", "https://de.example", "DE", 5, None, None, 3)
+        procurement.record_shop(
+            "DE", "https://de.example", "DE", 5, None, None, 3,
+            "https://de.example/versand", "Versand 5 EUR",
+        )
+    with pytest.raises(ValidationError, match="Profil-Quelle"):
+        procurement.record_shop(
+            "Ohne Quelle", "https://ohne.ch", "CH", 5, None, None, None, "", "Versand CHF 5",
+        )
+    with pytest.raises(ValidationError, match="Versand-Originaltext"):
+        procurement.record_shop(
+            "Ohne Text", "https://ohne.ch", "CH", 5, None, None, None,
+            "https://ohne.ch/versand", "",
+        )
+
+
+def test_shop_profile_audit_allows_unknown_default_days_but_never_unsourced_values():
+    repository = FakeProcurementRepository()
+    procurement = ProcurementService(repository)
+
+    result = procurement.record_shop_profile(
+        1,
+        versand_chf=7.9,
+        gratis_ab_chf=None,
+        mindestbestellwert_chf=None,
+        lieferzeit_default_tage=None,
+        profil_quelle_url="https://shop.ch/versand",
+        versand_text="B-Post Economy CHF 7.90; keine Lieferdauer genannt",
+    )
+
+    assert result["lieferzeit_default_tage"] is None
+    assert result["profil_quelle_url"].endswith("/versand")
 
 
 def test_delivery_text_parser_uses_conservative_range_upper_bound():

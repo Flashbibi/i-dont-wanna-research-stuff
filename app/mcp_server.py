@@ -54,9 +54,11 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         versand_chf: float,
         gratis_ab_chf: float | None,
         mindestbestellwert_chf: float | None,
-        lieferzeit_default_tage: int,
+        lieferzeit_default_tage: int | None,
+        profil_quelle_url: str,
+        versand_text: str,
     ) -> dict[str, Any]:
-        """Schweizer Shop vor seinem ersten Angebot als ungeprueft erfassen."""
+        """Nur gegen eine Profil-Quellseite geprüften Schweizer Shop erfassen."""
         return service.record_shop(
             name,
             url,
@@ -65,6 +67,8 @@ def build_mcp(service: ProcurementService) -> FastMCP:
             gratis_ab_chf,
             mindestbestellwert_chf,
             lieferzeit_default_tage,
+            profil_quelle_url,
+            versand_text,
         )
 
     @mcp.tool()

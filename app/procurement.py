@@ -18,6 +18,7 @@ class ProcurementRepository(Protocol):
     def check_line(self, line_id: int) -> dict[str, Any] | None: ...
     def create_shop(self, **values: Any) -> dict[str, Any]: ...
     def get_shop(self, shop_id: int) -> dict[str, Any] | None: ...
+    def update_shop_profile(self, shop_id: int, **values: Any) -> dict[str, Any]: ...
     def get_line(self, line_id: int) -> dict[str, Any] | None: ...
     def create_offer(self, **values: Any) -> dict[str, Any]: ...
     def mark_line(self, line_id: int, status: str, kommentar: str | None) -> dict[str, Any]: ...
@@ -80,6 +81,41 @@ class ProcurementService:
             raise ValidationError(f"Zeile {line_id} ist unbekannt")
         return result
 
+    def _validated_shop_profile(
+        self,
+        *,
+        versand_chf: Any,
+        gratis_ab_chf: Any | None,
+        mindestbestellwert_chf: Any | None,
+        lieferzeit_default_tage: int | None,
+        profil_quelle_url: str,
+        versand_text: str,
+    ) -> dict[str, Any]:
+        if not profil_quelle_url or not profil_quelle_url.strip():
+            raise ValidationError("Profil-Quelle fehlt")
+        _hostname(profil_quelle_url, "Profil-Quelle")
+        if not versand_text or not versand_text.strip():
+            raise ValidationError("Versand-Originaltext fehlt")
+        shipping = _decimal(versand_chf, "Versand")
+        free_from = None if gratis_ab_chf is None else _decimal(gratis_ab_chf, "Gratisgrenze")
+        minimum = (
+            None
+            if mindestbestellwert_chf is None
+            else _decimal(mindestbestellwert_chf, "Mindestbestellwert")
+        )
+        if lieferzeit_default_tage is not None and (
+            not isinstance(lieferzeit_default_tage, int) or lieferzeit_default_tage <= 0
+        ):
+            raise ValidationError("Standard-Lieferzeit muss leer oder eine positive ganze Tageszahl sein")
+        return {
+            "versand_chf": shipping,
+            "gratis_ab_chf": free_from,
+            "mindestbestellwert_chf": minimum,
+            "lieferzeit_default_tage": lieferzeit_default_tage,
+            "profil_quelle_url": profil_quelle_url.strip(),
+            "versand_text": versand_text.strip(),
+        }
+
     def record_shop(
         self,
         name: str,
@@ -88,32 +124,53 @@ class ProcurementService:
         versand_chf: Any,
         gratis_ab_chf: Any | None,
         mindestbestellwert_chf: Any | None,
-        lieferzeit_default_tage: int,
+        lieferzeit_default_tage: int | None,
+        profil_quelle_url: str,
+        versand_text: str,
     ) -> dict[str, Any]:
         if land != "CH":
             raise ValidationError("Es sind nur Shops aus der Schweiz (land=CH) erlaubt")
         if not name.strip():
             raise ValidationError("Shop-Name fehlt")
         domain = _hostname(url, "Shop-URL")
-        shipping = _decimal(versand_chf, "Versand")
-        free_from = None if gratis_ab_chf is None else _decimal(gratis_ab_chf, "Gratisgrenze")
-        minimum = (
-            None
-            if mindestbestellwert_chf is None
-            else _decimal(mindestbestellwert_chf, "Mindestbestellwert")
+        profile = self._validated_shop_profile(
+            versand_chf=versand_chf,
+            gratis_ab_chf=gratis_ab_chf,
+            mindestbestellwert_chf=mindestbestellwert_chf,
+            lieferzeit_default_tage=lieferzeit_default_tage,
+            profil_quelle_url=profil_quelle_url,
+            versand_text=versand_text,
         )
-        if not isinstance(lieferzeit_default_tage, int) or lieferzeit_default_tage <= 0:
-            raise ValidationError("Standard-Lieferzeit muss eine positive ganze Tageszahl sein")
         return self.repository.create_shop(
             name=name.strip(),
             url=url,
             domain=domain,
             land="CH",
-            versand_chf=shipping,
-            gratis_ab_chf=free_from,
-            mindestbestellwert_chf=minimum,
-            lieferzeit_default_tage=lieferzeit_default_tage,
+            **profile,
         )
+
+    def record_shop_profile(
+        self,
+        shop_id: int,
+        *,
+        versand_chf: Any,
+        gratis_ab_chf: Any | None,
+        mindestbestellwert_chf: Any | None,
+        lieferzeit_default_tage: int | None,
+        profil_quelle_url: str,
+        versand_text: str,
+    ) -> dict[str, Any]:
+        if self.repository.get_shop(shop_id) is None:
+            raise ValidationError(f"Shop {shop_id} ist unbekannt")
+        profile = self._validated_shop_profile(
+            versand_chf=versand_chf,
+            gratis_ab_chf=gratis_ab_chf,
+            mindestbestellwert_chf=mindestbestellwert_chf,
+            lieferzeit_default_tage=lieferzeit_default_tage,
+            profil_quelle_url=profil_quelle_url,
+            versand_text=versand_text,
+        )
+        return self.repository.update_shop_profile(shop_id, **profile)
 
     def record_offer(
         self,
@@ -374,8 +431,15 @@ class ProcurementService:
             line_id = int(line_id_text)
             row = offer_rows[offer_id]
             shop = shop_rows[int(row["shop_id"])]
-            estimated = row.get("lieferzeit_tage") is None
-            effective_days = row.get("lieferzeit_tage") or shop["lieferzeit_default_tage"]
+            estimated = (
+                row.get("lieferzeit_tage") is None
+                and shop.get("lieferzeit_default_tage") is not None
+            )
+            effective_days = (
+                row.get("lieferzeit_tage")
+                if row.get("lieferzeit_tage") is not None
+                else shop.get("lieferzeit_default_tage")
+            )
             assumption = len(product_keys.get(line_id, set())) > 1
             lines.append(
                 {
@@ -388,7 +452,9 @@ class ProcurementService:
                     "produktname": row.get("produktname"),
                     "produkt_url": row.get("produkt_url"),
                     "einzelpreis_chf": str(row["preis_chf"]),
-                    "lieferzeit_tage": int(effective_days),
+                    "lieferzeit_tage": (
+                        None if effective_days is None else int(effective_days)
+                    ),
                     "lieferzeit_text": row.get("lieferzeit_text"),
                     "lieferzeit_geschaetzt": estimated,
                     "assumption": assumption,
@@ -437,7 +503,11 @@ class ProcurementService:
                     if row.get("mindestbestellwert_chf") is None
                     else Decimal(str(row["mindestbestellwert_chf"]))
                 ),
-                lieferzeit_default_tage=int(row["lieferzeit_default_tage"]),
+                lieferzeit_default_tage=(
+                    None
+                    if row.get("lieferzeit_default_tage") is None
+                    else int(row["lieferzeit_default_tage"])
+                ),
             )
             for row in data.get("shops", [])
         ]
@@ -454,5 +524,6 @@ class ProcurementService:
             "max_liefertage": variant.max_liefertage,
             "score": str(variant.score),
             "contains_estimates": variant.contains_estimates,
+            "contains_unknown_delivery": variant.contains_unknown_delivery,
             "missing_line_ids": list(variant.missing_line_ids),
         }

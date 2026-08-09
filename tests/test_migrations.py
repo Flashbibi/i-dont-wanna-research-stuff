@@ -129,3 +129,15 @@ def test_e2e_job_marker_migration_is_additive():
     assert "ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE" in sql
     assert "DELETE " not in sql.upper()
     assert "DROP " not in sql.upper()
+
+
+def test_shop_profile_source_migration_is_additive_and_enforces_provenance():
+    sql = Path("migrations/007_shop_profile_sources.sql").read_text()
+
+    assert "ADD COLUMN IF NOT EXISTS profil_quelle_url TEXT" in sql
+    assert "ADD COLUMN IF NOT EXISTS versand_text TEXT" in sql
+    assert "ALTER COLUMN lieferzeit_default_tage DROP NOT NULL" in sql
+    assert "shop_profile_requires_source" in sql
+    assert "shop_shipping_requires_text" in sql
+    assert "DELETE " not in sql.upper()
+    assert "DROP TABLE" not in sql.upper()
