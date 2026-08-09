@@ -28,28 +28,28 @@ try {
   const card = page.locator(`#offer-${offerId}`);
   await card.waitFor();
   const initialClass = await card.getAttribute('class');
-  const initialStatus = initialClass.includes('decision-bestaetigt')
-    ? 'bestaetigt'
-    : initialClass.includes('decision-verworfen') ? 'verworfen' : null;
+  const initialStatus = initialClass.includes('override-pin')
+    ? 'pin'
+    : initialClass.includes('override-exclude') ? 'exclude' : null;
   assert.ok(initialStatus, 'Testangebot braucht einen wiederherstellbaren Ausgangsstatus');
-  const targetStatus = initialStatus === 'bestaetigt' ? 'verworfen' : 'bestaetigt';
-  const targetLabel = targetStatus === 'bestaetigt' ? 'Bestätigen' : 'Verwerfen';
-  const targetFeedback = targetStatus === 'bestaetigt' ? 'Bestätigt' : 'Verworfen';
+  const targetStatus = initialStatus === 'pin' ? 'exclude' : 'pin';
+  const targetLabel = targetStatus === 'pin' ? 'Pin' : 'Ausschließen';
+  const targetFeedback = targetStatus === 'pin' ? 'Gepinnt' : 'Ausgeschlossen';
 
   await card.getByRole('button', {name: targetLabel, exact: true}).click();
   await card.locator('[role="status"]').filter({hasText: targetFeedback}).waitFor();
-  assert.ok((await card.getAttribute('class')).includes(`decision-${targetStatus}`));
+  assert.ok((await card.getAttribute('class')).includes(`override-${targetStatus}`));
 
   await page.reload({waitUntil: 'networkidle'});
   const reloaded = page.locator(`#offer-${offerId}`);
-  assert.ok((await reloaded.getAttribute('class')).includes(`decision-${targetStatus}`));
+  assert.ok((await reloaded.getAttribute('class')).includes(`override-${targetStatus}`));
   assert.equal((await reloaded.locator('[role="status"]').innerText()).trim(), targetFeedback);
 
-  const restoreLabel = initialStatus === 'bestaetigt' ? 'Bestätigen' : 'Verwerfen';
+  const restoreLabel = initialStatus === 'pin' ? 'Pin' : 'Ausschließen';
   await reloaded.getByRole('button', {name: restoreLabel, exact: true}).click();
-  await reloaded.locator('[role="status"]').filter({hasText: initialStatus === 'bestaetigt' ? 'Bestätigt' : 'Verworfen'}).waitFor();
+  await reloaded.locator('[role="status"]').filter({hasText: initialStatus === 'pin' ? 'Gepinnt' : 'Ausgeschlossen'}).waitFor();
   await page.reload({waitUntil: 'networkidle'});
-  assert.ok((await page.locator(`#offer-${offerId}`).getAttribute('class')).includes(`decision-${initialStatus}`));
+  assert.ok((await page.locator(`#offer-${offerId}`).getAttribute('class')).includes(`override-${initialStatus}`));
 
   assert.deepEqual(evidence.consoleErrors, []);
   assert.deepEqual(evidence.failedRequests, []);

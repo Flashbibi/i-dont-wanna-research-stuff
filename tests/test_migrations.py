@@ -110,3 +110,14 @@ def test_offer_daily_history_migration_preserves_observations_and_enforces_sourc
     assert "lieferzeit_tage IS NULL OR lieferzeit_text IS NOT NULL" in sql
     assert "DELETE " not in sql.upper()
     assert "DROP TABLE" not in sql.upper()
+
+
+def test_decision_override_migration_reuses_rows_additively():
+    sql = Path("migrations/005_decision_overrides.sql").read_text()
+
+    assert "ADD COLUMN IF NOT EXISTS override_status TEXT" in sql
+    assert "'pin', 'exclude'" in sql
+    assert "WHEN status = 'bestaetigt' THEN 'pin'" in sql
+    assert "WHEN status = 'verworfen' THEN 'exclude'" in sql
+    assert "DELETE " not in sql.upper()
+    assert "DROP " not in sql.upper()

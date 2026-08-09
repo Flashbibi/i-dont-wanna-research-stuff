@@ -2,7 +2,7 @@
 {% block title %}Job #{{ job.id }} · Beschaffung{% endblock %}
 {% block content %}
 <div class="section-head"><div><p class="eyebrow">{{ job.status }}</p><h1>Job #{{ job.id }}</h1></div><a class="button primary" href="/jobs/{{ job.id }}/variants">Varianten rechnen</a></div>
-<p class="muted">Kandidaten werden ergänzt, während der Auftrag bearbeitet wird. Nach rechts = bestätigen, nach links = verwerfen.</p>
+<p class="muted">Alle gültigen Angebote fließen automatisch in die Szenarien ein. Pin fixiert ein Produkt für die Zeile; Ausschließen entfernt nur dieses Angebot.</p>
 <div class="bom">
 {% for line in job.lines %}
 <section class="panel line">
@@ -10,7 +10,7 @@
   {% if line.kommentar %}<p>{{ line.kommentar }}</p>{% endif %}
   <div class="offers">
   {% for offer in line.offers %}
-    <article id="offer-{{ offer.id }}" class="offer swipe-card decision-{{ offer.decision or 'offen' }}" data-offer="{{ offer.id }}">
+    <article id="offer-{{ offer.id }}" class="offer swipe-card decision-{{ 'bestaetigt' if offer.decision == 'pin' else 'verworfen' if offer.decision == 'exclude' else 'offen' }} override-{{ offer.decision or 'neutral' }}" data-offer="{{ offer.id }}">
       <div><span class="shop">{{ offer.shop_name }}</span>{% if offer.shop_status == 'ungeprueft' %}<span class="badge warning">ungeprueft</span>{% endif %}</div>
       <h3><a href="{{ offer.produkt_url }}" target="_blank" rel="noopener">{{ offer.produktname }}</a></h3>
       <div class="price">CHF {{ offer.preis_chf }}</div>
@@ -33,10 +33,11 @@
       </div>
       <form class="actions decision-form" action="/offers/{{ offer.id }}/decision" method="post">
         <input type="hidden" name="job_id" value="{{ job.id }}">
-        <button type="submit" name="status" value="verworfen" data-decision="verworfen">Verwerfen</button>
-        <button type="submit" name="status" value="bestaetigt" class="primary" data-decision="bestaetigt">Bestätigen</button>
+        <button type="submit" name="status" value="exclude" data-decision="exclude">Ausschließen</button>
+        <button type="submit" name="status" value="pin" class="primary" data-decision="pin">Pin</button>
+        {% if offer.decision %}<button type="submit" name="status" value="neutral" data-decision="neutral">Override aufheben</button>{% endif %}
       </form>
-      <p class="decision-feedback" role="status" aria-live="polite">{% if offer.decision == 'bestaetigt' %}Bestätigt{% elif offer.decision == 'verworfen' %}Verworfen{% endif %}</p>
+      <p class="decision-feedback" role="status" aria-live="polite">{% if offer.decision == 'pin' %}Gepinnt{% elif offer.decision == 'exclude' %}Ausgeschlossen{% endif %}</p>
     </article>
   {% else %}<p class="muted waiting">Noch keine Kandidaten – diese Seite aktualisiert sich automatisch.</p>{% endfor %}
   </div>
@@ -44,4 +45,4 @@
 {% endfor %}
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/job.js?v=2" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/job.js?v=3" defer></script>{% endblock %}

@@ -69,8 +69,23 @@ class UIRepository:
 
     def optimization_input(self, job_id):
         return {
-            "offers": [{"id": 31, "line_id": 10, "shop_id": 1, "preis_chf": "10", "menge": 2, "lieferzeit_tage": 2, "produktname": "MG996R Servo", "produkt_url": "https://shop.example.ch/mg996r", "suchtext": "Servo"}],
+            "offers": [{
+                "id": 31,
+                "line_id": 10,
+                "shop_id": 1,
+                "preis_chf": "10",
+                "menge": 2,
+                "lieferzeit_tage": 2,
+                "lieferzeit_text": "2 Tage",
+                "produktname": "MG996R Servo",
+                "produkt_url": "https://shop.example.ch/mg996r",
+                "suchtext": "Servo",
+                "position": 1,
+                "override_status": self.decision_by_offer.get(31),
+            }],
             "shops": [{"id": 1, "name": "Servo Shop", "url": "https://shop.example.ch", "versand_chf": "8", "gratis_ab_chf": None, "mindestbestellwert_chf": None, "lieferzeit_default_tage": 3}],
+            "required_line_ids": [10],
+            "lines": [{"id": 10, "position": 1, "suchtext": "Servo"}],
         }
 
     def list_purchases(self):
@@ -120,14 +135,14 @@ def test_job_page_shows_progressive_candidates_badge_and_decision_buttons():
     client, repository = client_and_repo()
 
     page = client.get("/jobs/7")
-    decision = client.post("/api/offers/31/decision", json={"status": "bestaetigt"})
+    decision = client.post("/api/offers/31/decision", json={"status": "pin"})
 
     assert page.status_code == 200
     assert "MG996R Servo" in page.text
     assert "ungeprueft" in page.text
-    assert "Bestätigen" in page.text
+    assert "Pin" in page.text
     assert decision.status_code == 200
-    assert repository.decisions == [(31, "bestaetigt")]
+    assert repository.decisions == [(31, "pin")]
 
 
 def test_decision_has_form_fallback_and_persists_after_redirect_reload():
@@ -136,7 +151,7 @@ def test_decision_has_form_fallback_and_persists_after_redirect_reload():
     initial = client.get("/jobs/7")
     submitted = client.post(
         "/offers/31/decision",
-        data={"status": "bestaetigt", "job_id": "7"},
+        data={"status": "pin", "job_id": "7"},
         follow_redirects=False,
     )
     reloaded = client.get("/jobs/7")
@@ -145,10 +160,10 @@ def test_decision_has_form_fallback_and_persists_after_redirect_reload():
     assert 'role="status"' in initial.text
     assert submitted.status_code == 303
     assert submitted.headers["location"] == "/jobs/7#offer-31"
-    assert repository.decisions == [(31, "bestaetigt")]
+    assert repository.decisions == [(31, "pin")]
     assert 'id="offer-31"' in reloaded.text
     assert "decision-bestaetigt" in reloaded.text
-    assert "Bestätigt" in reloaded.text
+    assert "Gepinnt" in reloaded.text
 
 
 def test_job_page_shows_literal_delivery_and_lager_text_with_labeled_fallback():
@@ -170,6 +185,10 @@ def test_variants_page_and_server_side_tempo_api_include_links_and_totals():
 
     page = client.get("/jobs/7/variants")
     variants = client.get("/api/jobs/7/variants?tempo=0.5")
+    scenarios = client.post(
+        "/api/jobs/7/scenarios",
+        json={"pins": {}, "excludes": [], "tempo": 0.5},
+    )
 
     assert page.status_code == 200
     assert 'type="range"' in page.text
@@ -177,6 +196,10 @@ def test_variants_page_and_server_side_tempo_api_include_links_and_totals():
     assert payload[0]["total_chf"] == "28.00"
     assert payload[0]["lines"][0]["produkt_url"].endswith("/mg996r")
     assert payload[0]["shops"][0]["name"] == "Servo Shop"
+    assert scenarios.status_code == 200
+    assert [item["key"] for item in scenarios.json()["scenarios"]] == [
+        "cheapest", "fastest", "one_shop", "balanced"
+    ]
 
 
 def test_history_repeat_arrival_and_shop_moderation_are_available():

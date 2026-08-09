@@ -54,11 +54,26 @@ class FakeProcurementRepository:
     def optimization_input(self, job_id):
         return {
             "offers": [
-                {"id": 31, "line_id": 10, "shop_id": 1, "preis_chf": "10", "menge": 2, "lieferzeit_tage": 2}
+                {
+                    "id": 31,
+                    "line_id": 10,
+                    "shop_id": 1,
+                    "preis_chf": "10",
+                    "menge": 2,
+                    "lieferzeit_tage": 2,
+                    "lieferzeit_text": "2 Tage",
+                    "produktname": "MG996R Servo",
+                    "produkt_url": "https://shop.example.ch/mg996r",
+                    "suchtext": "Servo",
+                    "position": 1,
+                    "override_status": None,
+                }
             ],
             "shops": [
-                {"id": 1, "name": "Servo Shop", "versand_chf": "8", "gratis_ab_chf": None, "mindestbestellwert_chf": None, "lieferzeit_default_tage": 3}
+                {"id": 1, "name": "Servo Shop", "url": "https://shop.example.ch", "versand_chf": "8", "gratis_ab_chf": None, "mindestbestellwert_chf": None, "lieferzeit_default_tage": 3}
             ],
+            "required_line_ids": [10],
+            "lines": [{"id": 10, "position": 1, "suchtext": "Servo"}],
         }
 
     def create_purchase(self, job_id, variant, ordered_at, promised_days):
@@ -177,6 +192,25 @@ def test_plan_order_calls_pure_optimizer_and_serializes_variant():
     assert variants[0]["assignments"] == {"10": 31}
     assert variants[0]["total_chf"] == "28.00"
     assert variants[0]["score"] == "43.000"
+
+
+def test_plan_scenarios_serializes_presets_source_delivery_and_estimate_flag():
+    procurement = service()
+
+    result = procurement.plan_scenarios(5)
+
+    assert [item["key"] for item in result["scenarios"]] == [
+        "cheapest",
+        "fastest",
+        "one_shop",
+        "balanced",
+    ]
+    cheapest = result["scenarios"][0]
+    assert cheapest["label"] == "Am günstigsten"
+    assert cheapest["contains_estimates"] is False
+    assert cheapest["lines"][0]["lieferzeit_text"] == "2 Tage"
+    assert cheapest["lines"][0]["produkt_url"].endswith("/mg996r")
+    assert cheapest["complete"] is True
 
 
 def test_plan_order_returns_no_partial_variant_when_a_required_line_lacks_confirmation():

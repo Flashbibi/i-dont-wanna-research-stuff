@@ -34,7 +34,13 @@ class JobRequest(BaseModel):
 
 
 class DecisionRequest(BaseModel):
-    status: Literal["bestaetigt", "verworfen"]
+    status: Literal["pin", "exclude", "neutral"]
+
+
+class ScenarioRequest(BaseModel):
+    pins: dict[str, int] | None = None
+    excludes: list[int] | None = None
+    tempo: float = 0.5
 
 
 class PurchaseRequest(BaseModel):
@@ -150,7 +156,7 @@ def create_app(
 
     @application.post("/offers/{offer_id}/decision")
     def decide_offer_form(offer_id: int, status: str = Form(...), job_id: int = Form(...)):
-        if status not in {"bestaetigt", "verworfen"}:
+        if status not in {"pin", "exclude", "neutral"}:
             raise HTTPException(422, "Ungültige Entscheidung")
         try:
             active_repository.record_decision(offer_id, status)
@@ -163,6 +169,18 @@ def create_app(
         try:
             return active_repository.record_decision(offer_id, request.status)
         except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @application.post("/api/jobs/{job_id}/scenarios")
+    def scenarios(job_id: int, request: ScenarioRequest) -> dict[str, Any]:
+        try:
+            return procurement.plan_scenarios(
+                job_id,
+                pins=request.pins,
+                excludes=request.excludes,
+                tempo=request.tempo,
+            )
+        except (ValidationError, ValueError) as error:
             raise HTTPException(422, str(error)) from error
 
     @application.get("/api/jobs/{job_id}/variants")

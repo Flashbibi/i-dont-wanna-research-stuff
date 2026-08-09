@@ -1,11 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Varianten Job #{{ job_id }}{% endblock %}
+{% block title %}Szenarien Job #{{ job_id }}{% endblock %}
 {% block content %}
-<div class="section-head"><div><p class="eyebrow">Job #{{ job_id }}</p><h1>Bestellvarianten</h1></div><a class="button" href="/jobs/{{ job_id }}">Zurück zu Kandidaten</a></div>
+<div class="section-head"><div><p class="eyebrow">Job #{{ job_id }}</p><h1>Bestellszenarien</h1></div><a class="button" href="/jobs/{{ job_id }}">Zurück zu Angeboten</a></div>
+<div id="scenarios" class="scenario-grid"><p class="muted">Szenarien werden gerechnet …</p></div>
 <section class="panel slider-panel">
+  <h2>Feineinstellung</h2>
   <label for="tempo"><span>Billig</span><strong id="tempo-value">50%</strong><span>Schnell</span></label>
   <input id="tempo" type="range" min="0" max="1" step="0.05" value="0.5" data-job="{{ job_id }}">
 </section>
-<div id="variants" class="variants"><p class="muted">Varianten werden gerechnet…</p></div>
+<div id="variants" class="variants"><p class="muted">Varianten werden gerechnet …</p></div>
 {% endblock %}
-{% block scripts %}<script src="/static/variants.js"></script>{% endblock %}
+{% block scripts %}<script src="/static/variants.js?v=2" defer></script>{% endblock %}

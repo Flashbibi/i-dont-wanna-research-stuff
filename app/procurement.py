@@ -3,10 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import re
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
-from .optimizer import Offer, ShopProfile, optimize_orders
+from .optimizer import Offer, ShopProfile, optimize_orders, plan_scenarios as build_scenarios
 
 
 class ValidationError(ValueError):
@@ -176,6 +176,8 @@ class ProcurementService:
             raise ValidationError("tempo muss zwischen 0 und 1 liegen")
         data = self.repository.optimization_input(job_id)
         offers, shops = self._optimizer_objects(data)
+        pins, excludes = self._overrides(data)
+        offers = self._apply_overrides(offers, pins, excludes)
         required_line_ids = {
             int(value) for value in data.get("required_line_ids", [offer.line_id for offer in offers])
         }
@@ -185,35 +187,81 @@ class ProcurementService:
             self._serialize_variant(variant)
             for variant in optimize_orders(offers, shops, tempo)
         ]
-        offer_rows = {int(row["id"]): row for row in data.get("offers", [])}
+        return [self._enrich_variant(variant, data) for variant in variants]
+
+    def plan_scenarios(
+        self,
+        job_id: int,
+        pins: Mapping[int | str, int] | None = None,
+        excludes: list[int] | set[int] | None = None,
+        tempo: float = 0.5,
+    ) -> dict[str, Any]:
+        if not isinstance(tempo, (int, float)) or isinstance(tempo, bool) or not 0 <= tempo <= 1:
+            raise ValidationError("tempo muss zwischen 0 und 1 liegen")
+        data = self.repository.optimization_input(job_id)
+        offers, shops = self._optimizer_objects(data)
+        persisted_pins, persisted_excludes = self._overrides(data)
+        effective_pins = {**persisted_pins, **{int(key): int(value) for key, value in (pins or {}).items()}}
+        effective_excludes = persisted_excludes | {int(value) for value in (excludes or [])}
+        required = [int(value) for value in data.get("required_line_ids", [])]
+        try:
+            presets = build_scenarios(
+                offers,
+                shops,
+                required_line_ids=required,
+                pins=effective_pins,
+                excludes=effective_excludes,
+            )
+            tuned_offers = self._apply_overrides(offers, effective_pins, effective_excludes)
+            tuned_variants = optimize_orders(tuned_offers, shops, tempo)
+        except ValueError as error:
+            raise ValidationError(str(error)) from error
+
+        labels = {
+            "cheapest": "Am günstigsten",
+            "fastest": "Am schnellsten",
+            "one_shop": "Ein Shop",
+            "balanced": "Ausgewogen",
+        }
+        scenarios = []
+        for key in ("cheapest", "fastest", "one_shop", "balanced"):
+            if key not in presets:
+                continue
+            variant = self._enrich_variant(self._serialize_variant(presets[key]), data)
+            variant["key"] = key
+            variant["label"] = labels[key]
+            scenarios.append(variant)
+        fine_tuned = [
+            self._enrich_variant(self._serialize_variant(variant), data)
+            for variant in tuned_variants
+        ]
+        choices: dict[str, list[dict[str, Any]]] = {}
         shop_rows = {int(row["id"]): row for row in data.get("shops", [])}
-        for variant in variants:
-            variant["shops"] = [
+        for row in data.get("offers", []):
+            if int(row["id"]) in effective_excludes:
+                continue
+            line_key = str(int(row["line_id"]))
+            product_key = self._product_key(row.get("produktname"))
+            existing_keys = {choice["product_key"] for choice in choices.get(line_key, [])}
+            if product_key in existing_keys:
+                continue
+            choices.setdefault(line_key, []).append(
                 {
-                    "id": shop_id,
-                    "name": shop_rows[shop_id]["name"],
-                    "url": shop_rows[shop_id].get("url"),
-                    "subtotal_chf": variant["subtotals"][str(shop_id)],
-                    "versand_chf": variant["shipping"][str(shop_id)],
+                    "offer_id": int(row["id"]),
+                    "product_key": product_key,
+                    "produktname": row.get("produktname"),
+                    "shop_name": shop_rows[int(row["shop_id"])]["name"],
+                    "preis_chf": str(row["preis_chf"]),
                 }
-                for shop_id in variant["shop_ids"]
-            ]
-            variant["lines"] = []
-            for line_id_text, offer_id in variant["assignments"].items():
-                row = offer_rows[offer_id]
-                variant["lines"].append(
-                    {
-                        "line_id": int(line_id_text),
-                        "offer_id": offer_id,
-                        "suchtext": row.get("suchtext"),
-                        "menge": int(row["menge"]),
-                        "shop_id": int(row["shop_id"]),
-                        "produktname": row.get("produktname"),
-                        "produkt_url": row.get("produkt_url"),
-                        "einzelpreis_chf": str(row["preis_chf"]),
-                    }
-                )
-        return variants
+            )
+        return {
+            "job_id": job_id,
+            "pins": {str(key): value for key, value in effective_pins.items()},
+            "excludes": sorted(effective_excludes),
+            "choices": choices,
+            "scenarios": scenarios,
+            "fine_tuned": fine_tuned,
+        }
 
     def record_purchase(
         self,
@@ -230,6 +278,8 @@ class ProcurementService:
             raise ValidationError("bestellt_am braucht eine Zeitzone")
         data = self.repository.optimization_input(job_id)
         offers, shops = self._optimizer_objects(data)
+        pins, excludes = self._overrides(data)
+        offers = self._apply_overrides(offers, pins, excludes)
         required_line_ids = {
             int(value) for value in data.get("required_line_ids", [offer.line_id for offer in offers])
         }
@@ -259,6 +309,106 @@ class ProcurementService:
         )
 
     @staticmethod
+    def _product_key(name: Any) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", str(name or "").lower()).strip()
+
+    @staticmethod
+    def _overrides(data: dict[str, Any]) -> tuple[dict[int, int], set[int]]:
+        pins = {
+            int(row["line_id"]): int(row["id"])
+            for row in data.get("offers", [])
+            if row.get("override_status") == "pin"
+        }
+        excludes = {
+            int(row["id"])
+            for row in data.get("offers", [])
+            if row.get("override_status") == "exclude"
+        }
+        return pins, excludes
+
+    @staticmethod
+    def _apply_overrides(
+        offers: list[Offer], pins: dict[int, int], excludes: set[int]
+    ) -> list[Offer]:
+        available = [offer for offer in offers if offer.id not in excludes]
+        pinned_keys = {
+            line_id: next(
+                (offer.product_key for offer in offers if offer.id == offer_id and offer.line_id == line_id),
+                None,
+            )
+            for line_id, offer_id in pins.items()
+        }
+        return [
+            offer
+            for offer in available
+            if offer.line_id not in pins
+            or (
+                offer.product_key == pinned_keys[offer.line_id]
+                if pinned_keys[offer.line_id] is not None
+                else offer.id == pins[offer.line_id]
+            )
+        ]
+
+    @staticmethod
+    def _enrich_variant(variant: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
+        offer_rows = {int(row["id"]): row for row in data.get("offers", [])}
+        shop_rows = {int(row["id"]): row for row in data.get("shops", [])}
+        line_rows = {int(row["id"]): row for row in data.get("lines", [])}
+        product_keys: dict[int, set[str]] = {}
+        for row in data.get("offers", []):
+            key = re.sub(r"[^a-z0-9]+", " ", str(row.get("produktname", "")).lower()).strip()
+            product_keys.setdefault(int(row["line_id"]), set()).add(key)
+
+        variant["shops"] = [
+            {
+                "id": shop_id,
+                "name": shop_rows[shop_id]["name"],
+                "url": shop_rows[shop_id].get("url"),
+                "subtotal_chf": variant["subtotals"][str(shop_id)],
+                "versand_chf": variant["shipping"][str(shop_id)],
+            }
+            for shop_id in variant["shop_ids"]
+        ]
+        lines = []
+        for line_id_text, offer_id in variant["assignments"].items():
+            line_id = int(line_id_text)
+            row = offer_rows[offer_id]
+            shop = shop_rows[int(row["shop_id"])]
+            estimated = row.get("lieferzeit_tage") is None
+            effective_days = row.get("lieferzeit_tage") or shop["lieferzeit_default_tage"]
+            assumption = len(product_keys.get(line_id, set())) > 1
+            lines.append(
+                {
+                    "line_id": line_id,
+                    "position": int(row.get("position", line_rows.get(line_id, {}).get("position", 0))),
+                    "offer_id": offer_id,
+                    "suchtext": row.get("suchtext") or line_rows.get(line_id, {}).get("suchtext"),
+                    "menge": int(row["menge"]),
+                    "shop_id": int(row["shop_id"]),
+                    "produktname": row.get("produktname"),
+                    "produkt_url": row.get("produkt_url"),
+                    "einzelpreis_chf": str(row["preis_chf"]),
+                    "lieferzeit_tage": int(effective_days),
+                    "lieferzeit_text": row.get("lieferzeit_text"),
+                    "lieferzeit_geschaetzt": estimated,
+                    "assumption": assumption,
+                    "assumption_text": f"Annahme: {row.get('produktname')}" if assumption else None,
+                    "pinned": row.get("override_status") == "pin",
+                }
+            )
+        variant["lines"] = sorted(lines, key=lambda row: (row["position"], row["line_id"]))
+        variant["missing_lines"] = [
+            {
+                "line_id": line_id,
+                "position": line_rows.get(line_id, {}).get("position"),
+                "suchtext": line_rows.get(line_id, {}).get("suchtext"),
+            }
+            for line_id in variant.get("missing_line_ids", [])
+        ]
+        variant["complete"] = not variant["missing_lines"]
+        return variant
+
+    @staticmethod
     def _optimizer_objects(data: dict[str, Any]) -> tuple[list[Offer], list[ShopProfile]]:
         offers = [
             Offer(
@@ -268,6 +418,7 @@ class ProcurementService:
                 preis_chf=Decimal(str(row["preis_chf"])),
                 menge=int(row["menge"]),
                 lieferzeit_tage=row.get("lieferzeit_tage"),
+                product_key=ProcurementService._product_key(row.get("produktname")),
             )
             for row in data.get("offers", [])
         ]
@@ -302,4 +453,6 @@ class ProcurementService:
             "total_chf": str(variant.total_chf),
             "max_liefertage": variant.max_liefertage,
             "score": str(variant.score),
+            "contains_estimates": variant.contains_estimates,
+            "missing_line_ids": list(variant.missing_line_ids),
         }

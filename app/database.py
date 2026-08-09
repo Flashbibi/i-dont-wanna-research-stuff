@@ -294,7 +294,7 @@ class PostgresRepository:
         with self._connect() as connection:
             required_rows = connection.execute(
                 """
-                SELECT id FROM bom_line
+                SELECT id, position, suchtext FROM bom_line
                 WHERE job_id = %s AND status NOT IN ('bestand', 'nichts_gefunden', 'erledigt')
                 ORDER BY position
                 """,
@@ -303,21 +303,29 @@ class PostgresRepository:
             required_line_ids = [row["id"] for row in required_rows]
             offers = connection.execute(
                 """
-                SELECT o.id, o.line_id, o.shop_id, o.preis_chf,
-                       o.lieferzeit_tage, o.produktname, o.produkt_url,
-                       bl.menge, bl.suchtext
+                SELECT DISTINCT ON (o.line_id, o.produkt_url)
+                       o.id, o.line_id, o.shop_id, o.preis_chf,
+                       o.lieferzeit_tage, o.lieferzeit_text,
+                       o.produktname, o.produkt_url, o.gesehen_am,
+                       bl.menge, bl.suchtext, bl.position,
+                       d.override_status
                 FROM offer o
                 JOIN bom_line bl ON bl.id = o.line_id
-                JOIN decision d ON d.offer_id = o.id AND d.status = 'bestaetigt'
+                LEFT JOIN decision d ON d.offer_id = o.id
                 JOIN shop s ON s.id = o.shop_id
                 WHERE bl.job_id = %s AND s.status <> 'gesperrt'
-                ORDER BY o.id
+                ORDER BY o.line_id, o.produkt_url, o.gesehen_am DESC, o.id DESC
                 """,
                 (job_id,),
             ).fetchall()
             shop_ids = sorted({row["shop_id"] for row in offers})
             if not shop_ids:
-                return {"offers": [], "shops": [], "required_line_ids": required_line_ids}
+                return {
+                    "offers": [],
+                    "shops": [],
+                    "required_line_ids": required_line_ids,
+                    "lines": [dict(row) for row in required_rows],
+                }
             shops = connection.execute(
                 """
                 SELECT id, name, url, versand_chf, gratis_ab_chf,
@@ -330,6 +338,7 @@ class PostgresRepository:
                 "offers": [dict(row) for row in offers],
                 "shops": [dict(row) for row in shops],
                 "required_line_ids": required_line_ids,
+                "lines": [dict(row) for row in required_rows],
             }
 
     def create_purchase(
@@ -412,7 +421,7 @@ class PostgresRepository:
                        o.preis_chf, o.lieferzeit_tage, o.lieferzeit_text,
                        o.lager_text, o.lager, o.gesehen_am,
                        s.id AS shop_id, s.name AS shop_name, s.status AS shop_status,
-                       s.lieferzeit_default_tage, d.status AS decision
+                       s.lieferzeit_default_tage, d.override_status AS decision
                 FROM offer o JOIN shop s ON s.id = o.shop_id
                 LEFT JOIN decision d ON d.offer_id = o.id
                 JOIN bom_line bl ON bl.id = o.line_id
@@ -428,20 +437,47 @@ class PostgresRepository:
         return job
 
     def record_decision(self, offer_id: int, status: str) -> dict[str, Any]:
+        if status not in {"pin", "exclude", "neutral"}:
+            raise ValueError("Override muss pin, exclude oder neutral sein")
         with self._connect() as connection:
-            row = connection.execute(
-                """
-                INSERT INTO decision(line_id, offer_id, status)
-                SELECT line_id, id, %s FROM offer WHERE id = %s
-                ON CONFLICT (offer_id) DO UPDATE
-                SET status = EXCLUDED.status, entschieden_am = NOW()
-                RETURNING offer_id, status
-                """,
-                (status, offer_id),
-            ).fetchone()
-            if row is None:
-                raise ValueError(f"Angebot {offer_id} ist unbekannt")
-            return dict(row)
+            with connection.transaction():
+                offer = connection.execute(
+                    "SELECT line_id FROM offer WHERE id = %s", (offer_id,)
+                ).fetchone()
+                if offer is None:
+                    raise ValueError(f"Angebot {offer_id} ist unbekannt")
+                line_id = offer["line_id"]
+                if status == "pin":
+                    connection.execute(
+                        """
+                        UPDATE decision SET override_status = NULL, entschieden_am = NOW()
+                        WHERE line_id = %s AND override_status = 'pin' AND offer_id <> %s
+                        """,
+                        (line_id, offer_id),
+                    )
+                if status == "neutral":
+                    connection.execute(
+                        """
+                        UPDATE decision SET override_status = NULL, entschieden_am = NOW()
+                        WHERE offer_id = %s
+                        """,
+                        (offer_id,),
+                    )
+                    return {"offer_id": offer_id, "status": "neutral"}
+                legacy_status = "bestaetigt" if status == "pin" else "verworfen"
+                row = connection.execute(
+                    """
+                    INSERT INTO decision(line_id, offer_id, status, override_status)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (offer_id) DO UPDATE
+                    SET status = EXCLUDED.status,
+                        override_status = EXCLUDED.override_status,
+                        entschieden_am = NOW()
+                    RETURNING offer_id, override_status AS status
+                    """,
+                    (line_id, offer_id, legacy_status, status),
+                ).fetchone()
+                return dict(row)
 
     def list_purchases(self) -> list[dict[str, Any]]:
         with self._connect() as connection:

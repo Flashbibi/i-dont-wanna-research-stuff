@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from app.optimizer import Offer, ShopProfile, optimize_orders
+from app.optimizer import Offer, ShopProfile, optimize_orders, plan_scenarios
 
 
 def test_assigns_each_line_to_cheapest_shop_and_adds_shipping():
@@ -109,4 +109,99 @@ def test_rejects_tempo_outside_unit_interval():
 
     with pytest.raises(ValueError, match="tempo"):
         optimize_orders(offers, shops, tempo=1.01)
+
+
+def scenario_fixture():
+    shops = [
+        ShopProfile(1, "Billig", Decimal("0"), None, None, 8),
+        ShopProfile(2, "Schnell", Decimal("0"), None, None, 1),
+    ]
+    offers = [
+        Offer(11, 101, 1, Decimal("10"), 1, None),
+        Offer(12, 101, 2, Decimal("20"), 1, 1),
+        Offer(21, 102, 1, Decimal("10"), 1, None),
+        Offer(22, 102, 2, Decimal("20"), 1, 1),
+    ]
+    return offers, shops
+
+
+def test_cheapest_scenario_minimizes_total():
+    offers, shops = scenario_fixture()
+
+    scenarios = plan_scenarios(offers, shops, required_line_ids=[101, 102])
+
+    cheapest = scenarios["cheapest"]
+    assert cheapest.assignments == {101: 11, 102: 21}
+    assert cheapest.total_chf == Decimal("20.00")
+    assert cheapest.contains_estimates is True
+
+
+def test_fastest_scenario_minimizes_max_days_then_price():
+    offers, shops = scenario_fixture()
+
+    fastest = plan_scenarios(offers, shops, required_line_ids=[101, 102])["fastest"]
+
+    assert fastest.assignments == {101: 12, 102: 22}
+    assert fastest.max_liefertage == 1
+    assert fastest.total_chf == Decimal("40.00")
+
+
+def test_balanced_scenario_uses_tempo_half():
+    offers, shops = scenario_fixture()
+
+    balanced = plan_scenarios(offers, shops, required_line_ids=[101, 102])["balanced"]
+
+    assert balanced.assignments == {101: 12, 102: 22}
+    assert balanced.score == Decimal("47.500")
+
+
+def test_one_shop_scenario_reports_missing_lines_when_no_shop_covers_all():
+    shops = [
+        ShopProfile(1, "Mehr Abdeckung", Decimal("0"), None, None, 2),
+        ShopProfile(2, "Weniger Abdeckung", Decimal("0"), None, None, 1),
+    ]
+    offers = [
+        Offer(11, 101, 1, Decimal("10"), 1, 2),
+        Offer(21, 102, 1, Decimal("10"), 1, 2),
+        Offer(31, 103, 2, Decimal("1"), 1, 1),
+    ]
+
+    one_shop = plan_scenarios(offers, shops, required_line_ids=[101, 102, 103])["one_shop"]
+
+    assert one_shop.shop_ids == (1,)
+    assert one_shop.assignments == {101: 11, 102: 21}
+    assert one_shop.missing_line_ids == (103,)
+
+
+def test_scenarios_apply_pin_and_exclude_overrides():
+    offers, shops = scenario_fixture()
+
+    scenarios = plan_scenarios(
+        offers,
+        shops,
+        required_line_ids=[101, 102],
+        pins={101: 12},
+        excludes={21},
+    )
+
+    assert scenarios["cheapest"].assignments == {101: 12, 102: 22}
+    assert scenarios["fastest"].assignments == {101: 12, 102: 22}
+
+
+def test_pin_selects_product_not_shop_offer_when_product_key_matches():
+    shops = [
+        ShopProfile(1, "A", Decimal("0"), None, None, 2),
+        ShopProfile(2, "B", Decimal("0"), None, None, 2),
+    ]
+    offers = [
+        Offer(1, 101, 1, Decimal("20"), 1, 2, "same-product"),
+        Offer(2, 101, 2, Decimal("10"), 1, 2, "same-product"),
+        Offer(3, 101, 1, Decimal("5"), 1, 2, "other-product"),
+    ]
+
+    cheapest = plan_scenarios(
+        offers, shops, required_line_ids=[101], pins={101: 1}
+    )["cheapest"]
+
+    assert cheapest.assignments == {101: 2}
 

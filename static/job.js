@@ -1,6 +1,7 @@
 const decisionLabel = {
-  bestaetigt: 'Bestätigt',
-  verworfen: 'Verworfen',
+  pin: 'Gepinnt',
+  exclude: 'Ausgeschlossen',
+  neutral: 'Override aufgehoben',
 };
 
 const decide = async (card, status) => {
@@ -20,8 +21,12 @@ const decide = async (card, status) => {
     if (!response.ok) {
       throw new Error((await response.text()) || `HTTP ${response.status}`);
     }
-    card.classList.remove('decision-offen', 'decision-bestaetigt', 'decision-verworfen');
-    card.classList.add(`decision-${status}`);
+    card.classList.remove(
+      'decision-offen', 'decision-bestaetigt', 'decision-verworfen',
+      'override-neutral', 'override-pin', 'override-exclude'
+    );
+    card.classList.add(status === 'pin' ? 'decision-bestaetigt' : status === 'exclude' ? 'decision-verworfen' : 'decision-offen');
+    card.classList.add(`override-${status}`);
     feedback.textContent = decisionLabel[status];
   } catch (error) {
     feedback.textContent = `Nicht gespeichert: ${error.message}`;
@@ -50,7 +55,7 @@ document.querySelectorAll('.swipe-card').forEach(card => {
     if (start === null) return;
     const delta = event.clientX - start;
     start = null;
-    if (Math.abs(delta) > 70) decide(card, delta > 0 ? 'bestaetigt' : 'verworfen');
+    if (Math.abs(delta) > 70) decide(card, delta > 0 ? 'pin' : 'exclude');
   });
 });
 

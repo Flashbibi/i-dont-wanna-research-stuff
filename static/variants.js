@@ -1,33 +1,90 @@
 const slider = document.querySelector('#tempo');
-const target = document.querySelector('#variants');
-const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+const scenariosTarget = document.querySelector('#scenarios');
+const tunedTarget = document.querySelector('#variants');
+const esc = value => String(value ?? '').replace(/[&<>'"]/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[character]));
 let timer;
-async function loadVariants() {
-  const tempo = slider.value;
+let currentData;
+
+const deliveryText = line => line.lieferzeit_text
+  ? `${esc(line.lieferzeit_tage)} Tage · ${esc(line.lieferzeit_text)}`
+  : `${esc(line.lieferzeit_tage)} Tage · Schätzung (Shop-Standard)`;
+
+function assignmentRow(line, choices) {
+  const assumption = line.assumption ? `
+    <span class="assumption-chip">Annahme: ${esc(line.produktname)}</span>
+    <button type="button" class="change-product" data-line="${line.line_id}">ändern</button>
+    <select class="product-choice" data-line="${line.line_id}" hidden>
+      ${(choices[String(line.line_id)] || []).map(choice => `<option value="${choice.offer_id}" ${choice.product_key === normalize(line.produktname) ? 'selected' : ''}>${esc(choice.produktname)} · ${esc(choice.shop_name)} · CHF ${esc(choice.preis_chf)}</option>`).join('')}
+    </select>` : '';
+  return `<li class="assignment-row">
+    <div><strong>${esc(line.suchtext)}</strong>${assumption}</div>
+    <a href="${esc(line.produkt_url)}" target="_blank" rel="noopener">${esc(line.produktname)}</a>
+    <span>CHF ${esc(line.einzelpreis_chf)} · ${deliveryText(line)}</span>
+  </li>`;
+}
+
+const normalize = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+function renderVariant(variant, choices, scenario = false) {
+  const estimate = variant.contains_estimates ? '<span class="badge estimate">enthält Schätzungen</span>' : '';
+  const missing = variant.missing_lines?.length
+    ? `<p class="error"><strong>Fehlende Zeilen:</strong> ${variant.missing_lines.map(line => esc(line.suchtext || `#${line.line_id}`)).join(', ')}</p>`
+    : '';
+  return `<section class="panel variant scenario-card" data-key="${esc(variant.key || '')}">
+    <div class="scenario-head"><div><p class="eyebrow">${scenario ? esc(variant.label) : 'Feineinstellung'}</p><h2>CHF ${esc(variant.total_chf)}</h2></div>${estimate}</div>
+    <p class="muted">Max. ${esc(variant.max_liefertage)} Liefertage · ${esc(variant.shop_ids.length)} Shop(s)</p>
+    ${missing}
+    <details ${scenario ? '' : 'open'}><summary>Zuordnungen anzeigen</summary><ul class="assignment-list">${variant.lines.map(line => assignmentRow(line, choices)).join('')}</ul></details>
+    <div class="shop-summary">${variant.shops.map(shop => `<span>${esc(shop.name)}: CHF ${esc(shop.subtotal_chf)} + ${esc(shop.versand_chf)} Versand</span>`).join('')}</div>
+  </section>`;
+}
+
+async function loadScenarios() {
+  const tempo = Number(slider.value);
   document.querySelector('#tempo-value').textContent = `${Math.round(tempo * 100)}%`;
-  const response = await fetch(`/api/jobs/${slider.dataset.job}/variants?tempo=${tempo}`);
-  if (!response.ok) { target.innerHTML = `<p class="muted">${esc(await response.text())}</p>`; return; }
-  const variants = await response.json();
-  if (!variants.length) { target.innerHTML = '<section class="panel"><strong>Noch keine vollständige Variante.</strong><p class="muted">Für jede Zeile muss mindestens ein Kandidat bestätigt sein.</p></section>'; return; }
-  target.innerHTML = variants.map((variant, index) => `
-    <section class="panel variant" data-index="${index}">
-      <h2><span>Variante ${index + 1}</span><span>CHF ${esc(variant.total_chf)}</span></h2>
-      <p class="muted">Maximal ${esc(variant.max_liefertage)} Liefertage · ${variant.shop_ids.length} Shop(s)</p>
-      <div class="variant-grid"><div><h3>Zuordnung</h3><ul>${variant.lines.map(line => `<li>${esc(line.menge)}× <a href="${esc(line.produkt_url)}" target="_blank" rel="noopener">${esc(line.produktname)}</a></li>`).join('')}</ul></div>
-      <div><h3>Shops</h3><ul>${variant.shops.map(shop => `<li><a href="${esc(shop.url)}" target="_blank" rel="noopener">${esc(shop.name)}</a>: CHF ${esc(shop.subtotal_chf)} + ${esc(shop.versand_chf)} Versand</li>`).join('')}</ul></div></div>
-      <div class="promises">${variant.shops.map(shop => `<label>${esc(shop.name)} Tage <input type="number" min="1" value="${esc(variant.max_liefertage)}" data-shop="${shop.id}"></label>`).join('')}</div>
-      <button class="primary order-button">Bestellt</button>
-    </section>`).join('');
-  document.querySelectorAll('.order-button').forEach((button, index) => button.addEventListener('click', () => recordPurchase(button, variants[index])));
+  const response = await fetch(`/api/jobs/${slider.dataset.job}/scenarios`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({tempo}),
+  });
+  if (!response.ok) {
+    scenariosTarget.innerHTML = `<p class="error">${esc(await response.text())}</p>`;
+    return;
+  }
+  currentData = await response.json();
+  scenariosTarget.innerHTML = currentData.scenarios.length
+    ? currentData.scenarios.map(item => renderVariant(item, currentData.choices, true)).join('')
+    : '<section class="panel"><strong>Noch kein vollständiges Szenario.</strong></section>';
+  tunedTarget.innerHTML = currentData.fine_tuned.length
+    ? currentData.fine_tuned.map(item => renderVariant(item, currentData.choices, false)).join('')
+    : '<p class="muted">Keine vollständige Variante für diese Feineinstellung.</p>';
+  bindProductChanges();
 }
-async function recordPurchase(button, variant) {
-  if (!confirm('Diese Bestellung wirklich als bestellt erfassen?')) return;
-  const panel = button.closest('.variant');
-  const promised = {};
-  panel.querySelectorAll('[data-shop]').forEach(input => promised[input.dataset.shop] = Number(input.value));
-  const response = await fetch(`/api/jobs/${slider.dataset.job}/purchase`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({variante:variant, zugesagt_liefertage_pro_shop:promised})});
-  if (!response.ok) { alert(await response.text()); return; }
-  location.href = '/history';
+
+function bindProductChanges() {
+  document.querySelectorAll('.change-product').forEach(button => button.addEventListener('click', () => {
+    const select = button.parentElement.querySelector('.product-choice');
+    select.hidden = false;
+    select.focus();
+  }));
+  document.querySelectorAll('.product-choice').forEach(select => select.addEventListener('change', async () => {
+    select.disabled = true;
+    const response = await fetch(`/api/offers/${select.value}/decision`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({status: 'pin'}),
+    });
+    if (!response.ok) {
+      select.insertAdjacentHTML('afterend', `<span class="error">${esc(await response.text())}</span>`);
+      select.disabled = false;
+      return;
+    }
+    await loadScenarios();
+  }));
 }
-slider.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(loadVariants, 120); });
-loadVariants();
+
+slider.addEventListener('input', () => {
+  clearTimeout(timer);
+  timer = setTimeout(loadScenarios, 120);
+});
+loadScenarios();
