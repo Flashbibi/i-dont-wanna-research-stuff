@@ -5,9 +5,10 @@ const esc = value => String(value ?? '').replace(/[&<>'"]/g, character => ({'&':
 let timer;
 let currentData;
 
+const days = value => Number(value) === 1 ? '1 Tag' : `${esc(value)} Tage`;
 const deliveryText = line => line.lieferzeit_text
-  ? `${esc(line.lieferzeit_tage)} Tage · ${esc(line.lieferzeit_text)}`
-  : `${esc(line.lieferzeit_tage)} Tage · Schätzung (Shop-Standard)`;
+  ? `${days(line.lieferzeit_tage)} · ${esc(line.lieferzeit_text)}`
+  : `${days(line.lieferzeit_tage)} · Schätzung (Shop-Standard)`;
 
 function assignmentRow(line, choices) {
   const assumption = line.assumption ? `
@@ -32,7 +33,7 @@ function renderVariant(variant, choices, scenario = false) {
     : '';
   return `<section class="panel variant scenario-card" data-key="${esc(variant.key || '')}">
     <div class="scenario-head"><div><p class="eyebrow">${scenario ? esc(variant.label) : 'Feineinstellung'}</p><h2>CHF ${esc(variant.total_chf)}</h2></div>${estimate}</div>
-    <p class="muted">Max. ${esc(variant.max_liefertage)} Liefertage · ${esc(variant.shop_ids.length)} Shop(s)</p>
+    <p class="muted">Max. ${days(variant.max_liefertage)} · ${esc(variant.shop_ids.length)} Shop(s)</p>
     ${missing}
     <details ${scenario ? '' : 'open'}><summary>Zuordnungen anzeigen</summary><ul class="assignment-list">${variant.lines.map(line => assignmentRow(line, choices)).join('')}</ul></details>
     <div class="shop-summary">${variant.shops.map(shop => `<span>${esc(shop.name)}: CHF ${esc(shop.subtotal_chf)} + ${esc(shop.versand_chf)} Versand</span>`).join('')}</div>
