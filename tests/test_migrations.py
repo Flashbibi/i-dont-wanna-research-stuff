@@ -100,3 +100,13 @@ def test_offer_source_text_migration_is_additive():
     assert "ADD COLUMN IF NOT EXISTS lieferzeit_text TEXT" in sql
     assert "ADD COLUMN IF NOT EXISTS lager_text TEXT" in sql
     assert "DROP " not in sql.upper()
+
+
+def test_offer_daily_history_migration_preserves_observations_and_enforces_source_text():
+    sql = Path("migrations/004_offer_daily_history.sql").read_text()
+
+    assert "ADD COLUMN IF NOT EXISTS beobachtungstag DATE" in sql
+    assert "UNIQUE (line_id, produkt_url, beobachtungstag)" in sql
+    assert "lieferzeit_tage IS NULL OR lieferzeit_text IS NOT NULL" in sql
+    assert "DELETE " not in sql.upper()
+    assert "DROP TABLE" not in sql.upper()

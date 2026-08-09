@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from app.database import PostgresRepository, decode_database_value
 
 
@@ -48,6 +50,9 @@ def test_database_value_decoder_normalizes_sql_ascii_text_bytes():
 class OfferConnection:
     def __init__(self):
         self.statements = []
+        self.current_day = date(2026, 8, 9)
+        self.rows = {}
+        self.next_id = 12
 
     def __enter__(self):
         return self
@@ -62,14 +67,20 @@ class OfferConnection:
         normalized = " ".join(sql.split())
         self.statements.append((normalized, params))
         if normalized.startswith("INSERT INTO offer"):
-            return Result(one={"id": 12, **dict(params or {})})
+            assert "ON CONFLICT (line_id, produkt_url, beobachtungstag)" in normalized
+            values = dict(params or {})
+            key = (values["line_id"], values["produkt_url"], self.current_day)
+            existing = self.rows.get(key)
+            row_id = existing["id"] if existing else self.next_id
+            if not existing:
+                self.next_id += 1
+            row = {"id": row_id, "beobachtungstag": self.current_day, **values}
+            self.rows[key] = row
+            return Result(one=row)
         return Result()
 
 
-def test_create_offer_reaudits_existing_url_and_persists_literal_text_fields():
-    repository = PostgresRepository("unused")
-    connection = OfferConnection()
-    repository._connect = lambda: connection
+def offer_values(**changes):
     values = {
         "line_id": 1,
         "shop_id": 5,
@@ -82,10 +93,23 @@ def test_create_offer_reaudits_existing_url_and_persists_literal_text_fields():
         "lager_text": "Filiale rot; CH-Lieferant an Lager",
         "lager": "Filiale rot; CH-Lieferant an Lager",
     }
+    return {**values, **changes}
 
-    offer = repository.create_offer(**values)
+
+def test_create_offer_updates_same_day_but_inserts_new_daily_observation():
+    repository = PostgresRepository("unused")
+    connection = OfferConnection()
+    repository._connect = lambda: connection
+
+    first = repository.create_offer(**offer_values())
+    corrected = repository.create_offer(**offer_values(preis_chf="60.00"))
+    connection.current_day += timedelta(days=1)
+    next_day = repository.create_offer(**offer_values(preis_chf="59.00"))
 
     insert_sql = connection.statements[0][0]
     assert "lieferzeit_text, lager_text" in insert_sql
-    assert "ON CONFLICT (line_id, produkt_url) DO UPDATE" in insert_sql
-    assert offer["lieferzeit_tage"] == 4
+    assert first["id"] == corrected["id"]
+    assert next_day["id"] != corrected["id"]
+    assert len(connection.rows) == 2
+    assert connection.rows[(1, "https://shop.ch/servo", date(2026, 8, 9))]["preis_chf"] == "60.00"
+    assert connection.rows[(1, "https://shop.ch/servo", date(2026, 8, 10))]["preis_chf"] == "59.00"

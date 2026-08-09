@@ -130,6 +130,16 @@ def test_record_offer_without_delivery_source_text_keeps_days_empty():
     assert offer["lieferzeit_text"] is None
 
 
+def test_record_offer_rejects_parsed_days_without_literal_source_text(monkeypatch):
+    procurement = service()
+    monkeypatch.setattr("app.procurement.parse_delivery_upper_days", lambda _: 2)
+
+    with pytest.raises(ValidationError, match="Originaltext"):
+        procurement.record_offer(
+            10, 1, "MG996R", "https://shop.example.ch/mg996r", 12.5, None, "lagernd"
+        )
+
+
 def test_record_offer_validates_price_domain_shop_and_line():
     procurement = service()
 

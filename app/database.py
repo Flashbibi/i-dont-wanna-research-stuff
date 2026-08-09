@@ -208,6 +208,10 @@ class PostgresRepository:
             return dict(row) if row else None
 
     def create_offer(self, **values: Any) -> dict[str, Any]:
+        if values.get("lieferzeit_tage") is not None and not values.get("lieferzeit_text"):
+            raise ValueError(
+                "Lieferzeit darf nicht ohne wörtlichen Originaltext der Produktseite gesetzt sein"
+            )
         try:
             with self._connect() as connection:
                 with connection.transaction():
@@ -220,7 +224,7 @@ class PostgresRepository:
                                   %(produkt_url)s, %(quelle_url)s, %(preis_chf)s,
                                   %(lieferzeit_tage)s, %(lieferzeit_text)s,
                                   %(lager_text)s, %(lager)s)
-                        ON CONFLICT (line_id, produkt_url) DO UPDATE SET
+                        ON CONFLICT (line_id, produkt_url, beobachtungstag) DO UPDATE SET
                             shop_id = EXCLUDED.shop_id,
                             produktname = EXCLUDED.produktname,
                             quelle_url = EXCLUDED.quelle_url,

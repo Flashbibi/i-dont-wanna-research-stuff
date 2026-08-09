@@ -144,6 +144,10 @@ class ProcurementService:
         normalized_delivery_text = lieferzeit_text.strip() if lieferzeit_text else None
         normalized_stock_text = lager_text.strip() if lager_text else None
         delivery_days = parse_delivery_upper_days(normalized_delivery_text)
+        if delivery_days is not None and normalized_delivery_text is None:
+            raise ValidationError(
+                "Lieferzeit darf nicht ohne wörtlichen Originaltext der Produktseite gesetzt sein"
+            )
         return self.repository.create_offer(
             line_id=line_id,
             shop_id=shop_id,
