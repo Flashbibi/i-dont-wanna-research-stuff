@@ -22,6 +22,11 @@ class FakeProcurementRepository:
         self.marked = []
         self.purchases = []
         self.selected_assignments = None
+        self.created_jobs = []
+
+    def create_job(self, source_text, lines):
+        self.created_jobs.append((source_text, lines))
+        return 91
 
     def next_job(self):
         return {"id": 5, "status": "offen", "lines": [self.lines[10]]}
@@ -98,6 +103,50 @@ class FakeProcurementRepository:
 
 def service():
     return ProcurementService(FakeProcurementRepository())
+
+
+def test_create_job_uses_shared_bom_parser_and_returns_confirmation_lines():
+    repository = FakeProcurementRepository()
+    procurement = ProcurementService(repository)
+
+    result = procurement.create_job("2x MG996R Servo\nKabel")
+
+    assert result == {
+        "job_id": 91,
+        "lines": [
+            {"position": 1, "text": "MG996R Servo", "menge": 2},
+            {"position": 2, "text": "Kabel", "menge": 1},
+        ],
+    }
+    source_text, parsed = repository.created_jobs[0]
+    assert source_text == "2x MG996R Servo\nKabel"
+    assert [(line.suchtext, line.menge) for line in parsed] == [
+        ("MG996R Servo", 2),
+        ("Kabel", 1),
+    ]
+
+
+def test_create_job_rejects_empty_source_without_repository_write():
+    repository = FakeProcurementRepository()
+
+    with pytest.raises(ValidationError, match="mindestens eine Position"):
+        ProcurementService(repository).create_job(" \n ")
+
+    assert repository.created_jobs == []
+
+
+def test_create_job_rejects_absurd_line_length():
+    with pytest.raises(ValidationError, match="höchstens 500 Zeichen"):
+        service().create_job("x" * 501)
+
+
+def test_create_job_from_lines_rejects_empty_entries_and_excessive_line_count():
+    procurement = service()
+
+    with pytest.raises(ValidationError, match="Leere Zeilen"):
+        procurement.create_job_from_lines(["Servo", "  "])
+    with pytest.raises(ValidationError, match="höchstens 200 Positionen"):
+        procurement.create_job_from_lines(["Servo"] * 201)
 
 
 def test_next_job_and_check_line_are_single_repository_calls():

@@ -6,6 +6,7 @@ import re
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
+from .jobs import BomInputLine, parse_bom
 from .optimizer import (
     Offer,
     ShopProfile,
@@ -20,6 +21,7 @@ class ValidationError(ValueError):
 
 
 class ProcurementRepository(Protocol):
+    def create_job(self, source_text: str, lines: list[BomInputLine]) -> int: ...
     def next_job(self) -> dict[str, Any] | None: ...
     def check_line(self, line_id: int) -> dict[str, Any] | None: ...
     def create_shop(self, **values: Any) -> dict[str, Any]: ...
@@ -78,8 +80,38 @@ def parse_delivery_upper_days(text: str | None) -> int | None:
 
 
 class ProcurementService:
+    MAX_JOB_LINES = 200
+    MAX_JOB_LINE_LENGTH = 500
+
     def __init__(self, repository: ProcurementRepository):
         self.repository = repository
+
+    def create_job(self, source_text: str) -> dict[str, Any]:
+        raw_lines = source_text.splitlines()
+        if any(len(raw.strip()) > self.MAX_JOB_LINE_LENGTH for raw in raw_lines):
+            raise ValidationError("Jede Position darf höchstens 500 Zeichen lang sein")
+        lines = parse_bom(source_text)
+        if not lines:
+            raise ValidationError("Die Liste braucht mindestens eine Position")
+        if len(lines) > self.MAX_JOB_LINES:
+            raise ValidationError("Ein Job darf höchstens 200 Positionen enthalten")
+        job_id = self.repository.create_job(source_text, lines)
+        return {
+            "job_id": job_id,
+            "lines": [
+                {"position": line.position, "text": line.suchtext, "menge": line.menge}
+                for line in lines
+            ],
+        }
+
+    def create_job_from_lines(self, lines: list[str]) -> dict[str, Any]:
+        if not lines:
+            raise ValidationError("Die Liste braucht mindestens eine Position")
+        if any(not isinstance(line, str) or not line.strip() for line in lines):
+            raise ValidationError("Leere Zeilen sind nicht erlaubt")
+        if len(lines) > self.MAX_JOB_LINES:
+            raise ValidationError("Ein Job darf höchstens 200 Positionen enthalten")
+        return self.create_job("\n".join(lines))
 
     def next_job(self) -> dict[str, Any] | None:
         return self.repository.next_job()

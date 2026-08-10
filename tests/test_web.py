@@ -66,6 +66,15 @@ def test_create_job_persists_lines_without_calculating_live():
     assert all(line["status"] == "offen" for line in repository.jobs[1]["lines"])
 
 
+def test_web_job_creation_uses_shared_service_length_validation():
+    client = TestClient(create_app(FakeRepository(), lambda: 1))
+
+    response = client.post("/api/jobs", json={"parts": "x" * 501})
+
+    assert response.status_code == 422
+    assert "höchstens 500 Zeichen" in response.json()["detail"]
+
+
 def test_create_job_rejects_empty_parts_list():
     client = TestClient(create_app(FakeRepository(), lambda: 1))
 

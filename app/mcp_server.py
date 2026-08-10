@@ -37,6 +37,11 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         )
 
     @mcp.tool()
+    def create_job(zeilen: list[str]) -> dict[str, Any]:
+        """Einen echten Job aus Positionen anlegen; Mengenpräfixe wie «2x …» werden geparst."""
+        return service.create_job_from_lines(zeilen)
+
+    @mcp.tool()
     def next_job() -> dict[str, Any] | None:
         """Aeltesten offenen Job mit seinen offenen Zeilen laden."""
         return service.next_job()

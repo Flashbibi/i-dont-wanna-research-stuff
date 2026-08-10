@@ -14,7 +14,6 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from .database import PostgresRepository
-from .jobs import parse_bom
 from .mcp_server import build_mcp
 from .migrations import current_schema_version
 from .procurement import ProcurementService, ValidationError
@@ -111,11 +110,11 @@ def create_app(
 
     @application.post("/jobs")
     def create_job_form(parts: str = Form(...)):
-        lines = parse_bom(parts)
-        if not lines:
-            raise HTTPException(422, "Die Liste braucht mindestens eine Position")
-        job_id = active_repository.create_job(parts, lines)
-        return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+        try:
+            result = procurement.create_job(parts)
+        except ValidationError as error:
+            raise HTTPException(422, str(error)) from error
+        return RedirectResponse(f"/jobs/{result['job_id']}", status_code=303)
 
     @application.get("/jobs/{job_id}", response_class=HTMLResponse)
     def job_page(request: Request, job_id: int):
@@ -175,12 +174,16 @@ def create_app(
             raise HTTPException(422, str(error)) from error
 
     @application.post("/api/jobs", status_code=201)
-    def create_job(request: JobRequest) -> dict[str, int | str]:
-        lines = parse_bom(request.parts)
-        if not lines:
-            raise HTTPException(422, "Die Liste braucht mindestens eine Position")
-        job_id = active_repository.create_job(request.parts, lines)
-        return {"job_id": job_id, "status": "offen", "line_count": len(lines)}
+    def create_job(request: JobRequest) -> dict[str, Any]:
+        try:
+            result = procurement.create_job(request.parts)
+        except ValidationError as error:
+            raise HTTPException(422, str(error)) from error
+        return {
+            "job_id": result["job_id"],
+            "status": "offen",
+            "line_count": len(result["lines"]),
+        }
 
     def require_e2e_marker(marker: str | None) -> None:
         if marker != "beschaffung-e2e-disposable":

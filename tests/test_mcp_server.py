@@ -7,6 +7,15 @@ from app.web import create_app
 
 
 class StubService:
+    def create_job_from_lines(self, lines):
+        return {
+            "job_id": 41,
+            "lines": [
+                {"position": index, "text": line.removeprefix("2x "), "menge": 2 if line.startswith("2x ") else 1}
+                for index, line in enumerate(lines, 1)
+            ],
+        }
+
     def next_job(self):
         return None
 
@@ -35,6 +44,7 @@ def test_mcp_exposes_exact_procurement_tools():
     tools = asyncio.run(server.list_tools())
 
     assert {tool.name for tool in tools} == {
+        "create_job",
         "next_job",
         "check_line",
         "record_shop",
@@ -49,6 +59,23 @@ def test_mcp_exposes_exact_procurement_tools():
     assert "lager_text" in properties
     assert "lieferzeit_tage" not in properties
     assert "lager" not in properties
+
+
+def test_create_job_tool_forwards_lines_and_returns_parsed_confirmation():
+    server = build_mcp(StubService())
+
+    result = asyncio.run(
+        server.call_tool("create_job", {"zeilen": ["2x Servo", "Kabel"]})
+    )
+
+    assert isinstance(result, tuple)
+    assert result[1] == {
+        "job_id": 41,
+        "lines": [
+            {"position": 1, "text": "Servo", "menge": 2},
+            {"position": 2, "text": "Kabel", "menge": 1},
+        ],
+    }
 
 
 def test_streamable_http_endpoint_initializes_and_lists_tools():
@@ -84,6 +111,7 @@ def test_streamable_http_endpoint_initializes_and_lists_tools():
     assert listed.status_code == 200
     names = {tool["name"] for tool in listed.json()["result"]["tools"]}
     assert names == {
+        "create_job",
         "next_job",
         "check_line",
         "record_shop",
