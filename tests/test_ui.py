@@ -319,6 +319,11 @@ def test_cart_e2e_uses_a_disposable_job_and_never_touches_a_real_shop():
     assert "consistentAfterReload" in script
     assert "mismatchDiffVisible" in script
     assert "cartResponses, [200, 409, 200]" in script
+    # Der unvermeidbare 409-Konsoleneintrag wird präzisiert, nicht toleriert:
+    # genau einer, auf die Cart-URL gescoped, nur im Mismatch-Leg.
+    assert "expectedConflictLogs" in script
+    assert "assert.deepEqual(evidence.consoleErrors, [])" in script
+    assert "expectedConflictLogs.length, 1" in script
 
 
 def test_unknown_delivery_is_rendered_explicitly_in_assignments():
