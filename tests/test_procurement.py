@@ -290,6 +290,43 @@ def test_matrix_payload_contains_provenance_delivery_source_shop_breakdown_and_c
     assert candidate["lieferzeit_chip"] == "2 Tage"
 
 
+def test_shop_breakdown_is_sorted_by_subtotal_descending_like_reference():
+    repository = FakeProcurementRepository()
+    data = repository.optimization_input(5)
+    second_offer = {
+        **data["offers"][0],
+        "id": 32,
+        "line_id": 11,
+        "shop_id": 2,
+        "preis_chf": "30",
+        "menge": 1,
+        "suchtext": "Netzteil",
+        "position": 2,
+        "produktname": "Testnetzteil",
+    }
+    data["offers"] = [data["offers"][0], second_offer]
+    data["shops"].append(
+        {
+            "id": 2,
+            "name": "Grösserer Warenkorb",
+            "url": "https://shop2.example.ch",
+            "versand_chf": "0",
+            "gratis_ab_chf": None,
+            "mindestbestellwert_chf": None,
+            "lieferzeit_default_tage": 2,
+        }
+    )
+    data["required_line_ids"] = [10, 11]
+    data["lines"].append(
+        {"id": 11, "position": 2, "suchtext": "Netzteil", "menge": 1}
+    )
+    repository.optimization_input = lambda job_id: data
+
+    scenario = ProcurementService(repository).plan_scenarios(5)["scenarios"][0]
+
+    assert [shop["id"] for shop in scenario["shops"]] == [2, 1]
+
+
 def test_identical_tuned_result_has_verdict_and_no_extra_column():
     result = service().plan_scenarios(5, tempo=0.5)
 

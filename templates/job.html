@@ -2,10 +2,11 @@
 {% block title %}Job #{{ job.id }} · Beschaffung{% endblock %}
 {% block content %}
 {% set ns = namespace(offers=0) %}
+{% set status_labels = {'in_arbeit': 'in Arbeit', 'offen': 'offen', 'bestellt': 'bestellt'} %}
 {% for line in job.lines %}{% set ns.offers = ns.offers + line.offers|length %}{% endfor %}
 <div class="job-head">
   <h1>Job #{{ job.id }}</h1>
-  <span class="job-status{% if job.status == 'bestellt' %} done{% endif %}" id="jobstatus">{{ job.status|replace('_', ' ') }}</span>
+  <span class="job-status{% if job.status == 'bestellt' %} done{% endif %}" id="jobstatus">{{ status_labels.get(job.status, job.status|replace('_', ' ')) }}</span>
   <span class="job-meta">{{ job.lines|length }} Positionen · {{ ns.offers }} Angebote</span>
   {% if '[E2E-TEST]' in job.quelltext %}<span class="job-status">[E2E-TEST]</span>{% endif %}
 </div>

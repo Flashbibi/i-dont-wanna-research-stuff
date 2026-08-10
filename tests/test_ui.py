@@ -215,6 +215,7 @@ def test_job_page_uses_prototype_c_matrix_and_removes_old_card_sections():
     assert 'id="railorder"' in page
     assert 'id="tempo"' in page
     assert "Bestellpläne im Vergleich" in page
+    assert ">in Arbeit<" in page
     assert 'id="scenarios"' not in page
     assert "Bestellszenarien" not in page
     assert "Angebote und Overrides" not in page

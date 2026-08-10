@@ -699,6 +699,9 @@ class ProcurementService:
             }
             for shop_id in variant["shop_ids"]
         ]
+        variant["shops"].sort(
+            key=lambda row: Decimal(row["subtotal_chf"]), reverse=True
+        )
         lines = []
         for line_id_text, offer_id in variant["assignments"].items():
             line_id = int(line_id_text)
