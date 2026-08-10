@@ -26,7 +26,7 @@
   const daysText = (plan) => {
     if (plan.contains_unknown_delivery) return "Lieferzeit unbekannt";
     if (plan.max_liefertage == null) return "Lieferzeit unbekannt";
-    return `max. ${plan.max_liefertage} ${plan.max_liefertage === 1 ? "Tag" : "Tage"}${plan.max_delivery_only_estimated ? " (geschätzt)" : ""}`;
+    return `max. ${plan.max_liefertage} ${plan.max_liefertage === 1 ? "Tag" : "Tage"}${plan.fastest_max_exclusively_estimated ? " (geschätzt)" : ""}`;
   };
   const chip = (line) => {
     if (!line || line.lieferzeit_tage == null) return '<span class="chip unk">Lieferzeit unbekannt</span>';
@@ -117,7 +117,7 @@
     });
 
     html += '<div class="mc foot"><b style="color:var(--ink);font-size:12.5px">Versand</b></div>';
-    html += cols.map((column, index) => `<div class="mc foot${classFor(column, index)}">${column.shops.map((shop) => `${esc(shop.name.split(" ")[0])} ${Number(shop.shipping_chf) === 0 ? '<span class="free">gratis</span>' : `CHF ${chf(shop.shipping_chf)}`}`).join(" + ")}</div>`).join("");
+    html += cols.map((column, index) => `<div class="mc foot${classFor(column, index)}">${column.shops.map((shop) => `${esc(shop.name.split(" ")[0])} ${Number(shop.versand_chf) === 0 ? '<span class="free">gratis</span>' : `CHF ${chf(shop.versand_chf)}`}`).join(" + ")}</div>`).join("");
     root.innerHTML = html;
   }
 
@@ -193,8 +193,8 @@
     }
     const shopRows = selected.shops.map((shop) => {
       const checked = state.checks.has(String(shop.id));
-      const threshold = shop.free_shipping_from_chf == null ? "" : (() => {
-        const target = Number(shop.free_shipping_from_chf);
+      const threshold = shop.gratis_ab_chf == null ? "" : (() => {
+        const target = Number(shop.gratis_ab_chf);
         const subtotal = Number(shop.subtotal_chf);
         const reached = subtotal >= target;
         const pct = Math.min(100, subtotal / target * 100);
@@ -203,7 +203,7 @@
       })();
       const items = selected.lines.filter((line) => Number(line.shop_id) === Number(shop.id));
       const links = `<details><summary>Produktlinks öffnen ↗</summary><ul class="shop-links">${items.map((line) => `<li><a href="${esc(line.quelle_url)}" target="_blank" rel="noopener">${esc(line.produktname)} ↗</a></li>`).join("")}</ul></details>`;
-      return `<div class="shoprow"><div class="top"><span class="nm">${esc(shop.name)}</span><span class="amt">CHF ${chf(Number(shop.subtotal_chf) + Number(shop.shipping_chf))}</span></div><div class="sub">${shop.item_count} Artikel · Versand ${Number(shop.shipping_chf) === 0 ? "gratis" : `CHF ${chf(shop.shipping_chf)}`}</div>${links}${threshold}<label><input type="checkbox" data-shop="${shop.id}" ${checked ? "checked" : ""}> bei ${esc(shop.name.split(" ")[0])} bestellt</label></div>`;
+      return `<div class="shoprow"><div class="top"><span class="nm">${esc(shop.name)}</span><span class="amt">CHF ${chf(Number(shop.subtotal_chf) + Number(shop.versand_chf))}</span></div><div class="sub">${shop.artikelanzahl} Artikel · Versand ${Number(shop.versand_chf) === 0 ? "gratis" : `CHF ${chf(shop.versand_chf)}`}</div>${links}${threshold}<label><input type="checkbox" data-shop="${shop.id}" ${checked ? "checked" : ""}> bei ${esc(shop.name.split(" ")[0])} bestellt</label></div>`;
     }).join("");
     const allChecked = selected.shops.every((shop) => state.checks.has(String(shop.id)));
     order.innerHTML = `<h2>Bestellen</h2>${shopRows}<button class="cta" id="record-purchase" ${allChecked && !selected.incomplete ? "" : "disabled"}>Bestellung erfassen</button>${selected.incomplete ? '<div class="note">Unvollständige Pläne können nicht erfasst werden.</div>' : '<div class="note">Links öffnen, in jedem Shop bestellen, abhaken. Zahlung bleibt bei dir.</div>'}`;

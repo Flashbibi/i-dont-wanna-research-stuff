@@ -235,6 +235,9 @@ def test_job_matrix_browser_uses_only_server_planning_and_reference_wording():
     assert "Diesen Plan wählen" in script
     assert "✓ Gewählt" in script
     assert "Lieferzeit unbekannt" in script
+    assert "shipping_chf" not in script
+    assert "free_shipping_from_chf" not in script
+    assert "item_count" not in script
 
 
 def test_e2e_jobs_are_marker_guarded_disposable_and_not_real_job_ids():

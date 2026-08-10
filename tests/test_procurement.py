@@ -266,6 +266,8 @@ def test_plan_scenarios_groups_identical_presets_and_keeps_badges():
     assert scenario["lines"][0]["lieferzeit_text"] == "2 Tage"
     assert scenario["lines"][0]["produkt_url"].endswith("/mg996r")
     assert scenario["complete"] is True
+    assert scenario["incomplete"] is False
+    assert scenario["shop_count"] == 1
 
 
 def test_matrix_payload_contains_provenance_delivery_source_shop_breakdown_and_candidates():

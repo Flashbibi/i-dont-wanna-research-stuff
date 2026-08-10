@@ -742,6 +742,8 @@ class ProcurementService:
             for line_id in variant.get("missing_line_ids", [])
         ]
         variant["complete"] = not variant["missing_lines"]
+        variant["incomplete"] = not variant["complete"]
+        variant["shop_count"] = len(variant["shop_ids"])
         return variant
 
     @staticmethod
