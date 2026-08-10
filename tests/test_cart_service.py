@@ -13,6 +13,7 @@ from app.procurement import ProcurementService, ValidationError
 
 from tests.test_cart import (
     DUPONT_URL,
+    GERMAN_CART_HTML,
     HOME_HTML,
     PRODUCT_HTML,
     FakeResponse,
@@ -222,14 +223,18 @@ def test_a_cached_product_id_is_not_written_again():
     )
     service = ProcurementService(repository)
     session = FakeSession(
-        pages={SHOP_URL: HOME_HTML}, cart_page=cart_html(DUPONT_ROW, "CHF 11.80")
+        pages={SHOP_URL: HOME_HTML, DUPONT_URL: PRODUCT_HTML},
+        cart_page=cart_html(DUPONT_ROW, "CHF 11.80"),
     )
 
     result = service.fill_cart(5, 1, session_factory=session_factory(session))
 
     assert result["status"] == "uebergabe"
+    # Die ID kam aus dem Cache, es gibt nichts nachzutragen. Die Produktseite
+    # wird trotzdem einmal abgerufen - sie legt den Sprachkontext des Korbs
+    # fest (Vorfall 2026-08-11).
     assert repository.saved_product_ids == []
-    assert DUPONT_URL not in session.fetched
+    assert session.fetched.count(DUPONT_URL) == 1
 
 
 def test_a_mismatching_cart_blocks_the_handover():
