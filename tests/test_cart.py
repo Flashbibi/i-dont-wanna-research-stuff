@@ -105,6 +105,38 @@ BASTELGARAGE_CART_HTML = """
 BG_DUPONT = "https://www.bastelgarage.ch/dupont-jumper-cable-set-10cm-60-pieces"
 BG_BREADBOARD = "https://www.bastelgarage.ch/half-size-transparent-breadboard-zy-60"
 
+# Echte Fehlantwort aus dem Vorfall vom 2026-08-11: derselbe Shop, dieselben
+# Produkt-IDs, aber der Korb rendert die Links in der Shop-Default-Sprache.
+# Die erfassten produkt_url sind die englischen Slugs - keiner davon kommt hier
+# vor, obwohl es exakt dieselben Produkte sind.
+GERMAN_CART_HTML = """
+<html><body>
+<table class="table table-bordered"><tbody>
+  <tr>
+    <td class="text-center"> <a href="https://www.bastelgarage.ch/breadboard-lochraster-steckplatine-half-size"><img src="https://www.bastelgarage.ch/image/cache/catalog/Artikel/420011-420020/420018-9816-47x47.jpg" alt="Breadboard / Lochraster Steckplatine Half-Size" class="img-thumbnail" /></a> </td>
+    <td class="text-left"><a href="https://www.bastelgarage.ch/breadboard-lochraster-steckplatine-half-size">Breadboard / Lochraster Steckplatine Half-Size</a> </td>
+    <td class="text-left">420018</td>
+    <td class="text-left"><div class="input-group btn-block"><input type="text" name="quantity[550847]" value="1" size="1" class="form-control" /></div></td>
+    <td class="text-right">CHF4.90</td>
+    <td class="text-right">CHF4.90</td>
+  </tr>
+  <tr>
+    <td class="text-center"> <a href="https://www.bastelgarage.ch/jumperkabel-dupont-set-10cm-60-stk"><img src="/image/x.jpg" class="img-thumbnail" /></a> </td>
+    <td class="text-left"><a href="https://www.bastelgarage.ch/jumperkabel-dupont-set-10cm-60-stk">Jumperkabel Dupont Set 10cm 60 Stk</a> </td>
+    <td class="text-left">420027</td>
+    <td class="text-left"><div class="input-group btn-block"><input type="text" name="quantity[550848]" value="1" size="1" class="form-control" /></div></td>
+    <td class="text-right">CHF5.90</td>
+    <td class="text-right">CHF5.90</td>
+  </tr>
+</tbody></table>
+<table class="table table-bordered">
+  <tr><td class="text-right"><strong>Sub-Total</strong></td> <td class="text-right">CHF10.00</td></tr>
+  <tr><td class="text-right"><strong>8.1% Mwst</strong></td> <td class="text-right">CHF0.80</td></tr>
+  <tr><td class="text-right"><strong>Total</strong></td> <td class="text-right">CHF10.80</td></tr>
+</table>
+</body></html>
+"""
+
 
 def cart_row(url: str, name: str, menge: int, einzel: str, zeile: str, key: int) -> str:
     return f"""
@@ -373,14 +405,70 @@ def test_fill_adds_every_position_and_hands_over_the_verified_session():
     assert [data["quantity"] for _, data in session.posted] == [2, 1]
 
 
-def test_cached_product_id_skips_the_product_page_request():
-    cart, session = adapter(cart_page=cart_html(DUPONT_ROW, "CHF 11.80"))
+def test_cached_product_id_skips_the_lookup_but_still_pins_the_language():
+    """Vorfall 2026-08-11: bei warmem Cache wurde gar keine Produktseite mehr
+    besucht, der Shop rendert den Korb dann in seiner Default-Sprache und jede
+    Position gilt als fehlend. Ein Abruf einer erfassten URL stellt den
+    Sprachkontext her - die ID kommt weiterhin aus dem Cache."""
+    cart, session = adapter(
+        pages={DUPONT_URL: PRODUCT_HTML},
+        cart_page=cart_html(DUPONT_ROW, "CHF 11.80"),
+    )
 
     result = cart.fill(SHOP_URL, [item(shop_produkt_id="96")])
 
     assert result.verifiziert is True
-    assert DUPONT_URL not in session.fetched
-    assert result.produkt_ids == {}
+    assert result.produkt_ids == {}, "ID kam aus dem Cache, nichts nachzutragen"
+    assert DUPONT_URL in session.fetched, "Sprachkontext wurde nicht gesetzt"
+    # Genau einmal - kein Abruf pro Position.
+    assert session.fetched.count(DUPONT_URL) == 1
+
+
+def test_a_cold_cache_does_not_fetch_the_first_page_twice():
+    cart, session = adapter(
+        pages={DUPONT_URL: PRODUCT_HTML},
+        cart_page=cart_html(DUPONT_ROW, "CHF 11.80"),
+    )
+
+    cart.fill(SHOP_URL, [item()])
+
+    # Die Auflösung hat den Kontext schon gesetzt, ein zweiter Abruf wäre unnötig.
+    assert session.fetched.count(DUPONT_URL) == 1
+
+
+def test_a_cart_rendered_in_another_language_is_blocked_not_guessed():
+    """Die echte Fehlantwort des Vorfalls: gleiche Produkte, fremde Slugs.
+
+    Der strikte URL-Vergleich bleibt - lieber blockieren als eine Position
+    über Namensähnlichkeit erraten.
+    """
+    entries, _ = parse_opencart_cart(GERMAN_CART_HTML)
+    hrefs = [entry.href for entry in entries]
+
+    assert all("lochraster" in href or "jumperkabel" in href for href in hrefs)
+    assert not any("breadboard-hole-grid" in href or "dupont-jumper-cable" in href for href in hrefs)
+
+    cart, _ = adapter(
+        pages={BG_DUPONT: PRODUCT_HTML, BG_BREADBOARD: BREADBOARD_HTML},
+        cart_page=GERMAN_CART_HTML,
+    )
+
+    with pytest.raises(CartVerificationError) as error:
+        cart.fill(
+            SHOP_URL,
+            [
+                item(BG_DUPONT, offer_id=31, menge=1, preis="5.90", name="Dupont Jumper Cable Set"),
+                item(BG_BREADBOARD, offer_id=32, menge=1, preis="4.90",
+                     name="Breadboard Half-Size", line_id=11),
+            ],
+        )
+
+    message = str(error.value)
+    assert "Position fehlt im Korb: Dupont Jumper Cable Set." in message
+    assert "Position fehlt im Korb: Breadboard Half-Size." in message
+    # Artikelzahl stimmt - genau deshalb sah der Vorfall nach "leerer Korb" aus,
+    # war aber ein voller Korb mit fremdsprachigen Links.
+    assert "Artikelzahl weicht ab" not in message
 
 
 def test_changed_shop_price_blocks_handover_with_an_exact_diff():

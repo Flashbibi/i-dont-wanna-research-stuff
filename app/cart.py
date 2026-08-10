@@ -400,11 +400,13 @@ class OpenCartAdapter:
             raise CartError("Für diesen Shop enthält der gewählte Plan keine Position")
 
         produkt_ids: dict[int, str] = {}
+        produktseite_besucht = False
         for item in items:
             product_id = item.shop_produkt_id
             quelle = "cache"
             if not product_id:
                 quelle = "produktseite"
+                produktseite_besucht = True
                 page = self.session.get(item.produkt_url)
                 if page.status_code != 200:
                     raise CartError(
@@ -419,6 +421,23 @@ class OpenCartAdapter:
             log.info(
                 "cart-fill offer=%s product_id=%s quelle=%s erwartet=%s eingelegt=%s",
                 item.offer_id, product_id, quelle, item.produkt_url, hinzugefuegt,
+            )
+
+        if not produktseite_besucht:
+            # Sprachkontext festlegen, bevor der Korb gelesen wird.
+            #
+            # Bastelgarage ist zweisprachig und rendert die Korb-Links in der
+            # Sprache der Session. Die Landing-Seite setzt den Shop-Default
+            # (de-de), unsere erfassten produkt_url sind aber die Slugs der
+            # Sprache, in der sie aufgenommen wurden. Solange IDs frisch von den
+            # Produktseiten kamen, hat genau dieser Abruf die Session mitgezogen
+            # und die Slugs passten. Bei vollständig warmem Cache entfällt er -
+            # dann meldet der Korb fremdsprachige Slugs und jede Position gilt
+            # als fehlend. Ein Abruf einer erfassten URL stellt den Kontext her.
+            page = self.session.get(items[0].produkt_url)
+            log.info(
+                "cart-language pinned via=%s status=%s",
+                items[0].produkt_url, getattr(page, "status_code", None),
             )
 
         cart_page = self.session.get(self._cart_url(base_url))
