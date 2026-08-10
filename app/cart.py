@@ -49,6 +49,15 @@ class CartUnsupported(CartError):
     """Für diese Plattform gibt es keinen Adapter; Linkliste bleibt."""
 
 
+class CartTemporaryError(CartError):
+    """Netzwerk- oder Zeitfehler - wiederholbar, und es wird nichts persistiert.
+
+    Wichtig für die Plattform-Erkennung: ein Timeout darf niemals als
+    "unbekannte Plattform" festgeschrieben werden, sonst wäre ein
+    unterstützter Shop dauerhaft stummgeschaltet.
+    """
+
+
 class CartVerificationError(CartError):
     """Der zurückgelesene Korb weicht von der Szenario-Zuordnung ab."""
 
@@ -196,6 +205,34 @@ def detect_platform(html: str, cookie_names: list[str]) -> PlatformEvidence | No
     return None
 
 
+def start_guest_session(session: Session, base_url: str) -> PlatformEvidence | None:
+    """Gast-Session eröffnen und dabei die Plattform erkennen.
+
+    Trennt zwei Ausgänge sauber voneinander:
+
+    * **Abgeschlossene Erkennung** - der Shop hat geantwortet und wurde
+      ausgewertet. Ergebnis ist eine Plattform oder ``None`` ("nichts Bekanntes
+      gefunden"). Nur dieser Ausgang darf persistiert werden.
+    * **Kein Ergebnis** - Timeout, Verbindungsabbruch oder eine Fehlerantwort.
+      Das ist ``CartTemporaryError``: wiederholbar, und der Aufrufer schreibt
+      nichts. Sonst würde ein einzelner Netzwerkhänger einen unterstützten Shop
+      dauerhaft als "nicht unterstützt" festnageln.
+    """
+    try:
+        response = session.get(base_url)
+    except Exception as error:  # noqa: BLE001 - jeder Transportfehler ist wiederholbar
+        raise CartTemporaryError(
+            "Shop war nicht erreichbar. Die Plattform bleibt ungeprüft, "
+            "der Versuch lässt sich wiederholen."
+        ) from error
+    if response.status_code != 200:
+        raise CartTemporaryError(
+            f"Shop antwortet mit HTTP {response.status_code}. Die Plattform "
+            "bleibt ungeprüft, der Versuch lässt sich wiederholen."
+        )
+    return detect_platform(response.text, list(session.cookies))
+
+
 # ---------------------------------------------------------------------------
 # OpenCart
 # ---------------------------------------------------------------------------
@@ -329,15 +366,14 @@ class OpenCartAdapter:
 
     # -- Ablauf ------------------------------------------------------------
     def fill(self, base_url: str, items: list[CartItem]) -> CartFill:
+        """Korb füllen und zurücklesen.
+
+        Setzt voraus, dass die Gast-Session bereits über
+        :func:`start_guest_session` eröffnet und die Plattform dabei bestätigt
+        wurde - Erkennung und Füllen sind ein Knopfdruck, aber zwei Schritte.
+        """
         if not items:
             raise CartError("Für diesen Shop enthält der gewählte Plan keine Position")
-
-        landing = self.session.get(base_url)
-        evidence = detect_platform(landing.text, list(self.session.cookies))
-        if evidence is None or evidence.plattform != PLATFORM_OPENCART:
-            raise CartUnsupported(
-                "Der Shop antwortet nicht wie OpenCart; es wird kein Korb gefüllt."
-            )
 
         produkt_ids: dict[int, str] = {}
         for item in items:
@@ -359,7 +395,6 @@ class OpenCartAdapter:
 
         return CartFill(
             plattform=PLATFORM_OPENCART,
-            plattform_beleg=evidence.beleg,
             verifiziert=True,
             artikel_anzahl=sum(entry.menge for entry in entries),
             total_chf=subtotal,
@@ -497,6 +532,81 @@ def build_adapter(plattform: str | None, session: Session) -> OpenCartAdapter:
     raise CartUnsupported(
         "Plattform des Shops ist unbekannt; die Bestellliste bleibt der Weg."
     )
+
+
+def build_stub_session(items: list[CartItem], *, mismatch: bool = False) -> Session:
+    """OpenCart-Attrappe für den E2E-Klickpfad.
+
+    Stellt einen Shop im Prozess nach, damit der Klickpfad den echten
+    Adaptercode inklusive Parsing und Rückverifikation durchläuft, ohne einen
+    realen Shop anzufassen. Wird ausschliesslich über den E2E-Marker erreicht
+    und schreibt nichts in die Datenbank.
+
+    Mit ``mismatch=True`` liefert der Korb einen um 30 Rappen höheren Preis
+    pro Position - das stellt den realen Fall "Shop-Preis hat sich seit
+    gesehen_am geändert" nach.
+    """
+    home = (
+        '<html><head><link href="catalog/view/theme/stub/stylesheet.css"></head>'
+        '<body><a href="index.php?route=checkout/cart">Warenkorb</a></body></html>'
+    )
+    ids = {item.produkt_url: str(4000 + index) for index, item in enumerate(items)}
+
+    def product_page(url: str) -> str:
+        return (
+            '<html><body><input type="text" name="quantity" value="1" />'
+            f'<input type="hidden" name="product_id" value="{ids[url]}" />'
+            "</body></html>"
+        )
+
+    def cart_page() -> str:
+        rows = []
+        total = Decimal("0.00")
+        for index, item in enumerate(items):
+            einzel = item.einzelpreis_chf + (Decimal("0.30") if mismatch else Decimal("0"))
+            zeile = einzel * item.menge
+            total += zeile
+            rows.append(
+                f'<tr><td class="text-center"><a href="{item.produkt_url}">'
+                f'<img src="/x.jpg" /></a></td>'
+                f'<td class="text-left"><a href="{item.produkt_url}">{item.produktname}</a></td>'
+                f'<td class="text-left">STUB-{index}</td>'
+                f'<td class="text-left"><input type="text" name="quantity[{index}]" '
+                f'value="{item.menge}" /></td>'
+                f'<td class="text-right">CHF {einzel:.2f}</td>'
+                f'<td class="text-right">CHF {zeile:.2f}</td></tr>'
+            )
+        return (
+            f'<html><body><table><tbody>{"".join(rows)}</tbody></table>'
+            '<table><tr><td class="text-right"><strong>Zwischensumme:</strong></td>'
+            f'<td class="text-right">CHF {total:.2f}</td></tr></table></body></html>'
+        )
+
+    class _StubResponse:
+        def __init__(self, text="", status_code=200, payload=None):
+            self.text = text
+            self.status_code = status_code
+            self._payload = payload
+
+        def json(self):
+            if self._payload is None:
+                raise ValueError("keine JSON-Antwort")
+            return self._payload
+
+    class _StubSession:
+        cookies = {"OCSESSID": "e2e-stub-session-cookie"}
+
+        def get(self, url: str):
+            if "route=checkout/cart" in url:
+                return _StubResponse(cart_page())
+            if url in ids:
+                return _StubResponse(product_page(url))
+            return _StubResponse(home)
+
+        def post(self, url: str, data: Mapping[str, Any]):
+            return _StubResponse(payload={"success": "Artikel hinzugefügt"})
+
+    return _StubSession()
 
 
 def open_session() -> Session:

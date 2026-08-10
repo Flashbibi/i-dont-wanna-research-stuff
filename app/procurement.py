@@ -6,6 +6,15 @@ import re
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
+from .cart import (
+    SUPPORTED_PLATFORMS,
+    CartError,
+    CartItem,
+    build_adapter,
+    build_stub_session,
+    open_session,
+    start_guest_session,
+)
 from .jobs import BomInputLine, parse_bom
 from .optimizer import (
     Offer,
@@ -37,6 +46,10 @@ class ProcurementRepository(Protocol):
     def save_job_selection(
         self, job_id: int, assignments: dict[str, int]
     ) -> dict[str, Any]: ...
+    def save_shop_platform(
+        self, shop_id: int, plattform: str | None, plattform_beleg: str
+    ) -> dict[str, Any]: ...
+    def save_offer_product_ids(self, produkt_ids: dict[int, str]) -> int: ...
     def create_purchase(
         self,
         job_id: int,
@@ -691,6 +704,182 @@ class ProcurementService:
         return self.repository.create_purchase(
             job_id, canonical_variant, ordered_at, zugesagt_liefertage_pro_shop
         )
+
+    # -- Warenkorb-Übergabe -------------------------------------------------
+
+    PLATFORM_LABELS = {
+        "opencart": "OpenCart",
+        "woocommerce": "WooCommerce",
+        "shopify": "Shopify",
+    }
+
+    def cart_shops(self, job_id: int, tempo: float = 0.5) -> list[dict[str, Any]]:
+        """Shops des gewählten Plans samt Eignung für die Warenkorb-Übergabe."""
+        _, variant, shop_rows = self._selected_plan(job_id, tempo)
+        result = []
+        for shop in variant["shops"]:
+            row = shop_rows.get(int(shop["id"]), {})
+            plattform = row.get("plattform")
+            geprueft = row.get("plattform_geprueft_am") is not None
+            result.append(
+                {
+                    "shop_id": int(shop["id"]),
+                    "shop_name": shop["name"],
+                    "shop_url": shop.get("url"),
+                    "plattform": plattform,
+                    "plattform_geprueft": geprueft,
+                    # Der Knopf erscheint, solange die Plattform unterstützt ist
+                    # oder noch nie abschliessend geprüft wurde. Ein geprüfter,
+                    # nicht unterstützter Shop bekommt keinen toten Knopf.
+                    "kann_fuellen": plattform in SUPPORTED_PLATFORMS or not geprueft,
+                }
+            )
+        return result
+
+    def fill_cart(
+        self,
+        job_id: int,
+        shop_id: int,
+        *,
+        tempo: float = 0.5,
+        session_factory: Any = None,
+        stub: str | None = None,
+    ) -> dict[str, Any]:
+        """Gast-Warenkorb für genau einen Shop des gewählten Plans füllen.
+
+        Ein Knopfdruck deckt beides ab: ergibt die Erkennung eine unterstützte
+        Plattform, läuft derselbe Versuch direkt in Füllen und Rückverifikation
+        weiter. Ein zweiter Klick ist nicht nötig.
+
+        ``stub`` schaltet auf eine Shop-Attrappe für den E2E-Klickpfad um. Dieser
+        Weg schreibt bewusst nichts: der Testlauf soll weder eine Plattform
+        festschreiben noch Produkt-IDs echter Angebote überschreiben.
+        """
+        shop = self.repository.get_shop(shop_id)
+        if shop is None:
+            raise ValidationError(f"Shop {shop_id} ist unbekannt")
+        shop_url = shop.get("url")
+        if not shop_url:
+            raise ValidationError(f"Shop {shop_id} hat keine URL")
+
+        _, variant, _ = self._selected_plan(job_id, tempo)
+        items = self._cart_items(job_id, variant, shop_id)
+        if not items:
+            raise ValidationError(
+                "Der gewählte Bestellplan enthält für diesen Shop keine Position"
+            )
+
+        if stub:
+            session = build_stub_session(items, mismatch=stub == "mismatch")
+        else:
+            session = (session_factory or open_session)()
+        persist = not stub
+
+        plattform = shop.get("plattform")
+        beleg = shop.get("plattform_beleg")
+
+        if shop.get("plattform_geprueft_am") is None:
+            # Wirft CartTemporaryError bei Timeout/Netzfehler - dann wird
+            # bewusst nichts geschrieben und der Knopf bleibt stehen.
+            evidence = start_guest_session(session, shop_url)
+            plattform = evidence.plattform if evidence else None
+            beleg = (
+                evidence.beleg
+                if evidence
+                else "Geprüft: keine Merkmale von OpenCart, WooCommerce oder Shopify gefunden"
+            )
+            if persist:
+                self.repository.save_shop_platform(shop_id, plattform, beleg)
+        else:
+            # Plattform steht schon fest; der Landing-Aufruf eröffnet nur noch
+            # die Gast-Session.
+            start_guest_session(session, shop_url)
+
+        if plattform not in SUPPORTED_PLATFORMS:
+            # Erwartbarer Ausgang, kein Fehler: die Linkliste bleibt der Weg.
+            benannt = self.PLATFORM_LABELS.get(plattform or "", "keine bekannte Plattform")
+            return {
+                "status": "nicht_unterstuetzt",
+                "job_id": job_id,
+                "shop_id": shop_id,
+                "shop_name": shop.get("name"),
+                "shop_url": shop_url,
+                "plattform": plattform,
+                "plattform_beleg": beleg,
+                "text": (
+                    f"Plattform geprüft: {benannt} – für diesen Shop bleibt die Bestellliste."
+                ),
+            }
+
+        adapter = build_adapter(plattform, session)
+        fill = adapter.fill(shop_url, items)
+        if fill.produkt_ids and persist:
+            self.repository.save_offer_product_ids(fill.produkt_ids)
+
+        return {
+            "status": "uebergabe",
+            "job_id": job_id,
+            "shop_id": shop_id,
+            "shop_name": shop.get("name"),
+            "shop_url": shop_url,
+            "plattform": fill.plattform,
+            "plattform_beleg": beleg,
+            "verifiziert": fill.verifiziert,
+            "artikel_anzahl": fill.artikel_anzahl,
+            "total_chf": str(fill.total_chf.quantize(Decimal("0.01"))),
+            "positionen": fill.positionen,
+            "cookie": (
+                None
+                if not fill.cookie_wert
+                else {"name": fill.cookie_name, "wert": fill.cookie_wert}
+            ),
+            "cart_url": fill.cart_url,
+        }
+
+    def _selected_plan(
+        self, job_id: int, tempo: float
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[int, dict[str, Any]]]:
+        """Den serverseitig persistierten Plan auflösen - genau der wird gefüllt."""
+        matrix = self.plan_scenarios(job_id, tempo=tempo)
+        target = matrix.get("selected_assignments")
+        candidates = [
+            *matrix.get("scenarios", []),
+            *([matrix["custom"]] if matrix.get("custom") else []),
+        ]
+        variant = next(
+            (item for item in candidates if item["assignments"] == target), None
+        )
+        if variant is None:
+            raise ValidationError(
+                "Für diesen Job ist kein gültiger Bestellplan gewählt"
+            )
+        shop_rows = {
+            int(row["id"]): row
+            for row in self.repository.optimization_input(job_id).get("shops", [])
+        }
+        return matrix, variant, shop_rows
+
+    def _cart_items(
+        self, job_id: int, variant: dict[str, Any], shop_id: int
+    ) -> list[CartItem]:
+        data = self.repository.optimization_input(job_id)
+        cached = {
+            int(row["id"]): row.get("shop_produkt_id")
+            for row in data.get("offers", [])
+        }
+        return [
+            CartItem(
+                line_id=int(line["line_id"]),
+                offer_id=int(line["offer_id"]),
+                produktname=line.get("produktname") or "",
+                produkt_url=line.get("produkt_url") or "",
+                menge=int(line["menge"]),
+                einzelpreis_chf=Decimal(str(line["einzelpreis_chf"])),
+                shop_produkt_id=cached.get(int(line["offer_id"])),
+            )
+            for line in variant.get("lines", [])
+            if int(line["shop_id"]) == shop_id
+        ]
 
     @staticmethod
     def _product_key(name: Any) -> str:

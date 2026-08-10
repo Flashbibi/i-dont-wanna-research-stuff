@@ -15,6 +15,8 @@ class UIRepository:
         self.next_test_job_id = 9000
         self.selected_assignments = None
         self.purchases_created = []
+        self.platform_writes = []
+        self.product_id_writes = []
 
     def create_job(self, source_text, lines):
         return 7
@@ -155,6 +157,28 @@ class UIRepository:
         self.arrived.append(purchase_id)
         return {"id": purchase_id, "angekommen_am": "jetzt"}
 
+    def get_shop(self, shop_id):
+        if shop_id != 1:
+            return None
+        return {
+            "id": 1,
+            "name": "Servo Shop",
+            "url": "https://shop.example.ch",
+            "domain": "shop.example.ch",
+            "status": "ungeprueft",
+            "plattform": None,
+            "plattform_beleg": None,
+            "plattform_geprueft_am": None,
+        }
+
+    def save_shop_platform(self, shop_id, plattform, plattform_beleg):
+        self.platform_writes.append((shop_id, plattform, plattform_beleg))
+        return {"id": shop_id, "plattform": plattform, "plattform_beleg": plattform_beleg}
+
+    def save_offer_product_ids(self, produkt_ids):
+        self.product_id_writes.append(dict(produkt_ids))
+        return len(produkt_ids)
+
     def list_shops(self):
         return [{"id": 1, "name": "Servo Shop", "url": "https://shop.example.ch", "status": "ungeprueft", "versand_chf": "8.00", "lieferzeit_default_tage": 3}]
 
@@ -276,6 +300,24 @@ def test_browser_e2e_creates_and_cleans_marked_job_instead_of_using_job_one():
     assert "DELETE FROM purchase WHERE job_id" in database
 
 
+def test_cart_e2e_uses_a_disposable_job_and_never_touches_a_real_shop():
+    script = Path("tests/e2e/cart_fill_click.mjs").read_text(encoding="utf-8")
+
+    assert "/api/e2e/jobs" in script
+    assert "method: 'DELETE'" in script
+    # Der Stub wird im Test angehängt, nicht in der Oberfläche verdrahtet.
+    assert "page.route('**/shops/*/cart'" in script
+    assert "searchParams.set('stub', stubMode)" in script
+    assert "'X-E2E-Marker'" in script
+    # Zustandswechsel, Erfolg, Fehlerfall und Reload-Konsistenz.
+    assert "fillButtonVisible" in script
+    assert "verifiedCartVisible" in script
+    assert "cookieHandoverVisible" in script
+    assert "consistentAfterReload" in script
+    assert "mismatchDiffVisible" in script
+    assert "cartResponses, [200, 409, 200]" in script
+
+
 def test_unknown_delivery_is_rendered_explicitly_in_assignments():
     script = Path("static/variants.js").read_text(encoding="utf-8")
 
@@ -360,6 +402,124 @@ def test_variants_page_and_server_side_tempo_api_include_links_and_totals():
     assert len(grouped) == 1
     assert grouped[0]["keys"] == ["cheapest", "fastest", "one_shop", "balanced"]
     assert grouped[0]["same_result_note"]
+
+
+def test_cart_shops_endpoint_marks_which_shops_can_be_filled():
+    client, _ = client_and_repo()
+
+    rows = client.get("/api/jobs/7/cart-shops").json()
+
+    assert rows == [
+        {
+            "shop_id": 1,
+            "shop_name": "Servo Shop",
+            "shop_url": "https://shop.example.ch",
+            "plattform": None,
+            "plattform_geprueft": False,
+            "kann_fuellen": True,
+        }
+    ]
+
+
+def test_cart_fill_rejects_an_unknown_shop_without_touching_the_network():
+    client, _ = client_and_repo()
+
+    response = client.post("/api/jobs/7/shops/99/cart")
+
+    assert response.status_code == 422
+    assert "99" in response.json()["detail"]
+
+
+def test_cart_fill_maps_each_outcome_to_its_own_status_code():
+    """Wiederholbar, belegter Unterschied und Rest müssen unterscheidbar sein."""
+    from app.cart import CartError, CartTemporaryError, CartVerificationError
+
+    client, _ = client_and_repo()
+    procurement = client.app.state.procurement
+
+    cases = [
+        (CartTemporaryError("Shop war nicht erreichbar"), 503),
+        (CartVerificationError(["Zwischensumme weicht ab: erfasst CHF 3.90, Korb CHF 4.20."]), 409),
+        (CartError("Produktseite nennt keine product_id"), 422),
+    ]
+    for error, expected in cases:
+        def explode(*_args, _error=error, **_kwargs):
+            raise _error
+
+        procurement.fill_cart = explode
+        response = client.post("/api/jobs/7/shops/1/cart")
+
+        assert response.status_code == expected
+        assert response.json()["detail"] == str(error)
+
+
+def test_cart_stub_is_unreachable_without_the_e2e_marker():
+    client, repository = client_and_repo()
+
+    assert client.post("/api/jobs/7/shops/1/cart?stub=ok").status_code == 404
+    assert repository.platform_writes == []
+    assert repository.product_id_writes == []
+
+
+def test_cart_stub_rejects_an_unknown_mode():
+    client, _ = client_and_repo()
+    marker = {"X-E2E-Marker": "beschaffung-e2e-disposable"}
+
+    response = client.post("/api/jobs/7/shops/1/cart?stub=erfunden", headers=marker)
+
+    assert response.status_code == 422
+
+
+def test_cart_stub_verifies_a_matching_cart_without_writing_anything():
+    client, repository = client_and_repo()
+    marker = {"X-E2E-Marker": "beschaffung-e2e-disposable"}
+
+    response = client.post("/api/jobs/7/shops/1/cart?stub=ok", headers=marker)
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["status"] == "uebergabe"
+    assert payload["verifiziert"] is True
+    assert payload["artikel_anzahl"] == 2
+    assert payload["total_chf"] == "20.00"
+    assert payload["cookie"]["name"] == "OCSESSID"
+    # Der Testlauf darf weder eine Plattform festschreiben noch Produkt-IDs
+    # echter Angebote überschreiben.
+    assert repository.platform_writes == []
+    assert repository.product_id_writes == []
+
+
+def test_cart_stub_mismatch_produces_the_blocking_diff():
+    client, _ = client_and_repo()
+    marker = {"X-E2E-Marker": "beschaffung-e2e-disposable"}
+
+    response = client.post("/api/jobs/7/shops/1/cart?stub=mismatch", headers=marker)
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert "erfasst CHF 20.00" in detail
+    assert "Korb CHF 20.60" in detail
+
+
+def test_cart_browser_shows_states_handover_and_keeps_expected_outcomes_neutral():
+    script = Path("static/job-matrix.js").read_text(encoding="utf-8")
+    css = Path("static/app.css").read_text(encoding="utf-8")
+
+    assert "/cart-shops" in script
+    assert "/cart`" in script
+    assert "Warenkorb füllen" in script
+    assert "Warenkorb wird gefüllt" in script
+    assert "Korb geprüft:" in script
+    assert "Nochmal versuchen" in script
+    assert "Kopieren" in script
+    assert "DevTools öffnen (F12)" in script
+    assert "Die Session ist flüchtig" in script
+    # Kein "alle Shops füllen" - bewusst pro Shop einzeln.
+    assert "alle Shops" not in script
+    # Geprüft-aber-nicht-unterstützt ist ein Ergebnis, kein Fehler.
+    assert 'class="note cartoff"' in script
+    assert ".cartoff { color:var(--muted); }" in css
+    assert "cartdiff" in script and "--danger" in css
 
 
 def test_history_repeat_arrival_and_shop_moderation_are_available():

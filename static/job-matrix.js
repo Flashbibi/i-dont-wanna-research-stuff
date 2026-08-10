@@ -3,7 +3,7 @@
   if (!host) return;
 
   const jobId = Number(host.dataset.job);
-  const state = { data: null, tempo: 0.5, detail: null, checks: new Set(), ordered: host.dataset.status === "bestellt" };
+  const state = { data: null, tempo: 0.5, detail: null, checks: new Set(), ordered: host.dataset.status === "bestellt", cartShops: {}, cart: {} };
   const esc = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const chf = (value) => Number(value).toFixed(2);
   const sameAssignments = (a, b) => JSON.stringify(a || {}) === JSON.stringify(b || {});
@@ -44,7 +44,19 @@
       body: JSON.stringify({ tempo: state.tempo }),
     });
     state.checks.clear();
+    await loadCartShops();
     render();
+  }
+
+  async function loadCartShops() {
+    // Eignung pro Shop. Scheitert das (halbfertiger Job, kein Plan), bleibt die
+    // Bestellspalte einfach ohne Füllknopf - die Linkliste trägt weiterhin.
+    try {
+      const rows = await json(`/api/jobs/${jobId}/cart-shops`);
+      state.cartShops = Object.fromEntries(rows.map((row) => [String(row.shop_id), row]));
+    } catch {
+      state.cartShops = {};
+    }
   }
 
   function renderProgress() {
@@ -176,6 +188,36 @@
     box.innerHTML = `<h2>Offen</h2>${state.data.open_lines.map((line) => `<div class="open-line"><b>Position ${line.position}: ${esc(line.suchtext)}</b><div class="note">${esc(line.status)}${line.kommentar ? ` · ${esc(line.kommentar)}` : ""}</div></div>`).join("")}`;
   }
 
+  function handover(shop, data) {
+    const cookie = data.cookie || {};
+    return `<div class="okmsg cartok">Korb geprüft: ${data.artikel_anzahl} Artikel, CHF ${chf(data.total_chf)} ✓</div>
+      <div class="handover">
+        <div class="rrow"><span class="k">Cookie</span><span><code>${esc(cookie.name)}</code></span></div>
+        <div class="cookiebox"><code data-cookie="${shop.id}">${esc(cookie.wert)}</code><button type="button" class="btn copy" data-copy="${shop.id}">Kopieren</button></div>
+        <ol class="steps">
+          <li><a href="${esc(data.shop_url)}" target="_blank" rel="noopener">Shop öffnen ↗</a></li>
+          <li>DevTools öffnen (F12) → Application → Cookies</li>
+          <li><code>${esc(cookie.name)}</code> auf den Wert oben setzen, Seite neu laden</li>
+        </ol>
+        <div class="note">Die Session ist flüchtig — deshalb wird just-in-time gefüllt, nie auf Vorrat. Läuft sie ab, einfach neu füllen.</div>
+      </div>`;
+  }
+
+  function cartBlock(shop) {
+    const key = String(shop.id);
+    const info = state.cartShops[key];
+    const status = state.cart[key];
+    // Erwartbarer Ausgang, kein Fehler: kein Error-Styling.
+    if (status && status.state === "off") return `<div class="note cartoff">${esc(status.text)}</div>`;
+    if (status && status.state === "busy") return '<div class="note cartbusy">Warenkorb wird gefüllt …</div>';
+    if (status && status.state === "ok") return handover(shop, status.data);
+    if (!info || !info.kann_fuellen) return "";
+    if (status && status.state === "err") {
+      return `<div class="warn cartdiff">${esc(status.text)}</div><button type="button" class="btn cartfill" data-cart="${shop.id}">Nochmal versuchen</button>`;
+    }
+    return `<button type="button" class="btn cartfill" data-cart="${shop.id}">Warenkorb füllen</button>`;
+  }
+
   function renderRail() {
     const selected = active();
     const summary = document.getElementById("railsum");
@@ -203,7 +245,7 @@
       })();
       const items = selected.lines.filter((line) => Number(line.shop_id) === Number(shop.id));
       const links = `<details><summary>Produktlinks öffnen ↗</summary><ul class="shop-links">${items.map((line) => `<li><a href="${esc(line.quelle_url)}" target="_blank" rel="noopener">${esc(line.produktname)} ↗</a></li>`).join("")}</ul></details>`;
-      return `<div class="shoprow"><div class="top"><span class="nm">${esc(shop.name)}</span><span class="amt">CHF ${chf(Number(shop.subtotal_chf) + Number(shop.versand_chf))}</span></div><div class="sub">${shop.artikelanzahl} Artikel · Versand ${Number(shop.versand_chf) === 0 ? "gratis" : `CHF ${chf(shop.versand_chf)}`}</div>${links}${threshold}<label><input type="checkbox" data-shop="${shop.id}" ${checked ? "checked" : ""}> bei ${esc(shop.name.split(" ")[0])} bestellt</label></div>`;
+      return `<div class="shoprow"><div class="top"><span class="nm">${esc(shop.name)}</span><span class="amt">CHF ${chf(Number(shop.subtotal_chf) + Number(shop.versand_chf))}</span></div><div class="sub">${shop.artikelanzahl} Artikel · Versand ${Number(shop.versand_chf) === 0 ? "gratis" : `CHF ${chf(shop.versand_chf)}`}</div>${links}${threshold}${cartBlock(shop)}<label><input type="checkbox" data-shop="${shop.id}" ${checked ? "checked" : ""}> bei ${esc(shop.name.split(" ")[0])} bestellt</label></div>`;
     }).join("");
     const allChecked = selected.shops.every((shop) => state.checks.has(String(shop.id)));
     order.innerHTML = `<h2>Bestellen</h2>${shopRows}<button class="cta" id="record-purchase" ${allChecked && !selected.incomplete ? "" : "disabled"}>Bestellung erfassen</button>${selected.incomplete ? '<div class="note">Unvollständige Pläne können nicht erfasst werden.</div>' : '<div class="note">Links öffnen, in jedem Shop bestellen, abhaken. Zahlung bleibt bei dir.</div>'}`;
@@ -227,6 +269,42 @@
     const row = event.target.closest("[data-row]");
     const decision = event.target.closest("[data-decision]");
     const purchase = event.target.closest("#record-purchase");
+    const cartFill = event.target.closest("[data-cart]");
+    const cartCopy = event.target.closest("[data-copy]");
+
+    if (cartCopy) {
+      event.preventDefault();
+      const box = document.querySelector(`[data-cookie="${cartCopy.dataset.copy}"]`);
+      if (box) {
+        await navigator.clipboard.writeText(box.textContent).catch(() => {});
+        cartCopy.textContent = "Kopiert ✓";
+        setTimeout(() => { cartCopy.textContent = "Kopieren"; }, 1500);
+      }
+      return;
+    }
+
+    if (cartFill) {
+      // Ein Knopfdruck: erkennen, füllen, zurücklesen. Fehler bleiben hier
+      // stehen statt in einem alert() zu verschwinden - der Diff ist der Punkt.
+      event.preventDefault();
+      const id = String(cartFill.dataset.cart);
+      state.cart[id] = { state: "busy" };
+      renderRail();
+      try {
+        const result = await json(`/api/jobs/${jobId}/shops/${id}/cart`, { method: "POST" });
+        if (result.status === "nicht_unterstuetzt") {
+          state.cart[id] = { state: "off", text: result.text };
+          if (state.cartShops[id]) state.cartShops[id].kann_fuellen = false;
+        } else {
+          state.cart[id] = { state: "ok", data: result };
+        }
+      } catch (error) {
+        state.cart[id] = { state: "err", text: error.message };
+      }
+      renderRail();
+      return;
+    }
+
     try {
       if (select || fix) {
         event.preventDefault();
