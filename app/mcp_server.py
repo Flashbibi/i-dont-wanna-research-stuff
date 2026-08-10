@@ -137,6 +137,11 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         return service.plan_order(job_id, tempo)
 
     @mcp.tool()
+    def get_cart_session(job_id: int, shop_id: int) -> dict[str, Any]:
+        """Gast-Warenkorb beim Shop füllen und die Session übergeben: legt beim Shop eine Gast-Session an, füllt sie mit der persistierten Szenarioauswahl für diesen Shop und liest den Korb zurück; nur bei exakter Übereinstimmung von Artikelzahl und Zwischensumme wird übergeben, sonst kommt ein Fehler mit Diff. Kein Login, kein Kaufabschluss. Einziger DB-Schreibzugriff sind der Plattform-Befund und der Produkt-ID-Cache."""
+        return service.fill_cart(job_id, shop_id)
+
+    @mcp.tool()
     def record_purchase(
         job_id: int,
         variante: dict[str, Any],
