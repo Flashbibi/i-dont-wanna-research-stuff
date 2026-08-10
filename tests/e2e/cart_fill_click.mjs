@@ -36,9 +36,26 @@ try {
   const {job_id: jobId} = testJob;
   const evidence = {
     baseUrl, testJobId: jobId, marker: testJob.marker,
-    consoleErrors: [], failedRequests: [], cartResponses: [],
+    consoleErrors: [], expectedConflictLogs: [], failedRequests: [], cartResponses: [],
   };
-  page.on('console', message => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+
+  // Das Mismatch-Leg verlangt einen 409. Chrome protokolliert jeden fetch mit
+  // Fehlerstatus als "Failed to load resource" - Browserverhalten, von der App
+  // nicht unterdrückbar. Dieser eine Eintrag wird deshalb getrennt gezählt,
+  // eng auf die Cart-Fill-URL gescoped; für alles andere bleibt Null-Toleranz.
+  const cartFillUrl = /\/api\/jobs\/\d+\/shops\/\d+\/cart(\?|$)/;
+  const isExpectedConflict = (text, url) =>
+    /Failed to load resource/i.test(text) && /\b409\b/.test(text) &&
+    (cartFillUrl.test(url) || cartFillUrl.test(text));
+
+  page.on('console', message => {
+    if (message.type() !== 'error') return;
+    const text = message.text();
+    const url = message.location()?.url || '';
+    if (isExpectedConflict(text, url)) evidence.expectedConflictLogs.push({url, text});
+    else evidence.consoleErrors.push(text);
+  });
+  // Echte JS-Ausnahmen bleiben ausnahmslos verboten.
   page.on('pageerror', error => evidence.consoleErrors.push(error.message));
   page.on('requestfailed', request => evidence.failedRequests.push({url: request.url(), error: request.failure()?.errorText}));
   page.on('response', response => {
@@ -98,6 +115,9 @@ try {
   assert.equal(await rowAfterReload.locator('.cartok').count(), 0, 'Bestätigung darf einen Reload nicht überleben');
   evidence.consistentAfterReload = true;
 
+  // Bis hierhin lief nichts schief - der 409-Eintrag darf noch nicht existieren.
+  assert.deepEqual(evidence.expectedConflictLogs, [], 'Vor dem Mismatch-Leg darf kein 409 im Konsolenlog stehen');
+
   // Fehlerfall: geänderter Shop-Preis blockiert die Übergabe mit belegtem Diff.
   stubMode = 'mismatch';
   const badResponse = page.waitForResponse(response => response.url().includes('/cart?stub=mismatch'));
@@ -120,6 +140,9 @@ try {
   assert.deepEqual(evidence.consoleErrors, []);
   assert.deepEqual(evidence.failedRequests, []);
   assert.deepEqual(evidence.cartResponses, [200, 409, 200]);
+  // Genau ein erwarteter Eintrag, aus genau dem einen Leg, das ihn erzeugt.
+  assert.equal(evidence.expectedConflictLogs.length, 1, `Erwartet genau ein 409-Konsolenlog, erhalten ${evidence.expectedConflictLogs.length}`);
+  assert.match(evidence.expectedConflictLogs[0].text, /Failed to load resource.*\b409\b/);
   console.log(JSON.stringify(evidence));
 } finally {
   if (context) await context.close();
