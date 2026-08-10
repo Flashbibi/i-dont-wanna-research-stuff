@@ -14,12 +14,18 @@ Grenzen, die hier bewusst hart sind:
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Protocol
 from urllib.parse import urljoin, urlparse
 
+
+#: Diagnose-Logging des Füllpfads. Enthält bewusst nie Cookie-Werte.
+log = logging.getLogger("beschaffung.cart")
+
+_ADDED_LINK = re.compile(r"<a\s+href=[\"']([^\"']+)[\"']", re.IGNORECASE)
 
 PLATFORM_OPENCART = "opencart"
 PLATFORM_WOOCOMMERCE = "woocommerce"
@@ -396,7 +402,9 @@ class OpenCartAdapter:
         produkt_ids: dict[int, str] = {}
         for item in items:
             product_id = item.shop_produkt_id
+            quelle = "cache"
             if not product_id:
+                quelle = "produktseite"
                 page = self.session.get(item.produkt_url)
                 if page.status_code != 200:
                     raise CartError(
@@ -405,10 +413,21 @@ class OpenCartAdapter:
                     )
                 product_id = extract_opencart_product_id(page.text, item.produkt_url)
                 produkt_ids[item.offer_id] = product_id
-            self._add(base_url, item, product_id)
+            hinzugefuegt = self._add(base_url, item, product_id)
+            # Die Add-Antwort nennt das tatsächlich eingelegte Produkt. Zeigt eine
+            # gecachte ID auf ein anderes Produkt, steht der Beleg genau hier.
+            log.info(
+                "cart-fill offer=%s product_id=%s quelle=%s erwartet=%s eingelegt=%s",
+                item.offer_id, product_id, quelle, item.produkt_url, hinzugefuegt,
+            )
 
         cart_page = self.session.get(self._cart_url(base_url))
         entries, _totals = parse_opencart_cart(cart_page.text)
+        log.info(
+            "cart-read status=%s bytes=%s positionen=%s hrefs=%s",
+            cart_page.status_code, len(cart_page.text or ""), len(entries),
+            [entry.href for entry in entries],
+        )
         self._verify(base_url, items, entries)
 
         return CartFill(
@@ -438,7 +457,8 @@ class OpenCartAdapter:
             produkt_ids=produkt_ids,
         )
 
-    def _add(self, base_url: str, item: CartItem, product_id: str) -> None:
+    def _add(self, base_url: str, item: CartItem, product_id: str) -> str | None:
+        """Position einlegen; liefert die vom Shop genannte Produkt-URL zurück."""
         response = self.session.post(
             self._add_url(base_url),
             {"product_id": product_id, "quantity": item.menge},
@@ -465,6 +485,8 @@ class OpenCartAdapter:
             raise CartError(
                 f"Shop bestätigt das Hinzufügen nicht: {item.produktname}"
             )
+        link = _ADDED_LINK.search(str(payload.get("success") or ""))
+        return link.group(1) if link else None
 
     @staticmethod
     def _add_error_text(item: CartItem, error_payload: Any) -> str:
