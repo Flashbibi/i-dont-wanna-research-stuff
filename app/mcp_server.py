@@ -38,22 +38,22 @@ def build_mcp(service: ProcurementService) -> FastMCP:
 
     @mcp.tool()
     def create_job(zeilen: list[str]) -> dict[str, Any]:
-        """Einen echten Job aus Positionen anlegen; Mengenpräfixe wie «2x …» werden geparst."""
+        """Echten UI-Job aus einer Zeilenliste anlegen; Mengenpräfixe wie «2x …» werden über denselben Parser wie die Textarea verarbeitet."""
         return service.create_job_from_lines(zeilen)
 
     @mcp.tool()
     def get_job(job_id: int) -> dict[str, Any]:
-        """Jobstatus, Zeilen mit Kandidatenzahl und Szenarioverfügbarkeit lesen."""
+        """Jobstatus und Zeilenstatus samt Kandidatenzahl lesen sowie mit der UI-Szenariologik prüfen, ob Szenarien verfügbar sind (read-only)."""
         return service.get_job(job_id)
 
     @mcp.tool()
     def search_history(text: str) -> list[dict[str, Any]]:
-        """Kaufhistorie read-only nach Produktname oder Shop durchsuchen."""
+        """Käufe nach Produktname oder Shop suchen; Bestellzeit, Preis, zugesagte Liefertage und Ankunft lesen (read-only)."""
         return service.search_history(text)
 
     @mcp.tool()
     def get_stock() -> list[dict[str, Any]]:
-        """Aktuell positiven Bestand read-only lesen."""
+        """Aktuell positiven Bestand lesen (read-only)."""
         return service.get_stock()
 
     @mcp.tool()
@@ -63,19 +63,19 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         pins: dict[int | str, int] | None = None,
         excludes: list[int] | None = None,
     ) -> dict[str, Any]:
-        """Dieselbe serverseitige Szenariomatrix wie die Job-UI read-only berechnen."""
+        """Die vollständige Szenariomatrix mit optionalem Tempo, Pins und Excludes über exakt dieselbe Serverfunktion wie die Job-UI berechnen (read-only)."""
         return service.plan_scenarios(
             job_id, tempo=tempo, pins=pins, excludes=excludes
         )
 
     @mcp.tool()
     def next_job() -> dict[str, Any] | None:
-        """Aeltesten offenen Job mit seinen offenen Zeilen laden."""
+        """Ältesten nicht als Test markierten offenen Job mit seinen noch offenen oder in Arbeit befindlichen Zeilen laden."""
         return service.next_job()
 
     @mcp.tool()
     def check_line(line_id: int) -> dict[str, Any]:
-        """Bestand, fruehere Kaeufe und frische Cache-Angebote gemeinsam laden."""
+        """Exakten Bestand, frühere Käufe und höchstens 14 Tage alte Angebote für eine Zeile gemeinsam laden (read-only)."""
         return service.check_line(line_id)
 
     @mcp.tool()
@@ -90,7 +90,7 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         profil_quelle_url: str,
         versand_text: str,
     ) -> dict[str, Any]:
-        """Nur gegen eine Profil-Quellseite geprüften Schweizer Shop erfassen."""
+        """Neuen Schweizer Shop mit angegebener HTTP(S)-Profilquelle, Versand-Originaltext und validierten Profilwerten erfassen."""
         return service.record_shop(
             name,
             url,
@@ -113,7 +113,7 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         lieferzeit_text: str | None = None,
         lager_text: str | None = None,
     ) -> dict[str, Any]:
-        """Produktangebot mit wörtlicher Lieferzeit und Lagerstatus erfassen/aktualisieren."""
+        """Angebot einer bekannten Zeile bei einem nicht gesperrten Shop erfassen oder die heutige Beobachtung aktualisieren; URL, Preis und wörtliche Liefer-/Lagertexte werden validiert."""
         return service.record_offer(
             line_id,
             shop_id,
@@ -128,12 +128,12 @@ def build_mcp(service: ProcurementService) -> FastMCP:
     def mark_line(
         line_id: int, status: str, kommentar: str | None = None
     ) -> dict[str, Any]:
-        """Zeile als Bestand, nichts gefunden oder erledigt markieren."""
+        """Zeile als Bestand, nichts gefunden oder erledigt markieren; bei Bestand wird die benötigte Menge aus dem Lager abgebucht."""
         return service.mark_line(line_id, status, kommentar)
 
     @mcp.tool()
     def plan_order(job_id: int, tempo: float) -> list[dict[str, Any]]:
-        """Bis zu drei Varianten nur aus bestaetigten Angeboten berechnen."""
+        """Bis zu drei Bestellvarianten aus den neuesten Angeboten nicht gesperrter Shops berechnen; Pins, Excludes, Versand, Mindestwerte, Lieferzeiten, Tempo und Unbekannt-Malus werden berücksichtigt."""
         return service.plan_order(job_id, tempo)
 
     @mcp.tool()
@@ -143,7 +143,7 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         bestellt_am: str,
         zugesagt_liefertage_pro_shop: dict[str, int],
     ) -> dict[str, Any]:
-        """Tatsaechlich ausgeloeste Bestellung samt Zusagen speichern."""
+        """Tatsächlich ausgelöste vollständige Bestellung nach erneuter serverseitiger Planvalidierung samt zugesagten Liefertagen speichern und den Job auf bestellt setzen."""
         return service.record_purchase(
             job_id,
             variante,

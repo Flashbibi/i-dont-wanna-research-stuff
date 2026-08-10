@@ -84,6 +84,62 @@ def test_mcp_exposes_exact_procurement_tools():
     assert "lager" not in properties
 
 
+def test_all_tool_descriptions_match_current_behavior():
+    tools = asyncio.run(build_mcp(StubService()).list_tools())
+    descriptions = {tool.name: tool.description for tool in tools}
+
+    assert descriptions == {
+        "create_job": (
+            "Echten UI-Job aus einer Zeilenliste anlegen; Mengenpräfixe wie «2x …» "
+            "werden über denselben Parser wie die Textarea verarbeitet."
+        ),
+        "get_job": (
+            "Jobstatus und Zeilenstatus samt Kandidatenzahl lesen sowie mit der "
+            "UI-Szenariologik prüfen, ob Szenarien verfügbar sind (read-only)."
+        ),
+        "search_history": (
+            "Käufe nach Produktname oder Shop suchen; Bestellzeit, Preis, zugesagte "
+            "Liefertage und Ankunft lesen (read-only)."
+        ),
+        "get_stock": "Aktuell positiven Bestand lesen (read-only).",
+        "plan_scenarios": (
+            "Die vollständige Szenariomatrix mit optionalem Tempo, Pins und Excludes "
+            "über exakt dieselbe Serverfunktion wie die Job-UI berechnen (read-only)."
+        ),
+        "next_job": (
+            "Ältesten nicht als Test markierten offenen Job mit seinen noch offenen "
+            "oder in Arbeit befindlichen Zeilen laden."
+        ),
+        "check_line": (
+            "Exakten Bestand, frühere Käufe und höchstens 14 Tage alte Angebote für "
+            "eine Zeile gemeinsam laden (read-only)."
+        ),
+        "record_shop": (
+            "Neuen Schweizer Shop mit angegebener HTTP(S)-Profilquelle, "
+            "Versand-Originaltext und validierten Profilwerten erfassen."
+        ),
+        "record_offer": (
+            "Angebot einer bekannten Zeile bei einem nicht gesperrten Shop erfassen "
+            "oder die heutige Beobachtung aktualisieren; URL, Preis und wörtliche "
+            "Liefer-/Lagertexte werden validiert."
+        ),
+        "mark_line": (
+            "Zeile als Bestand, nichts gefunden oder erledigt markieren; bei Bestand "
+            "wird die benötigte Menge aus dem Lager abgebucht."
+        ),
+        "plan_order": (
+            "Bis zu drei Bestellvarianten aus den neuesten Angeboten nicht gesperrter "
+            "Shops berechnen; Pins, Excludes, Versand, Mindestwerte, Lieferzeiten, "
+            "Tempo und Unbekannt-Malus werden berücksichtigt."
+        ),
+        "record_purchase": (
+            "Tatsächlich ausgelöste vollständige Bestellung nach erneuter serverseitiger "
+            "Planvalidierung samt zugesagten Liefertagen speichern und den Job auf "
+            "bestellt setzen."
+        ),
+    }
+
+
 def test_create_job_tool_forwards_lines_and_returns_parsed_confirmation():
     server = build_mcp(StubService())
 
