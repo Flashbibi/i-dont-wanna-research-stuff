@@ -67,6 +67,45 @@ def cart_html(rows: str, zwischensumme: str) -> str:
     """
 
 
+# Wörtlich aus der echten Bastelgarage-Korbseite übernommen (Sondierung
+# 2026-08-10). Entscheidend: die Zeilenpreise sind brutto, der Summenblock
+# weist Sub-Total NETTO aus - 17.30 netto zu 18.70 brutto bei 8.1 % MWST.
+BASTELGARAGE_CART_HTML = """
+<html><body>
+<table class="table table-bordered"><tbody>
+  <tr>
+    <td class="text-center"> <a href="https://www.bastelgarage.ch/dupont-jumper-cable-set-10cm-60-pieces"><img src="https://www.bastelgarage.ch/image/cache/catalog/Artikel/420021-420030/420027-969-47x47.jpg" alt="Dupont Jumper Cable Set 10cm 60 pieces." class="img-thumbnail" /></a> </td>
+    <td class="text-left"><a href="https://www.bastelgarage.ch/dupont-jumper-cable-set-10cm-60-pieces">Dupont Jumper Cable Set 10cm 60 pieces.</a></td>
+    <td class="text-left">420027</td>
+    <td class="text-left"><div class="input-group btn-block" style="max-width: 200px;">
+        <input type="text" name="quantity[550684]" value="2" size="1" class="form-control" />
+        </div></td>
+    <td class="text-right">CHF5.90</td>
+    <td class="text-right">CHF11.80</td>
+  </tr>
+  <tr>
+    <td class="text-center"> <a href="https://www.bastelgarage.ch/half-size-transparent-breadboard-zy-60"><img src="/image/x.jpg" class="img-thumbnail" /></a> </td>
+    <td class="text-left"><a href="https://www.bastelgarage.ch/half-size-transparent-breadboard-zy-60">Half-Size Transparent Breadboard ZY-60</a></td>
+    <td class="text-left">420467</td>
+    <td class="text-left"><div class="input-group btn-block">
+        <input type="text" name="quantity[550685]" value="1" size="1" class="form-control" />
+        </div></td>
+    <td class="text-right">CHF6.90</td>
+    <td class="text-right">CHF6.90</td>
+  </tr>
+</tbody></table>
+<table class="table table-bordered">
+  <tr><td class="text-right"><strong>Sub-Total</strong></td> <td class="text-right">CHF17.30</td></tr>
+  <tr><td class="text-right"><strong>8.1% Mwst</strong></td> <td class="text-right">CHF1.40</td></tr>
+  <tr><td class="text-right"><strong>Total</strong></td> <td class="text-right">CHF18.70</td></tr>
+</table>
+</body></html>
+"""
+
+BG_DUPONT = "https://www.bastelgarage.ch/dupont-jumper-cable-set-10cm-60-pieces"
+BG_BREADBOARD = "https://www.bastelgarage.ch/half-size-transparent-breadboard-zy-60"
+
+
 def cart_row(url: str, name: str, menge: int, einzel: str, zeile: str, key: int) -> str:
     return f"""
     <tr>
@@ -212,20 +251,99 @@ def test_product_id_extraction_refuses_to_choose_between_candidates():
 # Korb zurücklesen
 # ---------------------------------------------------------------------------
 
-def test_cart_readback_yields_positions_and_subtotal():
-    entries, subtotal = parse_opencart_cart(cart_html(DUPONT_ROW + BREADBOARD_ROW, "CHF 18.70"))
+def test_cart_readback_yields_positions_and_the_totals_block():
+    entries, totals = parse_opencart_cart(cart_html(DUPONT_ROW + BREADBOARD_ROW, "CHF 18.70"))
 
     assert [entry.menge for entry in entries] == [2, 1]
     assert entries[0].name == "Dupont Jumper Cable Set 10cm"
     assert entries[0].zeilensumme_chf == Decimal("11.80")
-    assert subtotal == Decimal("18.70")
+    assert totals["Zwischensumme"] == Decimal("18.70")
 
 
-def test_cart_without_subtotal_is_refused_rather_than_assumed():
+def test_an_unreadable_cart_page_is_refused_rather_than_assumed():
     with pytest.raises(CartError) as error:
-        parse_opencart_cart(f"<table><tbody>{DUPONT_ROW}</tbody></table>")
+        parse_opencart_cart("<html><body>Fehlerseite</body></html>")
 
-    assert "Zwischensumme" in str(error.value)
+    assert "nicht lesbar" in str(error.value)
+
+
+def test_a_row_without_an_amount_is_refused():
+    row = '<tr><td class="text-left">Ding</td><td><input name="quantity[7]" value="1" /></td></tr>'
+
+    with pytest.raises(CartError) as error:
+        parse_opencart_cart(f"<table><tbody>{row}</tbody></table>")
+
+    assert "keinen Betrag" in str(error.value)
+
+
+# ---------------------------------------------------------------------------
+# Netto-Summenzeile: die Falle aus der Live-Abnahme
+# ---------------------------------------------------------------------------
+
+def test_the_real_cart_page_exposes_a_net_subtotal_next_to_gross_line_prices():
+    """Beleg für die Basis: Sub-Total ist netto, die Zeilenpreise sind brutto."""
+    entries, totals = parse_opencart_cart(BASTELGARAGE_CART_HTML)
+
+    brutto = sum(entry.zeilensumme_chf for entry in entries)
+    assert brutto == Decimal("18.70")
+    assert totals["Sub-Total"] == Decimal("17.30")
+    assert totals["Total"] == Decimal("18.70")
+    # 8.1 % MWST - genau der Faktor, der die Live-Abnahme scheitern liess.
+    assert (totals["Total"] / Decimal("1.081")).quantize(Decimal("0.01")) == totals["Sub-Total"]
+
+
+def test_a_net_subtotal_no_longer_fakes_a_price_change():
+    """Regression der Live-Abnahme: CHF 17.60 erfasst, Sub-Total meldete 16.28.
+
+    Verglichen wird brutto gegen brutto, deshalb geht der Korb durch.
+    """
+    cart, _ = adapter(
+        pages={BG_DUPONT: PRODUCT_HTML, BG_BREADBOARD: BREADBOARD_HTML},
+        cart_page=BASTELGARAGE_CART_HTML,
+    )
+
+    result = cart.fill(
+        SHOP_URL,
+        [
+            item(BG_DUPONT, offer_id=31, menge=2, preis="5.90",
+                 name="Dupont Jumper Cable Set 10cm 60 pieces."),
+            item(BG_BREADBOARD, offer_id=32, menge=1, preis="6.90",
+                 name="Half-Size Transparent Breadboard ZY-60", line_id=11),
+        ],
+    )
+
+    assert result.verifiziert is True
+    assert result.artikel_anzahl == 3
+    # Brutto, nicht der Netto-Sub-Total von 17.30.
+    assert result.total_chf == Decimal("18.70")
+
+
+def test_a_real_price_change_still_names_the_affected_position():
+    """Kein Aufweichen: eine echte Abweichung blockiert weiterhin exakt."""
+    moved = BASTELGARAGE_CART_HTML.replace(
+        '<td class="text-right">CHF6.90</td>\n    <td class="text-right">CHF6.90</td>',
+        '<td class="text-right">CHF7.40</td>\n    <td class="text-right">CHF7.40</td>',
+    )
+    cart, _ = adapter(
+        pages={BG_DUPONT: PRODUCT_HTML, BG_BREADBOARD: BREADBOARD_HTML},
+        cart_page=moved,
+    )
+
+    with pytest.raises(CartVerificationError) as error:
+        cart.fill(
+            SHOP_URL,
+            [
+                item(BG_DUPONT, offer_id=31, menge=2, preis="5.90",
+                     name="Dupont Jumper Cable Set 10cm 60 pieces."),
+                item(BG_BREADBOARD, offer_id=32, menge=1, preis="6.90",
+                     name="Half-Size Transparent Breadboard ZY-60", line_id=11),
+            ],
+        )
+
+    message = str(error.value)
+    # Nennt die betroffene Position, nicht nur eine Summe.
+    assert "Half-Size Transparent Breadboard ZY-60: erfasst CHF 6.90, Korb CHF 7.40." in message
+    assert "Dupont" not in message
 
 
 # ---------------------------------------------------------------------------
