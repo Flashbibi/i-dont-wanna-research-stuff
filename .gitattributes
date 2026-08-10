@@ -1,0 +1,2 @@
+# Shell-Skripte müssen LF behalten: run.sh wird auf dem Linux-Deployziel ausgecheckt.
+*.sh text eol=lf
