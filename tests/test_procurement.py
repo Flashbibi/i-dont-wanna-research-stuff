@@ -446,8 +446,11 @@ def test_plan_order_returns_no_partial_variant_when_a_required_line_lacks_confir
 
 
 def test_record_purchase_requires_valid_timestamp_shop_promises_and_variant():
-    procurement = service()
+    repository = FakeProcurementRepository()
+    procurement = ProcurementService(repository)
     variant = procurement.plan_order(5, 0)[0]
+    variant["labels"] = ["Am günstigsten"]
+    variant["lines"] = [{"produktname": "Übersetztes Produkt"}]
 
     purchase = procurement.record_purchase(
         5,
@@ -457,6 +460,9 @@ def test_record_purchase_requires_valid_timestamp_shop_promises_and_variant():
     )
 
     assert purchase["id"] == 90
+    stored_variant = repository.purchases[0][1]
+    assert "labels" not in stored_variant
+    assert "lines" not in stored_variant
     with pytest.raises(ValidationError, match="Liefertage"):
         procurement.record_purchase(5, variant, "2026-08-09T12:00:00+00:00", {})
     with pytest.raises(ValidationError, match="Variante"):

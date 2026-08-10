@@ -616,14 +616,15 @@ class ProcurementService:
         ]
         if not matches:
             raise ValidationError("Variante ist unvollstaendig, veraendert oder nicht mehr gueltig")
-        shop_keys = {str(shop_id) for shop_id in variante["shop_ids"]}
+        canonical_variant = matches[0]
+        shop_keys = {str(shop_id) for shop_id in canonical_variant["shop_ids"]}
         if set(zugesagt_liefertage_pro_shop) != shop_keys or any(
             not isinstance(days, int) or days <= 0
             for days in zugesagt_liefertage_pro_shop.values()
         ):
             raise ValidationError("Liefertage muessen fuer jeden Shop positiv angegeben sein")
         return self.repository.create_purchase(
-            job_id, variante, ordered_at, zugesagt_liefertage_pro_shop
+            job_id, canonical_variant, ordered_at, zugesagt_liefertage_pro_shop
         )
 
     @staticmethod
