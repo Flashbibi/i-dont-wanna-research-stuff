@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -198,6 +199,14 @@ def test_plan_scenarios_tool_forwards_all_optional_overrides():
         "ready": True,
         "scenarios": [],
     }
+
+
+def test_mcp_e2e_invokes_create_job_only_with_non_writing_invalid_input():
+    source = Path("tests/e2e/mcp_tools_call.py").read_text()
+
+    assert 'call(3, "create_job", {"zeilen": []})' in source
+    assert '"create_job_write": False' in source
+    assert '"zeilen": ["' not in source
 
 
 def test_streamable_http_endpoint_initializes_and_lists_tools():
