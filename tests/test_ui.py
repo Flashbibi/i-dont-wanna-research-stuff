@@ -194,7 +194,7 @@ def test_job_page_loads_candidates_from_matrix_api_and_decision_buttons_are_wire
     page = client.get("/jobs/7")
     matrix = client.post("/api/jobs/7/scenarios", json={"tempo": 0.5}).json()
     decision = client.post("/api/offers/31/decision", json={"status": "pin"})
-    script = Path("static/job-matrix.js").read_text()
+    script = Path("static/job-matrix.js").read_text(encoding="utf-8")
 
     assert page.status_code == 200
     assert matrix["lines"][0]["candidates"][0]["produktname"] == "MG996R Servo"
@@ -223,7 +223,7 @@ def test_job_page_uses_prototype_c_matrix_and_removes_old_card_sections():
 
 
 def test_job_matrix_browser_uses_only_server_planning_and_reference_wording():
-    script = Path("static/job-matrix.js").read_text()
+    script = Path("static/job-matrix.js").read_text(encoding="utf-8")
 
     assert "/scenarios" in script
     assert "/selection" in script
@@ -260,8 +260,8 @@ def test_e2e_jobs_are_marker_guarded_disposable_and_not_real_job_ids():
 
 
 def test_browser_e2e_creates_and_cleans_marked_job_instead_of_using_job_one():
-    script = Path("tests/e2e/decision_click.mjs").read_text()
-    database = Path("app/database.py").read_text()
+    script = Path("tests/e2e/decision_click.mjs").read_text(encoding="utf-8")
+    database = Path("app/database.py").read_text(encoding="utf-8")
 
     assert "OFFER_ID" not in script
     assert "/jobs/1" not in script
@@ -277,7 +277,7 @@ def test_browser_e2e_creates_and_cleans_marked_job_instead_of_using_job_one():
 
 
 def test_unknown_delivery_is_rendered_explicitly_in_assignments():
-    script = Path("static/variants.js").read_text()
+    script = Path("static/variants.js").read_text(encoding="utf-8")
 
     assert "value == null" in script
     assert "Lieferzeit unbekannt" in script
@@ -285,7 +285,7 @@ def test_unknown_delivery_is_rendered_explicitly_in_assignments():
 
 def test_decision_has_form_fallback_and_persists_in_matrix_api():
     client, repository = client_and_repo()
-    script = Path("static/job-matrix.js").read_text()
+    script = Path("static/job-matrix.js").read_text(encoding="utf-8")
 
     submitted = client.post(
         "/offers/31/decision",
@@ -307,7 +307,7 @@ def test_matrix_api_and_browser_preserve_delivery_provenance_and_fallback_wordin
 
     matrix = client.post("/api/jobs/7/scenarios", json={"tempo": 0.5}).json()
     candidate = matrix["lines"][0]["candidates"][0]
-    script = Path("static/job-matrix.js").read_text()
+    script = Path("static/job-matrix.js").read_text(encoding="utf-8")
 
     assert candidate["lieferzeit_chip"] == "2 Tage"
     assert candidate["lieferzeit_text"] == "2 Tage"

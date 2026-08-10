@@ -202,7 +202,7 @@ def test_plan_scenarios_tool_forwards_all_optional_overrides():
 
 
 def test_mcp_e2e_invokes_create_job_only_with_non_writing_invalid_input():
-    source = Path("tests/e2e/mcp_tools_call.py").read_text()
+    source = Path("tests/e2e/mcp_tools_call.py").read_text(encoding="utf-8")
 
     assert 'call(3, "create_job", {"zeilen": []})' in source
     assert '"create_job_write": False' in source

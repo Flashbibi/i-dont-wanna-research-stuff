@@ -57,7 +57,7 @@ def apply_migrations(connection: Connection, directory: Path) -> list[int]:
         if migration.version in applied_versions:
             continue
         try:
-            connection.execute(migration.path.read_text())
+            connection.execute(migration.path.read_text(encoding="utf-8"))
             connection.execute(
                 "INSERT INTO schema_migrations(version) VALUES (%s)",
                 (migration.version,),

@@ -37,9 +37,9 @@ class FakeResult:
 
 
 def test_discovers_numbered_sql_migrations_in_order(tmp_path: Path):
-    (tmp_path / "002_second.sql").write_text("SELECT 2")
-    (tmp_path / "001_first.sql").write_text("SELECT 1")
-    (tmp_path / "notes.sql").write_text("ignored")
+    (tmp_path / "002_second.sql").write_text("SELECT 2", encoding="utf-8")
+    (tmp_path / "001_first.sql").write_text("SELECT 1", encoding="utf-8")
+    (tmp_path / "notes.sql").write_text("ignored", encoding="utf-8")
 
     migrations = discover_migrations(tmp_path)
 
@@ -50,16 +50,16 @@ def test_discovers_numbered_sql_migrations_in_order(tmp_path: Path):
 
 
 def test_duplicate_migration_version_is_rejected(tmp_path: Path):
-    (tmp_path / "001_first.sql").write_text("SELECT 1")
-    (tmp_path / "001_duplicate.sql").write_text("SELECT 2")
+    (tmp_path / "001_first.sql").write_text("SELECT 1", encoding="utf-8")
+    (tmp_path / "001_duplicate.sql").write_text("SELECT 2", encoding="utf-8")
 
     with pytest.raises(MigrationError, match="doppelte Migrationsnummer 1"):
         discover_migrations(tmp_path)
 
 
 def test_applies_only_missing_migrations_and_records_each_version(tmp_path: Path):
-    (tmp_path / "001_first.sql").write_text("CREATE TABLE first_table(id int);")
-    (tmp_path / "002_second.sql").write_text("CREATE TABLE second_table(id int);")
+    (tmp_path / "001_first.sql").write_text("CREATE TABLE first_table(id int);", encoding="utf-8")
+    (tmp_path / "002_second.sql").write_text("CREATE TABLE second_table(id int);", encoding="utf-8")
     connection = FakeConnection(applied={1})
 
     applied = apply_migrations(connection, tmp_path)
@@ -73,7 +73,7 @@ def test_applies_only_missing_migrations_and_records_each_version(tmp_path: Path
 
 
 def test_core_schema_is_additive_and_contains_long_term_fields():
-    sql = Path("migrations/001_initial.sql").read_text()
+    sql = Path("migrations/001_initial.sql").read_text(encoding="utf-8")
     for table in ("job", "bom_line", "shop", "offer", "decision", "purchase", "purchase_item", "stock"):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in sql
     for field in (
@@ -88,14 +88,14 @@ def test_core_schema_is_additive_and_contains_long_term_fields():
 
 
 def test_repeat_purchase_migration_is_additive():
-    sql = Path("migrations/002_repeat_purchase.sql").read_text()
+    sql = Path("migrations/002_repeat_purchase.sql").read_text(encoding="utf-8")
 
     assert "ADD COLUMN IF NOT EXISTS wiederholt_von_purchase_id" in sql
     assert "DROP " not in sql.upper()
 
 
 def test_offer_source_text_migration_is_additive():
-    sql = Path("migrations/003_offer_source_text.sql").read_text()
+    sql = Path("migrations/003_offer_source_text.sql").read_text(encoding="utf-8")
 
     assert "ADD COLUMN IF NOT EXISTS lieferzeit_text TEXT" in sql
     assert "ADD COLUMN IF NOT EXISTS lager_text TEXT" in sql
@@ -103,7 +103,7 @@ def test_offer_source_text_migration_is_additive():
 
 
 def test_offer_daily_history_migration_preserves_observations_and_enforces_source_text():
-    sql = Path("migrations/004_offer_daily_history.sql").read_text()
+    sql = Path("migrations/004_offer_daily_history.sql").read_text(encoding="utf-8")
 
     assert "ADD COLUMN IF NOT EXISTS beobachtungstag DATE" in sql
     assert "UNIQUE (line_id, produkt_url, beobachtungstag)" in sql
@@ -113,7 +113,7 @@ def test_offer_daily_history_migration_preserves_observations_and_enforces_sourc
 
 
 def test_decision_override_migration_reuses_rows_additively():
-    sql = Path("migrations/005_decision_overrides.sql").read_text()
+    sql = Path("migrations/005_decision_overrides.sql").read_text(encoding="utf-8")
 
     assert "ADD COLUMN IF NOT EXISTS override_status TEXT" in sql
     assert "'pin', 'exclude'" in sql
@@ -124,7 +124,7 @@ def test_decision_override_migration_reuses_rows_additively():
 
 
 def test_e2e_job_marker_migration_is_additive():
-    sql = Path("migrations/006_e2e_test_jobs.sql").read_text()
+    sql = Path("migrations/006_e2e_test_jobs.sql").read_text(encoding="utf-8")
 
     assert "ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE" in sql
     assert "DELETE " not in sql.upper()
@@ -132,7 +132,7 @@ def test_e2e_job_marker_migration_is_additive():
 
 
 def test_shop_profile_source_migration_is_additive_and_enforces_provenance():
-    sql = Path("migrations/007_shop_profile_sources.sql").read_text()
+    sql = Path("migrations/007_shop_profile_sources.sql").read_text(encoding="utf-8")
 
     assert "ADD COLUMN IF NOT EXISTS profil_quelle_url TEXT" in sql
     assert "ADD COLUMN IF NOT EXISTS versand_text TEXT" in sql
@@ -144,7 +144,7 @@ def test_shop_profile_source_migration_is_additive_and_enforces_provenance():
 
 
 def test_job_plan_selection_migration_is_additive():
-    sql = Path("migrations/008_job_plan_selection.sql").read_text()
+    sql = Path("migrations/008_job_plan_selection.sql").read_text(encoding="utf-8")
 
     assert "ADD COLUMN IF NOT EXISTS selected_assignments JSONB" in sql
     assert "DELETE " not in sql.upper()
