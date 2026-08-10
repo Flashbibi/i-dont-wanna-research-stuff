@@ -2,6 +2,10 @@
 """Read-only production MCP smoke test.
 
 create_job is invoked only with invalid empty input, so this E2E never creates a real job.
+
+get_cart_session is listed but never called: it opens a guest session at a real
+shop and writes the platform finding plus the product-id cache. Keep it out of
+tools/call here.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ EXPECTED_TOOLS = {
     "mark_line",
     "plan_order",
     "record_purchase",
+    "get_cart_session",
 }
 
 

@@ -100,6 +100,23 @@ Zwei Dinge, die sonst Zeit kosten:
 Adapter-Tests laufen gegen gemockte HTTP-Antworten und rufen **nie** einen
 echten Shop auf.
 
+#### Bekannte Schwachstelle: Fake-Repository-Drift
+
+Weil die Tests mit Fake-Repositories arbeiten, können sie eine ganze Fehlerklasse
+nicht sehen: Ein Fake liefert einen Schlüssel *immer* mit, auch wenn die echte
+SQL-Abfrage die Spalte gar nicht selektiert. So blieb einmal
+`plattform_geprueft_am` aus `optimization_input` unbemerkt — mit der Folge, dass
+der Füllknopf niemals hätte verschwinden können.
+
+Als Sofortmassnahme prüft ein Test die *Spaltenliste* dieser einen Abfrage
+(`test_optimization_input_selects_the_columns_the_cart_handover_needs`). Das
+schliesst den konkreten Fall, nicht die Klasse.
+
+**Wenn die Klasse erneut zuschlägt, ist die Antwort kein weiterer
+SQL-String-Test**, sondern ein dünner Integrationstest-Layer für die
+Repository-Schicht gegen das Docker-Postgres: wenige Tests, die echte Rows
+schreiben und lesen, statt Abfragetexte zu inspizieren.
+
 ### 5. E2E
 
 Der MCP-Smoketest ist read-only und lässt sich per `BASE_URL` auf eine beliebige

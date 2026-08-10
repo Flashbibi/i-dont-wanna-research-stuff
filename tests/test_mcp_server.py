@@ -1,4 +1,5 @@
 import asyncio
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -57,6 +58,20 @@ class StubService:
     def record_purchase(self, *args):
         return {"id": 3}
 
+    def fill_cart(self, job_id, shop_id):
+        return {
+            "status": "uebergabe",
+            "job_id": job_id,
+            "shop_id": shop_id,
+            "plattform": "opencart",
+            "verifiziert": True,
+            "artikel_anzahl": 3,
+            "total_chf": "18.70",
+            "positionen": [{"produktname": "Dupont", "menge": 2}],
+            "cookie": {"name": "OCSESSID", "wert": "sess-1"},
+            "cart_url": "https://shop.example.ch/index.php?route=checkout/cart",
+        }
+
 
 def test_mcp_exposes_exact_procurement_tools():
     server = build_mcp(StubService())
@@ -76,6 +91,7 @@ def test_mcp_exposes_exact_procurement_tools():
         "mark_line",
         "plan_order",
         "record_purchase",
+        "get_cart_session",
     }
     record_offer = next(tool for tool in tools if tool.name == "record_offer")
     properties = record_offer.inputSchema["properties"]
@@ -137,6 +153,14 @@ def test_all_tool_descriptions_match_current_behavior():
             "Tatsächlich ausgelöste vollständige Bestellung nach erneuter serverseitiger "
             "Planvalidierung samt zugesagten Liefertagen speichern und den Job auf "
             "bestellt setzen."
+        ),
+        "get_cart_session": (
+            "Gast-Warenkorb beim Shop füllen und die Session übergeben: legt beim Shop "
+            "eine Gast-Session an, füllt sie mit der persistierten Szenarioauswahl für "
+            "diesen Shop und liest den Korb zurück; nur bei exakter Übereinstimmung von "
+            "Artikelzahl und Zwischensumme wird übergeben, sonst kommt ein Fehler mit "
+            "Diff. Kein Login, kein Kaufabschluss. Einziger DB-Schreibzugriff sind der "
+            "Plattform-Befund und der Produkt-ID-Cache."
         ),
     }
 
@@ -201,6 +225,30 @@ def test_plan_scenarios_tool_forwards_all_optional_overrides():
     }
 
 
+def test_get_cart_session_runs_the_same_adapter_path_as_the_ui():
+    result = asyncio.run(
+        build_mcp(StubService()).call_tool("get_cart_session", {"job_id": 7, "shop_id": 1})
+    )
+
+    assert isinstance(result, tuple)
+    payload = result[1]
+    assert payload["plattform"] == "opencart"
+    assert payload["verifiziert"] is True
+    assert payload["artikel_anzahl"] == 3
+    assert payload["total_chf"] == "18.70"
+    assert payload["cookie"] == {"name": "OCSESSID", "wert": "sess-1"}
+    assert payload["positionen"] == [{"produktname": "Dupont", "menge": 2}]
+
+
+def test_mcp_e2e_lists_the_cart_tool_but_never_calls_it():
+    """Der Smoketest läuft gegen Produktion; get_cart_session würde dort einen
+    echten Shop kontaktieren und schreiben. Listen ja, aufrufen nein."""
+    source = Path("tests/e2e/mcp_tools_call.py").read_text(encoding="utf-8")
+
+    assert '"get_cart_session",' in source
+    assert re.search(r'call\(\s*\d+\s*,\s*"get_cart_session"', source) is None
+
+
 def test_mcp_e2e_invokes_create_job_only_with_non_writing_invalid_input():
     source = Path("tests/e2e/mcp_tools_call.py").read_text(encoding="utf-8")
 
@@ -242,6 +290,7 @@ def test_streamable_http_endpoint_initializes_and_lists_tools():
     assert listed.status_code == 200
     names = {tool["name"] for tool in listed.json()["result"]["tools"]}
     assert names == {
+        "get_cart_session",
         "create_job",
         "get_job",
         "search_history",

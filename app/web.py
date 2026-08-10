@@ -304,6 +304,10 @@ def create_app(
             require_e2e_marker(x_e2e_marker)
             if stub not in {"ok", "mismatch"}:
                 raise HTTPException(422, "stub muss 'ok' oder 'mismatch' sein")
+            # Der Marker allein genügt nicht: ein gestubtes "Korb geprüft ✓"
+            # darf auf einem echten Job nicht existieren können.
+            if not active_repository.is_test_job(job_id):
+                raise HTTPException(404, "Nicht gefunden")
         try:
             return procurement.fill_cart(job_id, shop_id, stub=stub)
         except CartTemporaryError as error:

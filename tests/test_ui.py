@@ -157,6 +157,9 @@ class UIRepository:
         self.arrived.append(purchase_id)
         return {"id": purchase_id, "angekommen_am": "jetzt"}
 
+    def is_test_job(self, job_id):
+        return job_id in self.test_jobs
+
     def get_shop(self, shop_id):
         if shop_id != 1:
             return None
@@ -453,28 +456,52 @@ def test_cart_fill_maps_each_outcome_to_its_own_status_code():
         assert response.json()["detail"] == str(error)
 
 
-def test_cart_stub_is_unreachable_without_the_e2e_marker():
-    client, repository = client_and_repo()
+MARKER = {"X-E2E-Marker": "beschaffung-e2e-disposable"}
 
-    assert client.post("/api/jobs/7/shops/1/cart?stub=ok").status_code == 404
+
+def client_with_test_job():
+    client, repository = client_and_repo()
+    job_id = client.post("/api/e2e/jobs", headers=MARKER).json()["job_id"]
+    return client, repository, job_id
+
+
+def test_cart_stub_is_unreachable_without_the_e2e_marker():
+    client, repository, job_id = client_with_test_job()
+
+    assert client.post(f"/api/jobs/{job_id}/shops/1/cart?stub=ok").status_code == 404
+    assert repository.platform_writes == []
+    assert repository.product_id_writes == []
+
+
+def test_cart_stub_never_applies_to_a_real_job_even_with_the_marker():
+    """Ein gestubtes «Korb geprüft ✓» darf auf einem echten Job nicht existieren."""
+    client, repository, test_job_id = client_with_test_job()
+
+    real = client.post("/api/jobs/7/shops/1/cart?stub=ok", headers=MARKER)
+    mismatch = client.post("/api/jobs/7/shops/1/cart?stub=mismatch", headers=MARKER)
+
+    assert real.status_code == 404
+    assert mismatch.status_code == 404
+    # Der Marker wirkt weiterhin - nur eben ausschliesslich auf Testjobs.
+    assert client.post(
+        f"/api/jobs/{test_job_id}/shops/1/cart?stub=ok", headers=MARKER
+    ).status_code == 200
     assert repository.platform_writes == []
     assert repository.product_id_writes == []
 
 
 def test_cart_stub_rejects_an_unknown_mode():
-    client, _ = client_and_repo()
-    marker = {"X-E2E-Marker": "beschaffung-e2e-disposable"}
+    client, _, job_id = client_with_test_job()
 
-    response = client.post("/api/jobs/7/shops/1/cart?stub=erfunden", headers=marker)
+    response = client.post(f"/api/jobs/{job_id}/shops/1/cart?stub=erfunden", headers=MARKER)
 
     assert response.status_code == 422
 
 
 def test_cart_stub_verifies_a_matching_cart_without_writing_anything():
-    client, repository = client_and_repo()
-    marker = {"X-E2E-Marker": "beschaffung-e2e-disposable"}
+    client, repository, job_id = client_with_test_job()
 
-    response = client.post("/api/jobs/7/shops/1/cart?stub=ok", headers=marker)
+    response = client.post(f"/api/jobs/{job_id}/shops/1/cart?stub=ok", headers=MARKER)
 
     payload = response.json()
     assert response.status_code == 200
@@ -490,10 +517,9 @@ def test_cart_stub_verifies_a_matching_cart_without_writing_anything():
 
 
 def test_cart_stub_mismatch_produces_the_blocking_diff():
-    client, _ = client_and_repo()
-    marker = {"X-E2E-Marker": "beschaffung-e2e-disposable"}
+    client, _, job_id = client_with_test_job()
 
-    response = client.post("/api/jobs/7/shops/1/cart?stub=mismatch", headers=marker)
+    response = client.post(f"/api/jobs/{job_id}/shops/1/cart?stub=mismatch", headers=MARKER)
 
     assert response.status_code == 409
     detail = response.json()["detail"]

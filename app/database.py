@@ -379,6 +379,18 @@ class PostgresRepository:
                 raise ValueError(f"Shop {shop_id} ist unbekannt")
             return dict(row)
 
+    def is_test_job(self, job_id: int) -> bool:
+        """Nur für Gatter um E2E-Wege.
+
+        Bewusst eine eigene schmale Abfrage statt is_test in get_job: das würde
+        die Antwortform von GET /api/jobs/{id} und des MCP-Tools get_job ändern.
+        """
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT is_test FROM job WHERE id = %s", (job_id,)
+            ).fetchone()
+            return bool(row and row["is_test"])
+
     def save_offer_product_ids(self, produkt_ids: dict[int, str]) -> int:
         """Shopinterne Produkt-IDs cachen. Quelle ist jeweils die Produktseite."""
         if not produkt_ids:
