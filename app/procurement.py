@@ -435,10 +435,14 @@ class ProcurementService:
         }
 
     def select_plan(
-        self, job_id: int, assignments: Mapping[Any, int]
+        self,
+        job_id: int,
+        assignments: Mapping[Any, int],
+        *,
+        tempo: float = 0.5,
     ) -> dict[str, Any]:
         normalized = {str(int(key)): int(value) for key, value in assignments.items()}
-        matrix = self.plan_scenarios(job_id)
+        matrix = self.plan_scenarios(job_id, tempo=tempo)
         valid = [*matrix["scenarios"], *matrix["fine_tuned"][:1]]
         if not any(variant["assignments"] == normalized for variant in valid):
             raise ValidationError("Plan ist nicht mehr gültig")

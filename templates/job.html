@@ -1,61 +1,42 @@
 {% extends "base.html" %}
 {% block title %}Job #{{ job.id }} · Beschaffung{% endblock %}
 {% block content %}
-<div class="section-head job-title">
-  <div><p class="eyebrow">{{ job.status }}</p><h1>Job #{{ job.id }}</h1></div>
-  <a class="button" href="/jobs/{{ job.id }}/variants">Szenarien separat öffnen</a>
+{% set ns = namespace(offers=0) %}
+{% for line in job.lines %}{% set ns.offers = ns.offers + line.offers|length %}{% endfor %}
+<div class="job-head">
+  <h1>Job #{{ job.id }}</h1>
+  <span class="job-status{% if job.status == 'bestellt' %} done{% endif %}" id="jobstatus">{{ job.status|replace('_', ' ') }}</span>
+  <span class="job-meta">{{ job.lines|length }} Positionen · {{ ns.offers }} Angebote</span>
+  {% if '[E2E-TEST]' in job.quelltext %}<span class="job-status">[E2E-TEST]</span>{% endif %}
 </div>
 
-<section class="scenario-dashboard" aria-labelledby="scenario-title">
-  <div class="section-head"><div><p class="eyebrow">Vergleich</p><h2 id="scenario-title">Bestellszenarien</h2></div></div>
-  <div id="scenarios" class="scenario-grid"><p class="muted">Szenarien werden gerechnet …</p></div>
-  <section class="panel slider-panel compact">
-    <div><h3>Feineinstellung</h3><p class="muted">Zusätzliche Varianten zwischen billig und schnell.</p></div>
-    <label for="tempo"><span>Billig</span><strong id="tempo-value">50%</strong><span>Schnell</span></label>
-    <input id="tempo" type="range" min="0" max="1" step="0.05" value="0.5" data-job="{{ job.id }}">
-  </section>
-  <div id="variants" class="fine-variants"><p class="muted">Feinvarianten werden gerechnet …</p></div>
-</section>
-
-<details class="offers-drawer" open>
-  <summary><strong>Angebote und Overrides</strong><span class="muted">Pin ist optional; Ausschließen entfernt ein Angebot.</span></summary>
-  <div class="bom">
-  {% for line in job.lines %}
-  <section class="panel line">
-    <div class="section-head"><div><p class="eyebrow">Position {{ line.position }}</p><h2>{{ line.suchtext }}</h2></div><span class="badge">{{ line.offers|length }} Kandidaten</span></div>
-    <p class="muted">Menge {{ line.menge }} · Status {{ line.status }}</p>
-    {% if line.kommentar %}<p>{{ line.kommentar }}</p>{% endif %}
-    <div class="offers">
-    {% for offer in line.offers %}
-      <article id="offer-{{ offer.id }}" class="offer swipe-card decision-{{ 'bestaetigt' if offer.decision == 'pin' else 'verworfen' if offer.decision == 'exclude' else 'offen' }} override-{{ offer.decision or 'neutral' }}" data-offer="{{ offer.id }}">
-        <div><span class="shop">{{ offer.shop_name }}</span>{% if offer.shop_status == 'ungeprueft' %}<span class="badge warning">ungeprueft</span>{% endif %}</div>
-        <h3><a href="{{ offer.produkt_url }}" target="_blank" rel="noopener">{{ offer.produktname }}</a></h3>
-        <div class="price">CHF {{ offer.preis_chf }}</div>
-        {% if offer.lieferzeit_tage %}
-          <p>{{ offer.lieferzeit_tage }} {% if offer.lieferzeit_tage == 1 %}Tag{% else %}Tage{% endif %}</p>
-        {% elif offer.lieferzeit_default_tage %}
-          <p><span class="badge warning">Schätzung (Shop-Standard)</span> {{ offer.lieferzeit_default_tage }} {% if offer.lieferzeit_default_tage == 1 %}Tag{% else %}Tage{% endif %}</p>
-        {% else %}<p class="muted">Lieferzeit unbekannt</p>{% endif %}
-        <div class="source-facts">
-          <p><span class="source-label">Original-Lieferzeit</span>{% if offer.lieferzeit_text %}{{ offer.lieferzeit_text }}{% else %}<span class="muted">Keine Angabe auf der Produktseite</span>{% endif %}</p>
-          <p><span class="source-label">Lagerstatus</span>{% if offer.lager_text %}{{ offer.lager_text }}{% else %}<span class="muted">Lagerstatus nicht angegeben</span>{% endif %}</p>
+<div id="job-matrix" data-job="{{ job.id }}" data-status="{{ job.status }}">
+  <div class="job-cols">
+    <div>
+      <section id="progress-view" class="card progress-card" hidden></section>
+      <div id="matrix-view" class="mxwrap">
+        <div class="mx" id="matrix-root">
+          <div class="mc chead"><h2>Bestellpläne im Vergleich</h2><div class="note">Pläne werden serverseitig gerechnet …</div></div>
         </div>
-        <form class="actions decision-form" action="/offers/{{ offer.id }}/decision" method="post">
-          <input type="hidden" name="job_id" value="{{ job.id }}">
-          <button type="submit" name="status" value="exclude" data-decision="exclude">Ausschließen</button>
-          <button type="submit" name="status" value="pin" class="primary" data-decision="pin">Pin</button>
-          {% if offer.decision %}<button type="submit" name="status" value="neutral" data-decision="neutral">Override aufheben</button>{% endif %}
-        </form>
-        <p class="decision-feedback" role="status" aria-live="polite">{% if offer.decision == 'pin' %}Gepinnt{% elif offer.decision == 'exclude' %}Ausgeschlossen{% endif %}</p>
-      </article>
-    {% else %}<p class="muted waiting">Noch keine Kandidaten – diese Seite aktualisiert sich automatisch.</p>{% endfor %}
+        <div class="legendline"><span class="sw"></span>markierte Zellen weichen vom gewählten Plan ab · Zeile anklicken, um Kandidaten zu sehen und zu ändern</div>
+        <div class="tuner">
+          <label for="tempo">Gewichtung</label>
+          <span class="cap">billig</span>
+          <input type="range" id="tempo" min="0" max="100" value="50" step="5" aria-label="Gewichtung zwischen billig und schnell">
+          <span class="cap">schnell</span>
+          <span class="pct" id="pct">50 %</span>
+          <span class="verdict" id="verdict"></span>
+        </div>
+      </div>
+      <section id="open-lines" class="open-lines" hidden></section>
     </div>
-  </section>
-  {% endfor %}
+
+    <aside class="job-rail">
+      <div class="card railpad" id="railsum"><h2>Gewählter Plan</h2><p class="note">Wird geladen …</p></div>
+      <div class="card railpad" id="railorder"><h2>Bestellen</h2><p class="note">Wird geladen …</p></div>
+      <div class="card railpad"><div class="data">Datenstand: <span id="offer-count">{{ ns.offers }}</span> Angebote, <span id="shop-count">–</span> Shop-Profile belegt.<br>Overrides in diesem Job: <span id="ovcount">0</span></div></div>
+    </aside>
   </div>
-</details>
+</div>
 {% endblock %}
-{% block scripts %}
-<script src="/static/job.js?v=4" defer></script>
-<script src="/static/variants.js?v=6" defer></script>
-{% endblock %}
+{% block scripts %}<script src="/static/job-matrix.js?v=1" defer></script>{% endblock %}

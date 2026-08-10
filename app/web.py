@@ -45,6 +45,7 @@ class ScenarioRequest(BaseModel):
 
 class PlanSelectionRequest(BaseModel):
     assignments: dict[str, int]
+    tempo: float = 0.5
 
 
 class PlanDeltaRequest(BaseModel):
@@ -243,7 +244,9 @@ def create_app(
     @application.put("/api/jobs/{job_id}/selection")
     def select_plan(job_id: int, request: PlanSelectionRequest) -> dict[str, Any]:
         try:
-            return procurement.select_plan(job_id, request.assignments)
+            return procurement.select_plan(
+                job_id, request.assignments, tempo=request.tempo
+            )
         except (ValidationError, ValueError) as error:
             raise HTTPException(422, str(error)) from error
 

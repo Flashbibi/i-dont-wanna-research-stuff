@@ -188,30 +188,53 @@ def test_form_creates_saved_job_and_redirects_to_job_page():
     assert response.headers["location"] == "/jobs/7"
 
 
-def test_job_page_shows_progressive_candidates_badge_and_decision_buttons():
+def test_job_page_loads_candidates_from_matrix_api_and_decision_buttons_are_wired():
     client, repository = client_and_repo()
 
     page = client.get("/jobs/7")
+    matrix = client.post("/api/jobs/7/scenarios", json={"tempo": 0.5}).json()
     decision = client.post("/api/offers/31/decision", json={"status": "pin"})
+    script = Path("static/job-matrix.js").read_text()
 
     assert page.status_code == 200
-    assert "MG996R Servo" in page.text
-    assert "ungeprueft" in page.text
-    assert "Pin" in page.text
+    assert matrix["lines"][0]["candidates"][0]["produktname"] == "MG996R Servo"
+    assert "Pinnen" in script and "Pin lösen" in script and "Ausschliessen" in script
     assert decision.status_code == 200
     assert repository.decisions == [(31, "pin")]
 
 
-def test_dashboard_uses_sidebar_and_places_scenarios_before_collapsible_offers():
+def test_job_page_uses_prototype_c_matrix_and_removes_old_card_sections():
     client, _ = client_and_repo()
 
     page = client.get("/jobs/7").text
 
     assert '<aside class="sidebar">' in page
     assert all(label in page for label in ("Jobs", "Historie", "Shops", "Bestand"))
-    assert page.index('id="scenarios"') < page.index('class="bom"')
-    assert '<details class="offers-drawer" open>' in page
+    assert 'id="matrix-root"' in page
+    assert 'id="railsum"' in page
+    assert 'id="railorder"' in page
     assert 'id="tempo"' in page
+    assert "Bestellpläne im Vergleich" in page
+    assert 'id="scenarios"' not in page
+    assert "Bestellszenarien" not in page
+    assert "Angebote und Overrides" not in page
+    assert "Szenarien separat öffnen" not in page
+
+
+def test_job_matrix_browser_uses_only_server_planning_and_reference_wording():
+    script = Path("static/job-matrix.js").read_text()
+
+    assert "/scenarios" in script
+    assert "/selection" in script
+    assert "/delta" in script
+    assert "/decision" in script
+    assert "/purchase" in script
+    assert "function optimize" not in script
+    assert "CHFDAY" not in script
+    assert "Ändert bei diesem Angebots-Pool nichts:" in script
+    assert "Diesen Plan wählen" in script
+    assert "✓ Gewählt" in script
+    assert "Lieferzeit unbekannt" in script
 
 
 def test_e2e_jobs_are_marker_guarded_disposable_and_not_real_job_ids():
@@ -248,39 +271,37 @@ def test_unknown_delivery_is_rendered_explicitly_in_assignments():
     assert "Lieferzeit unbekannt" in script
     assert "kein belegter Shop-Standard" in script
 
-def test_decision_has_form_fallback_and_persists_after_redirect_reload():
+def test_decision_has_form_fallback_and_persists_in_matrix_api():
     client, repository = client_and_repo()
+    script = Path("static/job-matrix.js").read_text()
 
-    initial = client.get("/jobs/7")
     submitted = client.post(
         "/offers/31/decision",
         data={"status": "pin", "job_id": "7"},
         follow_redirects=False,
     )
-    reloaded = client.get("/jobs/7")
+    reloaded = client.post("/api/jobs/7/scenarios", json={"tempo": 0.5}).json()
 
-    assert 'action="/offers/31/decision"' in initial.text
-    assert 'role="status"' in initial.text
+    assert 'method="post" action="/offers/${candidate.offer_id}/decision"' in script
+    assert 'name="status" value="pin"' in script
     assert submitted.status_code == 303
     assert submitted.headers["location"] == "/jobs/7#offer-31"
     assert repository.decisions == [(31, "pin")]
-    assert 'id="offer-31"' in reloaded.text
-    assert "decision-bestaetigt" in reloaded.text
-    assert "Gepinnt" in reloaded.text
+    assert reloaded["pins"] == {"10": 31}
 
 
-def test_job_page_shows_literal_delivery_and_lager_text_with_labeled_fallback():
+def test_matrix_api_and_browser_preserve_delivery_provenance_and_fallback_wording():
     client, _ = client_and_repo()
 
-    page = client.get("/jobs/7")
+    matrix = client.post("/api/jobs/7/scenarios", json={"tempo": 0.5}).json()
+    candidate = matrix["lines"][0]["candidates"][0]
+    script = Path("static/job-matrix.js").read_text()
 
-    assert "1 Tag" in page.text
-    assert "1 Tage" not in page.text
-    assert "1 Tag ab Lager" in page.text
-    assert "Filiale grün; 5 Stück lagernd" in page.text
-    assert "3 Tage" in page.text
-    assert "Schätzung (Shop-Standard)" in page.text
-    assert "Lagerstatus nicht angegeben" in page.text
+    assert candidate["lieferzeit_chip"] == "2 Tage"
+    assert candidate["lieferzeit_text"] == "2 Tage"
+    assert "Lieferzeit nicht angegeben" in script
+    assert "Lagerstatus nicht angegeben" in script
+    assert "Lieferzeit unbekannt" in script
 
 
 def test_matrix_selection_and_delta_endpoints_use_server_side_planning():
