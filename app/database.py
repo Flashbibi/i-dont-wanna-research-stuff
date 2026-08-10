@@ -61,53 +61,84 @@ class PostgresRepository:
         return job_id
 
     def create_e2e_test_job(self) -> dict[str, Any]:
-        """Create one isolated, disposable browser-test job.
-
-        This is the only code path allowed to create synthetic offer observations.
-        Cleanup verifies the marker again before deleting the complete test graph.
-        """
+        """Create one isolated matrix/browser-test graph with no real-job writes."""
         with self._connect() as connection:
             with connection.transaction():
-                shop = connection.execute(
-                    "SELECT id FROM shop WHERE status <> 'gesperrt' ORDER BY id LIMIT 1"
-                ).fetchone()
-                if shop is None:
-                    raise ValueError("Für den E2E-Test ist kein Shop vorhanden")
+                shops = connection.execute(
+                    """
+                    SELECT id FROM shop
+                    WHERE status <> 'gesperrt'
+                    ORDER BY id LIMIT 3
+                    """
+                ).fetchall()
+                if len(shops) < 3:
+                    raise ValueError("Für den Matrix-E2E-Test sind drei Shops erforderlich")
                 job = connection.execute(
                     """
                     INSERT INTO job(quelltext, status, is_test)
-                    VALUES ('[E2E-TEST] Klickhygiene - automatisch entsorgen', 'in_arbeit', TRUE)
+                    VALUES ('[E2E-TEST] Matrixfluss - automatisch entsorgen', 'in_arbeit', TRUE)
                     RETURNING id
                     """
                 ).fetchone()
-                line = connection.execute(
-                    """
-                    INSERT INTO bom_line(job_id, position, originaltext, suchtext, menge, status)
-                    VALUES (%s, 1, '[E2E-TEST] Wegwerfposition', '[E2E-TEST] Wegwerfposition', 1, 'kandidaten')
-                    RETURNING id
-                    """,
-                    (job["id"],),
-                ).fetchone()
-                offer = connection.execute(
-                    """
-                    INSERT INTO offer(
-                        line_id, shop_id, produktname, produkt_url, quelle_url,
-                        preis_chf, lieferzeit_tage, lieferzeit_text, lager, lager_text
-                    ) VALUES (
-                        %s, %s, '[E2E-TEST] Wegwerfprodukt', %s, %s,
-                        1.00, 1, '1 Testtag', 'Testbestand', 'Testbestand'
-                    ) RETURNING id
-                    """,
-                    (
-                        line["id"],
-                        shop["id"],
-                        f"https://e2e.invalid/jobs/{job['id']}",
-                        f"https://e2e.invalid/jobs/{job['id']}",
-                    ),
-                ).fetchone()
+                lines = []
+                for position in range(1, 4):
+                    lines.append(
+                        connection.execute(
+                            """
+                            INSERT INTO bom_line(
+                                job_id, position, originaltext, suchtext, menge, status
+                            ) VALUES (%s, %s, %s, %s, 1, 'kandidaten')
+                            RETURNING id
+                            """,
+                            (
+                                job["id"],
+                                position,
+                                f"[E2E-TEST] Matrixposition {position}",
+                                f"[E2E-TEST] Matrixposition {position}",
+                            ),
+                        ).fetchone()
+                    )
+                layout = [
+                    (0, 0, "A langsam", "1.00", 4),
+                    (0, 2, "C schnell", "5.00", 1),
+                    (1, 1, "B langsam", "1.00", 4),
+                    (1, 2, "C schnell zwei", "5.00", 1),
+                    (2, 0, "A Abschluss", "1.00", 4),
+                    (2, 1, "B Abschluss", "1.20", 3),
+                ]
+                offers = []
+                for line_index, shop_index, product, price, days in layout:
+                    url = (
+                        f"https://e2e.invalid/jobs/{job['id']}/"
+                        f"lines/{line_index + 1}/shops/{shop_index + 1}"
+                    )
+                    offers.append(
+                        connection.execute(
+                            """
+                            INSERT INTO offer(
+                                line_id, shop_id, produktname, produkt_url, quelle_url,
+                                preis_chf, lieferzeit_tage, lieferzeit_text, lager, lager_text
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
+                                      'E2E-Testbestand', 'E2E-Testbestand')
+                            RETURNING id
+                            """,
+                            (
+                                lines[line_index]["id"],
+                                shops[shop_index]["id"],
+                                f"[E2E-TEST] {product}",
+                                url,
+                                url,
+                                price,
+                                days,
+                                f"{days} Testtage ab Testlager",
+                            ),
+                        ).fetchone()
+                    )
                 return {
                     "job_id": int(job["id"]),
-                    "offer_id": int(offer["id"]),
+                    "offer_id": int(offers[0]["id"]),
+                    "offer_ids": [int(row["id"]) for row in offers],
+                    "line_ids": [int(row["id"]) for row in lines],
                     "marker": "[E2E-TEST]",
                 }
 
@@ -120,6 +151,15 @@ class PostgresRepository:
                 ).fetchone()
                 if job is None or not job["is_test"]:
                     raise ValueError("Nur markierte Test-Jobs dürfen gelöscht werden")
+                connection.execute(
+                    """
+                    DELETE FROM purchase_item WHERE purchase_id IN (
+                        SELECT id FROM purchase WHERE job_id = %s
+                    )
+                    """,
+                    (job_id,),
+                )
+                connection.execute("DELETE FROM purchase WHERE job_id = %s", (job_id,))
                 connection.execute(
                     """
                     DELETE FROM decision WHERE offer_id IN (

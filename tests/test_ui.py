@@ -260,11 +260,19 @@ def test_e2e_jobs_are_marker_guarded_disposable_and_not_real_job_ids():
 
 def test_browser_e2e_creates_and_cleans_marked_job_instead_of_using_job_one():
     script = Path("tests/e2e/decision_click.mjs").read_text()
+    database = Path("app/database.py").read_text()
 
     assert "OFFER_ID" not in script
     assert "/jobs/1" not in script
     assert "/api/e2e/jobs" in script
     assert "method: 'DELETE'" in script
+    assert "selectionPersisted" in script
+    assert "incompletePurchaseBlocked" in script
+    assert "tempoVerdictVisible" in script
+    assert "purchasePersisted" in script
+    assert "ORDER BY id LIMIT 3" in database
+    assert "DELETE FROM purchase_item" in database
+    assert "DELETE FROM purchase WHERE job_id" in database
 
 
 def test_unknown_delivery_is_rendered_explicitly_in_assignments():
