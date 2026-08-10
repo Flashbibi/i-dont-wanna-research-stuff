@@ -292,8 +292,16 @@ class CartEntry:
     zeilensumme_chf: Decimal
 
 
-def parse_opencart_cart(html: str) -> tuple[list[CartEntry], Decimal]:
-    """Korbseite zurücklesen: Positionen und Zwischensumme."""
+def parse_opencart_cart(html: str) -> tuple[list[CartEntry], dict[str, Decimal]]:
+    """Korbseite zurücklesen: Positionen und der Summenblock.
+
+    Die Zeilenpreise sind die **Brutto**-Beträge und damit dieselbe Basis wie
+    unsere Erfassung von der Produktseite. Der Summenblock wird nur zur
+    Diagnose zurückgegeben und ist ausdrücklich **keine** Vergleichsgrundlage:
+    Bastelgarage weist ``Sub-Total`` netto aus (CHF 17.30 bei CHF 18.70 brutto,
+    8.1 % MWST). Wer dagegen prüft, vergleicht Netto gegen Brutto und meldet
+    einen Preiswechsel, den es nie gab.
+    """
     entries: list[CartEntry] = []
     for row in _TABLE_ROW.findall(html or ""):
         quantity: int | None = None
@@ -312,6 +320,11 @@ def parse_opencart_cart(html: str) -> tuple[list[CartEntry], Decimal]:
             for cell in cells
             if re.search(r"\d", _text(cell)) and re.search(r"chf|fr\.", _text(cell), re.I)
         ]
+        if not amounts:
+            raise CartError(
+                "Eine Korbzeile nennt keinen Betrag - ohne Zeilenpreis ist keine "
+                "Rückverifikation möglich, deshalb keine Übergabe."
+            )
         href_match = _ANCHOR_HREF.search(row)
         name_cells = [_text(cell) for cell in cells if _text(cell) and not re.search(r"chf|fr\.", _text(cell), re.I)]
         entries.append(
@@ -319,24 +332,27 @@ def parse_opencart_cart(html: str) -> tuple[list[CartEntry], Decimal]:
                 href=href_match.group(1) if href_match else None,
                 name=name_cells[0] if name_cells else "",
                 menge=quantity,
-                zeilensumme_chf=amounts[-1] if amounts else Decimal("0.00"),
+                # Letzte Geldzelle der Zeile ist die Zeilensumme (brutto).
+                zeilensumme_chf=amounts[-1],
             )
         )
 
-    subtotal: Decimal | None = None
+    totals: dict[str, Decimal] = {}
     for row in _TABLE_ROW.findall(html or ""):
         cells = _CELL.findall(row)
-        if len(cells) < 2:
+        if len(cells) < 2 or re.search(r'name="quantity\[', row):
             continue
-        if _SUBTOTAL_LABEL.search(_text(cells[-2])):
-            subtotal = parse_chf(_text(cells[-1]))
-            break
-    if subtotal is None:
+        label = _text(cells[-2]).rstrip(":")
+        value = _text(cells[-1])
+        if label and re.search(r"chf|fr\.", value, re.I) and label not in totals:
+            totals[label] = parse_chf(value)
+
+    if not entries and not totals:
         raise CartError(
-            "Die Korbseite nennt keine Zwischensumme - ohne sie ist keine "
-            "Rückverifikation möglich, deshalb keine Übergabe."
+            "Die Korbseite ist nicht lesbar - weder Positionen noch Summen "
+            "gefunden, deshalb keine Übergabe."
         )
-    return entries, subtotal
+    return entries, totals
 
 
 def _same_product(href: str | None, base_url: str, produkt_url: str) -> bool:
@@ -390,14 +406,17 @@ class OpenCartAdapter:
             self._add(base_url, item, product_id)
 
         cart_page = self.session.get(self._cart_url(base_url))
-        entries, subtotal = parse_opencart_cart(cart_page.text)
-        self._verify(base_url, items, entries, subtotal)
+        entries, _totals = parse_opencart_cart(cart_page.text)
+        self._verify(base_url, items, entries)
 
         return CartFill(
             plattform=PLATFORM_OPENCART,
             verifiziert=True,
             artikel_anzahl=sum(entry.menge for entry in entries),
-            total_chf=subtotal,
+            # Brutto - die Summe der Zeilenpreise, nicht der Netto-Summenblock.
+            total_chf=sum(
+                (entry.zeilensumme_chf for entry in entries), Decimal("0.00")
+            ),
             positionen=[
                 {
                     "line_id": item.line_id,
@@ -467,13 +486,20 @@ class OpenCartAdapter:
         base_url: str,
         items: list[CartItem],
         entries: list[CartEntry],
-        subtotal: Decimal,
     ) -> None:
-        """Artikelzahl und Zwischensumme gegen die Zuordnung prüfen.
+        """Artikelzahl und Preise gegen die Zuordnung prüfen - Position für Position.
 
-        Fängt zwei reale Fälle ab: der Shop-Preis hat sich seit ``gesehen_am``
-        geändert, und Produkte mit Pflichtoptionen landen nicht wie erwartet
-        im Korb.
+        Verglichen wird **brutto gegen brutto**: die Zeilensummen des Korbs
+        gegen die erfassten Positionspreise von der Produktseite. Bewusst nicht
+        gegen den Summenblock - ``Sub-Total`` ist bei Bastelgarage netto, und
+        ein Vergleich dagegen meldete einen Preiswechsel, den es nie gab.
+
+        Positionsweise statt als eine Summe, damit eine echte Abweichung auch
+        zeigt, *welche* Position betroffen ist.
+
+        Fängt weiterhin die zwei realen Fälle ab: der Shop-Preis hat sich seit
+        ``gesehen_am`` geändert, und Produkte mit Pflichtoptionen landen nicht
+        wie erwartet im Korb. Ohne Toleranz - exakt oder gar nicht.
         """
         abweichungen: list[str] = []
 
@@ -492,6 +518,15 @@ class OpenCartAdapter:
                     f"{item.produktname}: erfasst {item.menge} Stück, "
                     f"Korb {menge} Stück."
                 )
+            korb_preis = sum(
+                (entry.zeilensumme_chf for entry in matching), Decimal("0.00")
+            ).quantize(Decimal("0.01"))
+            erwartet_preis = item.positionspreis_chf.quantize(Decimal("0.01"))
+            if korb_preis != erwartet_preis:
+                abweichungen.append(
+                    f"{item.produktname}: erfasst {format_chf(erwartet_preis)}, "
+                    f"Korb {format_chf(korb_preis)}."
+                )
 
         erwartet_artikel = sum(item.menge for item in items)
         korb_artikel = sum(entry.menge for entry in entries)
@@ -499,15 +534,6 @@ class OpenCartAdapter:
             abweichungen.append(
                 f"Artikelzahl weicht ab: erfasst {erwartet_artikel}, "
                 f"Korb {korb_artikel}."
-            )
-
-        erwartet_summe = sum(
-            (item.positionspreis_chf for item in items), Decimal("0.00")
-        ).quantize(Decimal("0.01"))
-        if subtotal.quantize(Decimal("0.01")) != erwartet_summe:
-            abweichungen.append(
-                f"Zwischensumme weicht ab: erfasst {format_chf(erwartet_summe)}, "
-                f"Korb {format_chf(subtotal)}."
             )
 
         if abweichungen:
