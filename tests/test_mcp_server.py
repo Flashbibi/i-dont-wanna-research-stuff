@@ -16,6 +16,25 @@ class StubService:
             ],
         }
 
+    def get_job(self, job_id):
+        return {"id": job_id, "status": "in_arbeit", "lines": [], "scenarios_available": False}
+
+    def search_history(self, text):
+        return [{"produktname": text, "shop_name": "Swiss Shop"}]
+
+    def get_stock(self):
+        return [{"bezeichnung": "Servo", "menge": 3}]
+
+    def plan_scenarios(self, job_id, pins=None, excludes=None, tempo=0.5):
+        return {
+            "job_id": job_id,
+            "tempo": tempo,
+            "pins": pins or {},
+            "excludes": excludes or [],
+            "ready": True,
+            "scenarios": [],
+        }
+
     def next_job(self):
         return None
 
@@ -45,6 +64,10 @@ def test_mcp_exposes_exact_procurement_tools():
 
     assert {tool.name for tool in tools} == {
         "create_job",
+        "get_job",
+        "search_history",
+        "get_stock",
+        "plan_scenarios",
         "next_job",
         "check_line",
         "record_shop",
@@ -75,6 +98,49 @@ def test_create_job_tool_forwards_lines_and_returns_parsed_confirmation():
             {"position": 1, "text": "Servo", "menge": 2},
             {"position": 2, "text": "Kabel", "menge": 1},
         ],
+    }
+
+
+def test_get_job_tool_returns_job_overview():
+    result = asyncio.run(build_mcp(StubService()).call_tool("get_job", {"job_id": 9}))
+
+    assert isinstance(result, tuple)
+    assert result[1]["id"] == 9
+    assert result[1]["scenarios_available"] is False
+
+
+def test_search_history_tool_returns_matching_purchases():
+    result = asyncio.run(
+        build_mcp(StubService()).call_tool("search_history", {"text": "Servo"})
+    )
+
+    assert isinstance(result, tuple)
+    assert result[1] == {"result": [{"produktname": "Servo", "shop_name": "Swiss Shop"}]}
+
+
+def test_get_stock_tool_returns_current_stock():
+    result = asyncio.run(build_mcp(StubService()).call_tool("get_stock", {}))
+
+    assert isinstance(result, tuple)
+    assert result[1] == {"result": [{"bezeichnung": "Servo", "menge": 3}]}
+
+
+def test_plan_scenarios_tool_forwards_all_optional_overrides():
+    result = asyncio.run(
+        build_mcp(StubService()).call_tool(
+            "plan_scenarios",
+            {"job_id": 9, "tempo": 0.7, "pins": {"10": 31}, "excludes": [32]},
+        )
+    )
+
+    assert isinstance(result, tuple)
+    assert result[1] == {
+        "job_id": 9,
+        "tempo": 0.7,
+        "pins": {"10": 31},
+        "excludes": [32],
+        "ready": True,
+        "scenarios": [],
     }
 
 
@@ -112,6 +178,10 @@ def test_streamable_http_endpoint_initializes_and_lists_tools():
     names = {tool["name"] for tool in listed.json()["result"]["tools"]}
     assert names == {
         "create_job",
+        "get_job",
+        "search_history",
+        "get_stock",
+        "plan_scenarios",
         "next_job",
         "check_line",
         "record_shop",

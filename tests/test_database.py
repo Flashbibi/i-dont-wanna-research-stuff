@@ -87,6 +87,76 @@ def test_job_selection_is_saved_as_jsonb():
     assert saved["selected_assignments"] == {"10": 31}
 
 
+class HistoryConnection(Connection):
+    def __init__(self):
+        self.sql = ""
+        self.params = None
+
+    def execute(self, sql, params=None):
+        self.sql = " ".join(sql.split())
+        self.params = params
+        return Result(
+            many=[
+                {
+                    "purchase_id": 8,
+                    "produktname": "Servo Pro",
+                    "shop_id": 5,
+                    "shop_name": "Swiss Shop",
+                    "menge": 2,
+                    "einzelpreis_chf": "12.00",
+                    "bestellt_am": "2026-08-01T10:00:00Z",
+                    "zugesagt_liefertage_pro_shop": {"5": 2},
+                    "angekommen_am": "2026-08-03T10:00:00Z",
+                }
+            ]
+        )
+
+
+def test_search_history_matches_product_or_shop_and_resolves_promised_days():
+    repository = PostgresRepository("unused")
+    connection = HistoryConnection()
+    repository._connect = lambda: connection
+
+    rows = repository.search_history("servo")
+
+    assert "o.produktname ILIKE" in connection.sql
+    assert "s.name ILIKE" in connection.sql
+    assert connection.params == ("servo", "servo")
+    assert rows[0]["zugesagt_liefertage"] == 2
+    assert "zugesagt_liefertage_pro_shop" not in rows[0]
+
+
+class StockConnection(Connection):
+    def __init__(self):
+        self.sql = ""
+
+    def execute(self, sql, params=None):
+        self.sql = " ".join(sql.split())
+        return Result(
+            many=[
+                {
+                    "id": 4,
+                    "bezeichnung": "Servo",
+                    "menge": 3,
+                    "einheit": "Stk",
+                    "aktualisiert_am": "2026-08-03T10:00:00Z",
+                }
+            ]
+        )
+
+
+def test_get_stock_returns_only_positive_stock_in_stable_order():
+    repository = PostgresRepository("unused")
+    connection = StockConnection()
+    repository._connect = lambda: connection
+
+    rows = repository.get_stock()
+
+    assert "WHERE menge > 0" in connection.sql
+    assert "ORDER BY lower(bezeichnung), id" in connection.sql
+    assert rows[0]["bezeichnung"] == "Servo"
+
+
 class OfferConnection:
     def __init__(self):
         self.statements = []

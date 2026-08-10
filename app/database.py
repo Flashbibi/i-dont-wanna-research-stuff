@@ -652,6 +652,47 @@ class PostgresRepository:
                 ).fetchone()
                 return dict(row)
 
+    def search_history(self, text: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT p.id AS purchase_id, p.bestellt_am,
+                       p.zugesagt_liefertage AS zugesagt_liefertage_pro_shop,
+                       p.angekommen_am, pi.menge, pi.einzelpreis_chf,
+                       o.produktname, o.produkt_url,
+                       s.id AS shop_id, s.name AS shop_name
+                FROM purchase_item pi
+                JOIN purchase p ON p.id = pi.purchase_id
+                JOIN offer o ON o.id = pi.offer_id
+                JOIN shop s ON s.id = o.shop_id
+                WHERE o.produktname ILIKE '%' || CAST(%s AS TEXT) || '%'
+                   OR s.name ILIKE '%' || CAST(%s AS TEXT) || '%'
+                ORDER BY p.bestellt_am DESC, pi.id DESC
+                LIMIT 100
+                """,
+                (text, text),
+            ).fetchall()
+        result = []
+        for source in rows:
+            row = dict(source)
+            promised = row.pop("zugesagt_liefertage_pro_shop") or {}
+            shop_id = row["shop_id"]
+            row["zugesagt_liefertage"] = promised.get(str(shop_id), promised.get(shop_id))
+            result.append(row)
+        return result
+
+    def get_stock(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, bezeichnung, menge, einheit, aktualisiert_am
+                FROM stock
+                WHERE menge > 0
+                ORDER BY lower(bezeichnung), id
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def list_purchases(self) -> list[dict[str, Any]]:
         with self._connect() as connection:
             purchases = connection.execute(

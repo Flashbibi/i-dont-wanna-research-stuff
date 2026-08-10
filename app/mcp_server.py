@@ -42,6 +42,33 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         return service.create_job_from_lines(zeilen)
 
     @mcp.tool()
+    def get_job(job_id: int) -> dict[str, Any]:
+        """Jobstatus, Zeilen mit Kandidatenzahl und Szenarioverfügbarkeit lesen."""
+        return service.get_job(job_id)
+
+    @mcp.tool()
+    def search_history(text: str) -> list[dict[str, Any]]:
+        """Kaufhistorie read-only nach Produktname oder Shop durchsuchen."""
+        return service.search_history(text)
+
+    @mcp.tool()
+    def get_stock() -> list[dict[str, Any]]:
+        """Aktuell positiven Bestand read-only lesen."""
+        return service.get_stock()
+
+    @mcp.tool()
+    def plan_scenarios(
+        job_id: int,
+        tempo: float = 0.5,
+        pins: dict[int | str, int] | None = None,
+        excludes: list[int] | None = None,
+    ) -> dict[str, Any]:
+        """Dieselbe serverseitige Szenariomatrix wie die Job-UI read-only berechnen."""
+        return service.plan_scenarios(
+            job_id, tempo=tempo, pins=pins, excludes=excludes
+        )
+
+    @mcp.tool()
     def next_job() -> dict[str, Any] | None:
         """Aeltesten offenen Job mit seinen offenen Zeilen laden."""
         return service.next_job()

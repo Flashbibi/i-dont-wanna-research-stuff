@@ -22,6 +22,9 @@ class ValidationError(ValueError):
 
 class ProcurementRepository(Protocol):
     def create_job(self, source_text: str, lines: list[BomInputLine]) -> int: ...
+    def get_job(self, job_id: int) -> dict[str, Any] | None: ...
+    def search_history(self, text: str) -> list[dict[str, Any]]: ...
+    def get_stock(self) -> list[dict[str, Any]]: ...
     def next_job(self) -> dict[str, Any] | None: ...
     def check_line(self, line_id: int) -> dict[str, Any] | None: ...
     def create_shop(self, **values: Any) -> dict[str, Any]: ...
@@ -112,6 +115,36 @@ class ProcurementService:
         if len(lines) > self.MAX_JOB_LINES:
             raise ValidationError("Ein Job darf höchstens 200 Positionen enthalten")
         return self.create_job("\n".join(lines))
+
+    def get_job(self, job_id: int) -> dict[str, Any]:
+        job = self.repository.get_job(job_id)
+        if job is None:
+            raise ValidationError(f"Job {job_id} ist unbekannt")
+        matrix = self.plan_scenarios(job_id)
+        candidate_counts = {
+            int(line["line_id"]): len(line.get("candidates", []))
+            for line in matrix.get("lines", [])
+        }
+        result = {key: value for key, value in job.items() if key != "lines"}
+        result["lines"] = [
+            {**line, "candidate_count": candidate_counts.get(int(line["id"]), 0)}
+            for line in job.get("lines", [])
+        ]
+        result["scenarios_available"] = bool(matrix.get("ready")) and bool(
+            matrix.get("scenarios")
+        )
+        return result
+
+    def search_history(self, text: str) -> list[dict[str, Any]]:
+        query = text.strip()
+        if not query:
+            raise ValidationError("Suchtext fehlt")
+        if len(query) > 200:
+            raise ValidationError("Suchtext darf höchstens 200 Zeichen lang sein")
+        return self.repository.search_history(query)
+
+    def get_stock(self) -> list[dict[str, Any]]:
+        return self.repository.get_stock()
 
     def next_job(self) -> dict[str, Any] | None:
         return self.repository.next_job()

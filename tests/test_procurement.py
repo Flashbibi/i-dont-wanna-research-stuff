@@ -24,6 +24,38 @@ class FakeProcurementRepository:
         self.selected_assignments = None
         self.created_jobs = []
 
+    def get_job(self, job_id):
+        return {
+            "id": job_id,
+            "status": "in_arbeit",
+            "lines": [
+                {
+                    "id": 10,
+                    "position": 1,
+                    "originaltext": "2x Servo",
+                    "suchtext": "Servo",
+                    "menge": 2,
+                    "status": "kandidaten",
+                    "kommentar": None,
+                }
+            ],
+        }
+
+    def search_history(self, text):
+        return [
+            {
+                "produktname": "Servo Pro",
+                "shop_name": "Swiss Shop",
+                "bestellt_am": "2026-08-01T10:00:00Z",
+                "einzelpreis_chf": "12.00",
+                "zugesagt_liefertage": 2,
+                "angekommen_am": "2026-08-03T10:00:00Z",
+            }
+        ]
+
+    def get_stock(self):
+        return [{"id": 4, "bezeichnung": "Servo", "menge": 3, "einheit": "Stk"}]
+
     def create_job(self, source_text, lines):
         self.created_jobs.append((source_text, lines))
         return 91
@@ -147,6 +179,43 @@ def test_create_job_from_lines_rejects_empty_entries_and_excessive_line_count():
         procurement.create_job_from_lines(["Servo", "  "])
     with pytest.raises(ValidationError, match="höchstens 200 Positionen"):
         procurement.create_job_from_lines(["Servo"] * 201)
+
+
+def test_get_job_adds_candidate_counts_and_scenario_availability_from_matrix():
+    result = service().get_job(5)
+
+    assert result["id"] == 5
+    assert result["status"] == "in_arbeit"
+    assert result["lines"][0]["candidate_count"] == 1
+    assert result["scenarios_available"] is True
+
+
+def test_get_job_rejects_unknown_job():
+    repository = FakeProcurementRepository()
+    repository.get_job = lambda _: None
+
+    with pytest.raises(ValidationError, match="Job 999 ist unbekannt"):
+        ProcurementService(repository).get_job(999)
+
+
+def test_search_history_and_get_stock_are_read_only_repository_views():
+    procurement = service()
+
+    history = procurement.search_history("Servo")
+    stock = procurement.get_stock()
+
+    assert history[0]["shop_name"] == "Swiss Shop"
+    assert history[0]["zugesagt_liefertage"] == 2
+    assert stock == [{"id": 4, "bezeichnung": "Servo", "menge": 3, "einheit": "Stk"}]
+
+
+def test_search_history_rejects_blank_and_absurd_queries():
+    procurement = service()
+
+    with pytest.raises(ValidationError, match="Suchtext fehlt"):
+        procurement.search_history("  ")
+    with pytest.raises(ValidationError, match="höchstens 200 Zeichen"):
+        procurement.search_history("x" * 201)
 
 
 def test_next_job_and_check_line_are_single_repository_calls():
