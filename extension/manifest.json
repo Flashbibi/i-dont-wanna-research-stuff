@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Beschaffung Warenkorb-Übergabe",
+  "version": "1.0.0",
+  "description": "Setzt das Gast-Session-Cookie im Shop und öffnet den gefüllten Warenkorb. Nur für das Beschaffungstool im LAN.",
+  "permissions": ["cookies"],
+  "host_permissions": [
+    "http://192.168.1.60:8000/*",
+    "*://*.bastelgarage.ch/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://192.168.1.60:8000/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "beschaffung-warenkorb@192.168.1.60",
+      "strict_min_version": "115.0"
+    }
+  }
+}

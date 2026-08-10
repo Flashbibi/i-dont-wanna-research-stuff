@@ -1,3 +1,6 @@
+import io
+import json
+import zipfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -326,6 +329,25 @@ def test_cart_e2e_uses_a_disposable_job_and_never_touches_a_real_shop():
     assert "expectedConflictLogs.length, 1" in script
 
 
+def test_extension_e2e_loads_the_real_extension_and_documents_its_fallback():
+    script = Path("tests/e2e/extension_handoff_click.mjs").read_text(encoding="utf-8")
+
+    assert "/api/e2e/jobs" in script
+    assert "method: 'DELETE'" in script
+    assert "--load-extension=" in script
+    # Ohne Erweiterung nur Kopierflow, mit Erweiterung der Knopf.
+    assert "withoutExtensionCopyOnly" in script
+    assert "Im Browser übernehmen" in script
+    # Cookie auf der Shop-Origin und geöffneter Tab sind der Beweis.
+    assert "context.cookies(COOKIE_ORIGIN)" in script
+    assert "waitForEvent('page')" in script
+    # Welche Variante lief, steht in der Ausgabe.
+    assert "geladene-erweiterung" in script and "gestubtes-ready-signal" in script
+    # Tab-Ziel lokal, Cookie-Ziel bleibt https.
+    assert "payload.uebergabe_url = `${baseUrl}/shops`" in script
+    assert "copyFlowStillPresent" in script
+
+
 def test_unknown_delivery_is_rendered_explicitly_in_assignments():
     script = Path("static/variants.js").read_text(encoding="utf-8")
 
@@ -532,6 +554,85 @@ def test_cart_stub_mismatch_produces_the_blocking_diff():
     assert "Korb CHF 20.60" in detail
 
 
+def test_cart_fill_reports_a_platform_specific_handover_url():
+    client, _, job_id = client_with_test_job()
+
+    payload = client.post(f"/api/jobs/{job_id}/shops/1/cart?stub=ok", headers=MARKER).json()
+
+    # Additiv: cart_url bleibt unverändert, uebergabe_url kommt dazu.
+    assert payload["cart_url"].endswith("index.php?route=checkout/cart")
+    assert payload["uebergabe_url"] == payload["cart_url"]
+
+
+def test_extension_endpoint_reports_the_deployed_version_and_files():
+    client, _ = client_and_repo()
+
+    info = client.get("/api/extension").json()
+
+    manifest = json.loads(Path("extension/manifest.json").read_text(encoding="utf-8"))
+    assert info["version"] == manifest["version"]
+    assert info["download_url"] == "/extension.zip"
+    assert set(info["dateien"]) == {"manifest.json", "background.js", "content.js"}
+
+
+def test_extension_zip_is_the_deployed_directory_and_is_deterministic():
+    client, _ = client_and_repo()
+
+    first = client.get("/extension.zip")
+    second = client.get("/extension.zip")
+
+    assert first.status_code == 200
+    assert first.headers["content-type"] == "application/zip"
+    # Byte-identisch: der Download ist per Konstruktion der deployte Stand.
+    assert first.content == second.content
+
+    archive = zipfile.ZipFile(io.BytesIO(first.content))
+    on_disk = {
+        path.relative_to(Path("extension")).as_posix()
+        for path in Path("extension").rglob("*")
+        if path.is_file()
+    }
+    assert set(archive.namelist()) == on_disk
+    assert archive.testzip() is None
+
+    manifest = json.loads(archive.read("manifest.json"))
+    assert manifest["version"] == client.get("/api/extension").json()["version"]
+    assert f'beschaffung-extension-{manifest["version"]}.zip' in first.headers["content-disposition"]
+
+
+def test_extension_manifest_carries_both_background_keys_and_a_narrow_radius():
+    manifest = json.loads(Path("extension/manifest.json").read_text(encoding="utf-8"))
+
+    assert manifest["manifest_version"] == 3
+    # Ein Codebase für Chromium und Firefox.
+    assert manifest["background"]["service_worker"] == "background.js"
+    assert manifest["background"]["scripts"] == ["background.js"]
+    assert manifest["browser_specific_settings"]["gecko"]["id"]
+    # Content-Script ausschliesslich auf der Tool-Origin.
+    assert manifest["content_scripts"][0]["matches"] == ["http://192.168.1.60:8000/*"]
+    # Enger Radius: kein <all_urls>, und externally_connectable gibt es nicht.
+    assert manifest["permissions"] == ["cookies"]
+    assert "<all_urls>" not in manifest["host_permissions"]
+    assert "*://*.bastelgarage.ch/*" in manifest["host_permissions"]
+    assert "externally_connectable" not in manifest
+
+
+def test_extension_scripts_use_the_cross_browser_api_and_never_log_cookies():
+    background = Path("extension/background.js").read_text(encoding="utf-8")
+    content = Path("extension/content.js").read_text(encoding="utf-8")
+
+    for source in (background, content):
+        assert "globalThis.browser ?? globalThis.chrome" in source
+        # Cookie-Werte tauchen in keiner Ausgabe auf.
+        assert "console.log" not in source
+    assert "cookies.set" in background
+    assert "tabs.create" in background
+    # Herkunft wird strikt geprüft, sonst könnte jede eingebettete Seite senden.
+    assert "event.source === window" in content
+    assert "event.origin === window.location.origin" in content
+    assert "beschaffung/extension-ready" in content
+
+
 def test_cart_browser_shows_states_handover_and_keeps_expected_outcomes_neutral():
     script = Path("static/job-matrix.js").read_text(encoding="utf-8")
     css = Path("static/app.css").read_text(encoding="utf-8")
@@ -551,6 +652,25 @@ def test_cart_browser_shows_states_handover_and_keeps_expected_outcomes_neutral(
     assert 'class="note cartoff"' in script
     assert ".cartoff { color:var(--muted); }" in css
     assert "cartdiff" in script and "--danger" in css
+
+
+def test_one_click_handover_sits_above_an_intact_copy_flow():
+    script = Path("static/job-matrix.js").read_text(encoding="utf-8")
+
+    # Ein-Klick erscheint nur nach dem Bereitschafts-Signal der Erweiterung.
+    assert "beschaffung/extension-ready" in script
+    assert "if (!state.extension)" in script
+    assert "Im Browser übernehmen" in script
+    assert "Übernommen ✓ — Tab geöffnet" in script
+    assert "Erweiterung v" in script
+    # Herkunftsprüfung auch auf der Seite.
+    assert "event.source === window && event.origin === window.location.origin" in script
+    # Der Kopierflow bleibt vollständig bestehen - er ist der Fallback.
+    assert "Kopieren" in script
+    assert "DevTools öffnen (F12)" in script
+    assert "Die Session ist flüchtig" in script
+    # Cookie-Werte werden nie geloggt.
+    assert "console.log" not in script
 
 
 def test_history_repeat_arrival_and_shop_moderation_are_available():

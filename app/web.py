@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import io
+import json
 import os
+import zipfile
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -8,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, Form, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -22,6 +25,37 @@ from .procurement import ProcurementService, ValidationError
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = Jinja2Templates(directory=ROOT / "templates")
+EXTENSION_DIR = ROOT / "extension"
+
+
+def extension_files() -> list[Path]:
+    """Dateien der Extension in stabiler Reihenfolge."""
+    return sorted(path for path in EXTENSION_DIR.rglob("*") if path.is_file())
+
+
+def extension_version() -> str:
+    manifest = json.loads((EXTENSION_DIR / "manifest.json").read_text(encoding="utf-8"))
+    return str(manifest["version"])
+
+
+def build_extension_zip() -> bytes:
+    """Das deployte extension/-Verzeichnis zippen - deterministisch.
+
+    Feste Zeitstempel und sortierte Reihenfolge, damit zweimal Herunterladen
+    byte-identisch ist. Gebaut wird aus dem ausgecheckten Stand, deshalb liefert
+    jeder Push automatisch den passenden Download, ohne Hook oder CI.
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in extension_files():
+            info = zipfile.ZipInfo(
+                path.relative_to(EXTENSION_DIR).as_posix(),
+                date_time=(1980, 1, 1, 0, 0, 0),
+            )
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            archive.writestr(info, path.read_bytes())
+    return buffer.getvalue()
 
 
 class _LazyRepository:
@@ -275,6 +309,30 @@ def create_app(
             return procurement.plan_order(job_id, tempo)
         except (ValidationError, ValueError) as error:
             raise HTTPException(422, str(error)) from error
+
+    @application.get("/api/extension")
+    def extension_info() -> dict[str, Any]:
+        return {
+            "version": extension_version(),
+            "download_url": "/extension.zip",
+            "dateien": [
+                path.relative_to(EXTENSION_DIR).as_posix()
+                for path in extension_files()
+            ],
+        }
+
+    @application.get("/extension.zip")
+    def extension_zip() -> Response:
+        payload = build_extension_zip()
+        return Response(
+            content=payload,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="beschaffung-extension-{extension_version()}.zip"'
+                )
+            },
+        )
 
     @application.get("/api/jobs/{job_id}/cart-shops")
     def cart_shops(job_id: int) -> list[dict[str, Any]]:
