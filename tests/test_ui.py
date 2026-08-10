@@ -223,10 +223,18 @@ def test_e2e_jobs_are_marker_guarded_disposable_and_not_real_job_ids():
 def test_browser_e2e_creates_and_cleans_marked_job_instead_of_using_job_one():
     script = Path("tests/e2e/decision_click.mjs").read_text()
 
+    assert "OFFER_ID" not in script
     assert "/jobs/1" not in script
     assert "/api/e2e/jobs" in script
     assert "method: 'DELETE'" in script
 
+
+def test_unknown_delivery_is_rendered_explicitly_in_assignments():
+    script = Path("static/variants.js").read_text()
+
+    assert "value == null" in script
+    assert "Lieferzeit unbekannt" in script
+    assert "kein belegter Shop-Standard" in script
 
 def test_decision_has_form_fallback_and_persists_after_redirect_reload():
     client, repository = client_and_repo()

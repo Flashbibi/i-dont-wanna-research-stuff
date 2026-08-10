@@ -281,6 +281,66 @@ def test_fastest_marks_when_its_maximum_is_based_only_on_estimates():
     assert scenario["fastest_max_exclusively_estimated"] is True
 
 
+def test_fastest_rejects_cheapest_unknown_delivery_and_serializes_it_as_unknown():
+    repository = FakeProcurementRepository()
+    base = repository.optimization_input(5)
+    cheap_unknown = {
+        **base["offers"][0],
+        "id": 31,
+        "shop_id": 1,
+        "preis_chf": "1.00",
+        "lieferzeit_tage": None,
+        "lieferzeit_text": None,
+    }
+    known_alternative = {
+        **base["offers"][0],
+        "id": 32,
+        "shop_id": 2,
+        "preis_chf": "2.00",
+        "lieferzeit_tage": None,
+        "lieferzeit_text": None,
+        "produktname": "MG996R Servo bekannte Lieferzeit",
+        "produkt_url": "https://known.example.ch/mg996r",
+    }
+    repository.optimization_input = lambda job_id: {
+        **base,
+        "offers": [cheap_unknown, known_alternative],
+        "shops": [
+            {
+                "id": 1,
+                "name": "Unbekannt",
+                "url": "https://unknown.example.ch",
+                "versand_chf": "0",
+                "gratis_ab_chf": None,
+                "mindestbestellwert_chf": None,
+                "lieferzeit_default_tage": None,
+            },
+            {
+                "id": 2,
+                "name": "Bekannt",
+                "url": "https://known.example.ch",
+                "versand_chf": "0",
+                "gratis_ab_chf": None,
+                "mindestbestellwert_chf": None,
+                "lieferzeit_default_tage": 3,
+            },
+        ],
+    }
+    procurement = ProcurementService(repository)
+
+    scenarios = procurement.plan_scenarios(5)["scenarios"]
+    cheapest = next(item for item in scenarios if "cheapest" in item["keys"])
+    fastest = next(item for item in scenarios if "fastest" in item["keys"])
+
+    assert cheapest["assignments"] == {"10": 31}
+    assert cheapest["contains_unknown_delivery"] is True
+    assert cheapest["lines"][0]["lieferzeit_tage"] is None
+    assert cheapest["lines"][0]["lieferzeit_geschaetzt"] is False
+    assert fastest["assignments"] == {"10": 32}
+    assert fastest["max_liefertage"] == 3
+    assert fastest["contains_unknown_delivery"] is False
+
+
 def test_plan_order_returns_no_partial_variant_when_a_required_line_lacks_confirmation():
     procurement = service()
     original = procurement.repository.optimization_input

@@ -9,10 +9,14 @@ from itertools import product
 
 TEMPO_COST_PER_DAY_CHF = Decimal("15.00")
 UNKNOWN_DELIVERY_SCORE_DAYS = 10_000
+UNKNOWN_DELIVERY_RANK = 10_000
 
 
-def _delivery_rank(days: int | None) -> tuple[bool, int]:
-    return (days is None, days or 0)
+def _delivery_rank(days: int | None) -> tuple[int, int]:
+    """Known delivery always ranks before unknown; unknown is never treated as zero."""
+    if days is None:
+        return (1, UNKNOWN_DELIVERY_RANK)
+    return (0, days)
 
 
 @dataclass(frozen=True)
