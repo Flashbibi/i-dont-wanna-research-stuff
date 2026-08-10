@@ -737,6 +737,14 @@ class ProcurementService:
                 }
             )
         variant["lines"] = sorted(lines, key=lambda row: (row["position"], row["line_id"]))
+        max_days = variant.get("max_liefertage")
+        max_lines = [
+            row for row in lines
+            if max_days is not None and row["lieferzeit_tage"] == max_days
+        ]
+        variant["max_delivery_only_estimated"] = bool(max_lines) and all(
+            row["lieferzeit_geschaetzt"] for row in max_lines
+        )
         variant["missing_lines"] = [
             {
                 "line_id": line_id,

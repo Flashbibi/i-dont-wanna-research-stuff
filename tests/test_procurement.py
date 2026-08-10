@@ -405,6 +405,7 @@ def test_fastest_marks_when_its_maximum_is_based_only_on_estimates():
     assert "fastest" in scenario["keys"]
     assert scenario["max_liefertage"] == 3
     assert scenario["fastest_max_exclusively_estimated"] is True
+    assert scenario["max_delivery_only_estimated"] is True
 
 
 def test_fastest_rejects_cheapest_unknown_delivery_and_serializes_it_as_unknown():

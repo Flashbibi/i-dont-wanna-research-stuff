@@ -26,7 +26,7 @@
   const daysText = (plan) => {
     if (plan.contains_unknown_delivery) return "Lieferzeit unbekannt";
     if (plan.max_liefertage == null) return "Lieferzeit unbekannt";
-    return `max. ${plan.max_liefertage} ${plan.max_liefertage === 1 ? "Tag" : "Tage"}${plan.fastest_max_exclusively_estimated ? " (geschätzt)" : ""}`;
+    return `max. ${plan.max_liefertage} ${plan.max_liefertage === 1 ? "Tag" : "Tage"}${plan.max_delivery_only_estimated ? " (geschätzt)" : ""}`;
   };
   const chip = (line) => {
     if (!line || line.lieferzeit_tage == null) return '<span class="chip unk">Lieferzeit unbekannt</span>';
