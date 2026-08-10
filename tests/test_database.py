@@ -66,6 +66,27 @@ def test_job_list_excludes_marked_e2e_jobs():
     assert "WHERE NOT j.is_test" in connection.sql
 
 
+def test_job_selection_is_saved_as_jsonb():
+    class SelectionConnection(Connection):
+        def __init__(self):
+            self.sql = ""
+            self.params = None
+
+        def execute(self, sql, params=None):
+            self.sql = " ".join(sql.split())
+            self.params = params
+            return Result(one={"id": 7, "selected_assignments": {"10": 31}})
+
+    repository = PostgresRepository("unused")
+    connection = SelectionConnection()
+    repository._connect = lambda: connection
+
+    saved = repository.save_job_selection(7, {"10": 31})
+
+    assert "selected_assignments = %s" in connection.sql
+    assert saved["selected_assignments"] == {"10": 31}
+
+
 class OfferConnection:
     def __init__(self):
         self.statements = []

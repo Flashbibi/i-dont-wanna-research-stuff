@@ -222,6 +222,34 @@ def optimize_orders(
     return result[:limit]
 
 
+def filter_dominated_variants(variants: list[OrderVariant]) -> list[OrderVariant]:
+    """Hide complete plans that are no cheaper and no faster than another plan.
+
+    Partial one-shop compromises are intentionally incomparable with complete plans.
+    """
+    result: list[OrderVariant] = []
+    for candidate in variants:
+        if candidate.missing_line_ids:
+            result.append(candidate)
+            continue
+        dominated = any(
+            other is not candidate
+            and not other.missing_line_ids
+            and other.total_chf <= candidate.total_chf
+            and _delivery_rank(other.max_liefertage)
+            <= _delivery_rank(candidate.max_liefertage)
+            and (
+                other.total_chf < candidate.total_chf
+                or _delivery_rank(other.max_liefertage)
+                < _delivery_rank(candidate.max_liefertage)
+            )
+            for other in variants
+        )
+        if not dominated:
+            result.append(candidate)
+    return result
+
+
 def plan_scenarios(
     offers: list[Offer],
     shops: list[ShopProfile],

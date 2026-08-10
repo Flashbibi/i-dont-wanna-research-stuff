@@ -391,23 +391,50 @@ class PostgresRepository:
                 ).fetchone()
                 return dict(row)
 
+    def save_job_selection(
+        self, job_id: int, assignments: dict[str, int]
+    ) -> dict[str, Any]:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                UPDATE job
+                SET selected_assignments = %s, aktualisiert_am = NOW()
+                WHERE id = %s
+                RETURNING id, selected_assignments
+                """,
+                (Jsonb(assignments), job_id),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Job {job_id} ist unbekannt")
+            return dict(row)
+
     def optimization_input(self, job_id: int) -> dict[str, Any]:
         with self._connect() as connection:
-            required_rows = connection.execute(
+            job = connection.execute(
+                "SELECT status, selected_assignments FROM job WHERE id = %s",
+                (job_id,),
+            ).fetchone()
+            if job is None:
+                raise ValueError(f"Job {job_id} ist unbekannt")
+            line_rows = connection.execute(
                 """
-                SELECT id, position, suchtext FROM bom_line
-                WHERE job_id = %s AND status NOT IN ('bestand', 'nichts_gefunden', 'erledigt')
+                SELECT id, position, suchtext, menge, status, kommentar FROM bom_line
+                WHERE job_id = %s
                 ORDER BY position
                 """,
                 (job_id,),
             ).fetchall()
-            required_line_ids = [row["id"] for row in required_rows]
+            required_line_ids = [
+                row["id"]
+                for row in line_rows
+                if row["status"] not in {"bestand", "nichts_gefunden", "erledigt"}
+            ]
             offers = connection.execute(
                 """
                 SELECT DISTINCT ON (o.line_id, o.produkt_url)
                        o.id, o.line_id, o.shop_id, o.preis_chf,
-                       o.lieferzeit_tage, o.lieferzeit_text,
-                       o.produktname, o.produkt_url, o.gesehen_am,
+                       o.lieferzeit_tage, o.lieferzeit_text, o.lager_text,
+                       o.produktname, o.produkt_url, o.quelle_url, o.gesehen_am,
                        bl.menge, bl.suchtext, bl.position,
                        d.override_status
                 FROM offer o
@@ -425,7 +452,9 @@ class PostgresRepository:
                     "offers": [],
                     "shops": [],
                     "required_line_ids": required_line_ids,
-                    "lines": [dict(row) for row in required_rows],
+                    "lines": [dict(row) for row in line_rows],
+                    "selected_assignments": job.get("selected_assignments"),
+                    "job_status": job["status"],
                 }
             shops = connection.execute(
                 """
@@ -439,7 +468,9 @@ class PostgresRepository:
                 "offers": [dict(row) for row in offers],
                 "shops": [dict(row) for row in shops],
                 "required_line_ids": required_line_ids,
-                "lines": [dict(row) for row in required_rows],
+                "lines": [dict(row) for row in line_rows],
+                "selected_assignments": job.get("selected_assignments"),
+                "job_status": job["status"],
             }
 
     def create_purchase(

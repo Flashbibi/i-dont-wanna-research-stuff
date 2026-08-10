@@ -21,6 +21,7 @@ class FakeProcurementRepository:
         self.offers = []
         self.marked = []
         self.purchases = []
+        self.selected_assignments = None
 
     def next_job(self):
         return {"id": 5, "status": "offen", "lines": [self.lines[10]]}
@@ -68,6 +69,8 @@ class FakeProcurementRepository:
                     "menge": 2,
                     "lieferzeit_tage": 2,
                     "lieferzeit_text": "2 Tage",
+                    "lager_text": "5 Stück ab Lager",
+                    "quelle_url": "https://shop.example.ch/mg996r",
                     "produktname": "MG996R Servo",
                     "produkt_url": "https://shop.example.ch/mg996r",
                     "suchtext": "Servo",
@@ -80,7 +83,12 @@ class FakeProcurementRepository:
             ],
             "required_line_ids": [10],
             "lines": [{"id": 10, "position": 1, "suchtext": "Servo"}],
+            "selected_assignments": self.selected_assignments,
         }
+
+    def save_job_selection(self, job_id, assignments):
+        self.selected_assignments = assignments
+        return {"job_id": job_id, "selected_assignments": assignments}
 
     def create_purchase(self, job_id, variant, ordered_at, promised_days):
         result = {"id": 90, "job_id": job_id, "variante": variant}
@@ -258,6 +266,85 @@ def test_plan_scenarios_groups_identical_presets_and_keeps_badges():
     assert scenario["lines"][0]["lieferzeit_text"] == "2 Tage"
     assert scenario["lines"][0]["produkt_url"].endswith("/mg996r")
     assert scenario["complete"] is True
+
+
+def test_matrix_payload_contains_provenance_delivery_source_shop_breakdown_and_candidates():
+    result = service().plan_scenarios(5)
+    scenario = result["scenarios"][0]
+    line = scenario["lines"][0]
+    shop = scenario["shops"][0]
+    candidate = result["lines"][0]["candidates"][0]
+
+    assert result["ready"] is True
+    assert line["lieferzeit_quelle"] == "produktseite"
+    assert line["lieferzeit_chip"] == "2 Tage"
+    assert line["lager_text"] == "5 Stück ab Lager"
+    assert line["quelle_url"].endswith("/mg996r")
+    assert shop["artikelanzahl"] == 1
+    assert shop["gratis_ab_chf"] is None
+    assert shop["versand_gratis"] is False
+    assert candidate["offer_id"] == 31
+    assert candidate["last_candidate"] is True
+    assert candidate["lieferzeit_chip"] == "2 Tage"
+
+
+def test_identical_tuned_result_has_verdict_and_no_extra_column():
+    result = service().plan_scenarios(5, tempo=0.5)
+
+    assert result["custom"] is None
+    assert result["custom_verdict"] == (
+        "Ändert bei diesem Angebots-Pool nichts: Am günstigsten bleibt die beste Lösung "
+        "(max. 2 Tage). Teurere oder unsicherere Pläne werden nicht angezeigt."
+    )
+
+
+def test_selected_matrix_plan_is_validated_saved_and_returned_after_reload():
+    repository = FakeProcurementRepository()
+    procurement = ProcurementService(repository)
+    plan = procurement.plan_scenarios(5)["scenarios"][0]
+
+    saved = procurement.select_plan(5, plan["assignments"])
+    reloaded = procurement.plan_scenarios(5)
+
+    assert saved["selected_assignments"] == {"10": 31}
+    assert repository.selected_assignments == {"10": 31}
+    assert reloaded["selected_assignments"] == {"10": 31}
+    assert reloaded["selected_key"] == plan["key"]
+
+    with pytest.raises(ValidationError, match="Plan"):
+        procurement.select_plan(5, {"10": 999})
+
+
+def test_plan_delta_uses_same_server_optimizer_with_hypothetical_pin():
+    repository = FakeProcurementRepository()
+    base = repository.optimization_input(5)
+    alternative = {
+        **base["offers"][0],
+        "id": 32,
+        "preis_chf": "12",
+        "produktname": "Alternativer Servo",
+        "produkt_url": "https://shop.example.ch/alternative",
+        "quelle_url": "https://shop.example.ch/alternative",
+    }
+    repository.optimization_input = lambda job_id: {
+        **base,
+        "offers": [base["offers"][0], alternative],
+        "selected_assignments": repository.selected_assignments,
+    }
+    procurement = ProcurementService(repository)
+    baseline = procurement.plan_scenarios(5)["scenarios"][0]
+
+    delta = procurement.plan_delta(
+        5,
+        line_id=10,
+        offer_id=32,
+        base_assignments=baseline["assignments"],
+        tempo=0.5,
+    )
+
+    assert delta["assignments"] == {"10": 32}
+    assert delta["delta_chf"] == "4.00"
+    assert delta["max_liefertage"] == 2
 
 
 def test_fastest_marks_when_its_maximum_is_based_only_on_estimates():

@@ -6,7 +6,13 @@ import re
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
-from .optimizer import Offer, ShopProfile, optimize_orders, plan_scenarios as build_scenarios
+from .optimizer import (
+    Offer,
+    ShopProfile,
+    filter_dominated_variants,
+    optimize_orders,
+    plan_scenarios as build_scenarios,
+)
 
 
 class ValidationError(ValueError):
@@ -23,6 +29,9 @@ class ProcurementRepository(Protocol):
     def create_offer(self, **values: Any) -> dict[str, Any]: ...
     def mark_line(self, line_id: int, status: str, kommentar: str | None) -> dict[str, Any]: ...
     def optimization_input(self, job_id: int) -> dict[str, Any]: ...
+    def save_job_selection(
+        self, job_id: int, assignments: dict[str, int]
+    ) -> dict[str, Any]: ...
     def create_purchase(
         self,
         job_id: int,
@@ -280,11 +289,22 @@ class ProcurementService:
             "one_shop": "Ein Shop",
             "balanced": "Ausgewogen",
         }
+        named_presets = [
+            (key, presets[key])
+            for key in ("cheapest", "fastest", "one_shop", "balanced")
+            if key in presets
+        ]
+        visible_preset_ids = {
+            id(variant)
+            for variant in filter_dominated_variants(
+                [variant for _, variant in named_presets]
+            )
+        }
         grouped: dict[tuple[Any, ...], dict[str, Any]] = {}
-        for key in ("cheapest", "fastest", "one_shop", "balanced"):
-            if key not in presets:
+        for key, preset in named_presets:
+            if id(preset) not in visible_preset_ids:
                 continue
-            variant = self._enrich_variant(self._serialize_variant(presets[key]), data)
+            variant = self._enrich_variant(self._serialize_variant(preset), data)
             max_lines = [
                 line
                 for line in variant["lines"]
@@ -328,6 +348,35 @@ class ProcurementService:
             self._enrich_variant(self._serialize_variant(variant), data)
             for variant in tuned_variants
         ]
+        custom = fine_tuned[0] if fine_tuned else None
+        custom_verdict = None
+        if custom is not None:
+            matching = next(
+                (
+                    scenario
+                    for scenario in scenarios
+                    if scenario["assignments"] == custom["assignments"]
+                ),
+                None,
+            )
+            if matching is not None:
+                max_text = (
+                    "Lieferzeit unbekannt"
+                    if matching["max_liefertage"] is None
+                    else f"max. {matching['max_liefertage']} "
+                    f"{'Tag' if matching['max_liefertage'] == 1 else 'Tage'}"
+                )
+                custom_verdict = (
+                    "Ändert bei diesem Angebots-Pool nichts: "
+                    f"{matching['labels'][0]} bleibt die beste Lösung ({max_text}). "
+                    "Teurere oder unsicherere Pläne werden nicht angezeigt."
+                )
+                custom = None
+            else:
+                custom["key"] = "custom"
+                custom["keys"] = ["custom"]
+                custom["label"] = "Eigene Gewichtung"
+                custom["labels"] = ["Eigene Gewichtung"]
         choices: dict[str, list[dict[str, Any]]] = {}
         shop_rows = {int(row["id"]): row for row in data.get("shops", [])}
         for row in data.get("offers", []):
@@ -347,14 +396,186 @@ class ProcurementService:
                     "preis_chf": str(row["preis_chf"]),
                 }
             )
+        matrix_lines = self._matrix_lines(data, effective_excludes)
+        stored_selection = {
+            str(key): int(value)
+            for key, value in (data.get("selected_assignments") or {}).items()
+        }
+        selectable = [*scenarios, *([custom] if custom is not None else [])]
+        selected = next(
+            (
+                variant
+                for variant in selectable
+                if variant["assignments"] == stored_selection
+            ),
+            scenarios[0] if scenarios else custom,
+        )
         return {
             "job_id": job_id,
+            "ready": bool(required) and all(
+                any(not candidate["excluded"] for candidate in line["candidates"])
+                for line in matrix_lines
+                if line["required"]
+            ),
             "pins": {str(key): value for key, value in effective_pins.items()},
             "excludes": sorted(effective_excludes),
             "choices": choices,
+            "lines": matrix_lines,
+            "open_lines": [
+                line for line in matrix_lines if not line["required"]
+            ],
+            "selected_assignments": (
+                selected["assignments"] if selected is not None else None
+            ),
+            "selected_key": selected["key"] if selected is not None else None,
             "scenarios": scenarios,
+            "custom": custom,
+            "custom_verdict": custom_verdict,
             "fine_tuned": fine_tuned,
         }
+
+    def select_plan(
+        self, job_id: int, assignments: Mapping[Any, int]
+    ) -> dict[str, Any]:
+        normalized = {str(int(key)): int(value) for key, value in assignments.items()}
+        matrix = self.plan_scenarios(job_id)
+        valid = [*matrix["scenarios"], *matrix["fine_tuned"][:1]]
+        if not any(variant["assignments"] == normalized for variant in valid):
+            raise ValidationError("Plan ist nicht mehr gültig")
+        return self.repository.save_job_selection(job_id, normalized)
+
+    def plan_delta(
+        self,
+        job_id: int,
+        *,
+        line_id: int,
+        offer_id: int,
+        base_assignments: Mapping[Any, int],
+        tempo: float,
+    ) -> dict[str, Any]:
+        normalized_base = {
+            str(int(key)): int(value) for key, value in base_assignments.items()
+        }
+        baseline_matrix = self.plan_scenarios(job_id, tempo=tempo)
+        baseline = next(
+            (
+                variant
+                for variant in baseline_matrix["scenarios"]
+                if variant["assignments"] == normalized_base
+            ),
+            None,
+        )
+        if baseline is None:
+            raise ValidationError("Gewählter Plan ist nicht mehr gültig")
+        target_key = baseline["keys"][0]
+        hypothetical = self.plan_scenarios(
+            job_id,
+            pins={line_id: offer_id},
+            tempo=tempo,
+        )
+        target = next(
+            (
+                variant
+                for variant in hypothetical["scenarios"]
+                if target_key in variant["keys"]
+            ),
+            None,
+        )
+        if target is None:
+            raise ValidationError("Kandidat ist in diesem Plan nicht verfügbar")
+        return {
+            "assignments": target["assignments"],
+            "delta_chf": str(
+                Decimal(target["total_chf"]) - Decimal(baseline["total_chf"])
+            ),
+            "total_chf": target["total_chf"],
+            "max_liefertage": target["max_liefertage"],
+            "contains_unknown_delivery": target["contains_unknown_delivery"],
+        }
+
+    @staticmethod
+    def _delivery_fields(row: Mapping[str, Any], shop: Mapping[str, Any]) -> dict[str, Any]:
+        direct_days = row.get("lieferzeit_tage")
+        shop_days = shop.get("lieferzeit_default_tage")
+        conditional = bool(
+            re.search(
+                r"bei Lieferant|CH-Lieferant",
+                " ".join(
+                    str(value or "")
+                    for value in (row.get("lieferzeit_text"), row.get("lager_text"))
+                ),
+                re.IGNORECASE,
+            )
+        )
+        if direct_days is not None:
+            days = int(direct_days)
+            chip = f"{days} {'Tag' if days == 1 else 'Tage'}"
+            if conditional:
+                chip += " · bedingt"
+            source = "produktseite"
+        elif shop_days is not None:
+            days = int(shop_days)
+            chip = f"{days} {'Tag' if days == 1 else 'Tage'} · geschätzt"
+            source = "shop_standard"
+        else:
+            days = None
+            chip = "Lieferzeit unbekannt"
+            source = "unbekannt"
+        return {
+            "lieferzeit_tage": days,
+            "lieferzeit_quelle": source,
+            "lieferzeit_chip": chip,
+            "lieferzeit_geschaetzt": source == "shop_standard",
+            "lieferzeit_bedingt": conditional and source == "produktseite",
+        }
+
+    @classmethod
+    def _matrix_lines(
+        cls, data: dict[str, Any], excludes: set[int]
+    ) -> list[dict[str, Any]]:
+        shop_rows = {int(row["id"]): row for row in data.get("shops", [])}
+        required = {int(value) for value in data.get("required_line_ids", [])}
+        offers_by_line: dict[int, list[dict[str, Any]]] = {}
+        for row in data.get("offers", []):
+            offer_id = int(row["id"])
+            shop = shop_rows[int(row["shop_id"])]
+            candidate = {
+                "offer_id": offer_id,
+                "shop_id": int(row["shop_id"]),
+                "shop_name": shop["name"],
+                "produktname": row.get("produktname"),
+                "produkt_url": row.get("produkt_url"),
+                "quelle_url": row.get("quelle_url") or row.get("produkt_url"),
+                "preis_chf": str(row["preis_chf"]),
+                "lieferzeit_text": row.get("lieferzeit_text"),
+                "lager_text": row.get("lager_text"),
+                "pinned": row.get("override_status") == "pin",
+                "excluded": offer_id in excludes,
+                **cls._delivery_fields(row, shop),
+            }
+            offers_by_line.setdefault(int(row["line_id"]), []).append(candidate)
+        result = []
+        for row in data.get("lines", []):
+            line_id = int(row["id"])
+            candidates = offers_by_line.get(line_id, [])
+            available_count = sum(not candidate["excluded"] for candidate in candidates)
+            for candidate in candidates:
+                candidate["last_candidate"] = (
+                    not candidate["excluded"] and available_count <= 1
+                )
+            result.append(
+                {
+                    "line_id": line_id,
+                    "position": int(row.get("position", 0)),
+                    "suchtext": row.get("suchtext"),
+                    "menge": int(row.get("menge", 1)),
+                    "status": row.get("status", "kandidaten"),
+                    "kommentar": row.get("kommentar"),
+                    "required": line_id in required,
+                    "candidates": candidates,
+                }
+            )
+        return sorted(result, key=lambda line: (line["position"], line["line_id"]))
 
     def record_purchase(
         self,
@@ -452,6 +673,10 @@ class ProcurementService:
             key = re.sub(r"[^a-z0-9]+", " ", str(row.get("produktname", "")).lower()).strip()
             product_keys.setdefault(int(row["line_id"]), set()).add(key)
 
+        assignment_shop_counts: dict[int, int] = {}
+        for offer_id in variant["assignments"].values():
+            shop_id = int(offer_rows[offer_id]["shop_id"])
+            assignment_shop_counts[shop_id] = assignment_shop_counts.get(shop_id, 0) + 1
         variant["shops"] = [
             {
                 "id": shop_id,
@@ -459,6 +684,13 @@ class ProcurementService:
                 "url": shop_rows[shop_id].get("url"),
                 "subtotal_chf": variant["subtotals"][str(shop_id)],
                 "versand_chf": variant["shipping"][str(shop_id)],
+                "gratis_ab_chf": (
+                    None
+                    if shop_rows[shop_id].get("gratis_ab_chf") is None
+                    else str(shop_rows[shop_id]["gratis_ab_chf"])
+                ),
+                "artikelanzahl": assignment_shop_counts.get(shop_id, 0),
+                "versand_gratis": Decimal(variant["shipping"][str(shop_id)]) == 0,
             }
             for shop_id in variant["shop_ids"]
         ]
@@ -467,15 +699,8 @@ class ProcurementService:
             line_id = int(line_id_text)
             row = offer_rows[offer_id]
             shop = shop_rows[int(row["shop_id"])]
-            estimated = (
-                row.get("lieferzeit_tage") is None
-                and shop.get("lieferzeit_default_tage") is not None
-            )
-            effective_days = (
-                row.get("lieferzeit_tage")
-                if row.get("lieferzeit_tage") is not None
-                else shop.get("lieferzeit_default_tage")
-            )
+            delivery = ProcurementService._delivery_fields(row, shop)
+            effective_days = delivery["lieferzeit_tage"]
             assumption = len(product_keys.get(line_id, set())) > 1
             lines.append(
                 {
@@ -487,12 +712,17 @@ class ProcurementService:
                     "shop_id": int(row["shop_id"]),
                     "produktname": row.get("produktname"),
                     "produkt_url": row.get("produkt_url"),
+                    "quelle_url": row.get("quelle_url") or row.get("produkt_url"),
                     "einzelpreis_chf": str(row["preis_chf"]),
                     "lieferzeit_tage": (
                         None if effective_days is None else int(effective_days)
                     ),
                     "lieferzeit_text": row.get("lieferzeit_text"),
-                    "lieferzeit_geschaetzt": estimated,
+                    "lager_text": row.get("lager_text"),
+                    "lieferzeit_quelle": delivery["lieferzeit_quelle"],
+                    "lieferzeit_chip": delivery["lieferzeit_chip"],
+                    "lieferzeit_geschaetzt": delivery["lieferzeit_geschaetzt"],
+                    "lieferzeit_bedingt": delivery["lieferzeit_bedingt"],
                     "assumption": assumption,
                     "assumption_text": f"Annahme: {row.get('produktname')}" if assumption else None,
                     "pinned": row.get("override_status") == "pin",

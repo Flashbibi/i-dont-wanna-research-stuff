@@ -43,6 +43,16 @@ class ScenarioRequest(BaseModel):
     tempo: float = 0.5
 
 
+class PlanSelectionRequest(BaseModel):
+    assignments: dict[str, int]
+
+
+class PlanDeltaRequest(BaseModel):
+    offer_id: int
+    base_assignments: dict[str, int]
+    tempo: float = 0.5
+
+
 class ShopProfileRequest(BaseModel):
     versand_chf: float
     gratis_ab_chf: float | None = None
@@ -225,6 +235,28 @@ def create_app(
                 job_id,
                 pins=request.pins,
                 excludes=request.excludes,
+                tempo=request.tempo,
+            )
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @application.put("/api/jobs/{job_id}/selection")
+    def select_plan(job_id: int, request: PlanSelectionRequest) -> dict[str, Any]:
+        try:
+            return procurement.select_plan(job_id, request.assignments)
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @application.post("/api/jobs/{job_id}/lines/{line_id}/delta")
+    def plan_delta(
+        job_id: int, line_id: int, request: PlanDeltaRequest
+    ) -> dict[str, Any]:
+        try:
+            return procurement.plan_delta(
+                job_id,
+                line_id=line_id,
+                offer_id=request.offer_id,
+                base_assignments=request.base_assignments,
                 tempo=request.tempo,
             )
         except (ValidationError, ValueError) as error:

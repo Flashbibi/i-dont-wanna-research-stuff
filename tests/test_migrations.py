@@ -141,3 +141,11 @@ def test_shop_profile_source_migration_is_additive_and_enforces_provenance():
     assert "shop_shipping_requires_text" in sql
     assert "DELETE " not in sql.upper()
     assert "DROP TABLE" not in sql.upper()
+
+
+def test_job_plan_selection_migration_is_additive():
+    sql = Path("migrations/008_job_plan_selection.sql").read_text()
+
+    assert "ADD COLUMN IF NOT EXISTS selected_assignments JSONB" in sql
+    assert "DELETE " not in sql.upper()
+    assert "DROP " not in sql.upper()

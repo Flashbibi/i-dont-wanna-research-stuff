@@ -1,6 +1,13 @@
 from decimal import Decimal
 
-from app.optimizer import Offer, ShopProfile, optimize_orders, plan_scenarios
+from app.optimizer import (
+    Offer,
+    OrderVariant,
+    ShopProfile,
+    filter_dominated_variants,
+    optimize_orders,
+    plan_scenarios,
+)
 
 
 def test_assigns_each_line_to_cheapest_shop_and_adds_shipping():
@@ -232,4 +239,27 @@ def test_pin_selects_product_not_shop_offer_when_product_key_matches():
     )["cheapest"]
 
     assert cheapest.assignments == {101: 2}
+
+
+def test_dominance_filter_removes_costlier_slower_and_unknown_complete_plans():
+    def variant(total, days, offer_id, *, missing=()):
+        return OrderVariant(
+            shop_ids=(1,),
+            assignments={101: offer_id},
+            subtotals={1: Decimal(str(total))},
+            shipping={1: Decimal("0")},
+            total_chf=Decimal(str(total)),
+            max_liefertage=days,
+            score=Decimal(str(total)),
+            missing_line_ids=missing,
+        )
+
+    best = variant(10, 2, 1)
+    slower_and_costlier = variant(11, 3, 2)
+    equally_priced_unknown = variant(10, None, 3)
+    incomplete = variant(1, 1, 4, missing=(102,))
+
+    assert filter_dominated_variants(
+        [best, slower_and_costlier, equally_priced_unknown, incomplete]
+    ) == [best, incomplete]
 

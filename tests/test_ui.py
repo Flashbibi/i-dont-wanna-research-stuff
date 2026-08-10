@@ -13,6 +13,8 @@ class UIRepository:
         self.arrived = []
         self.test_jobs = {}
         self.next_test_job_id = 9000
+        self.selected_assignments = None
+        self.purchases_created = []
 
     def create_job(self, source_text, lines):
         return 7
@@ -130,8 +132,18 @@ class UIRepository:
             }],
             "shops": [{"id": 1, "name": "Servo Shop", "url": "https://shop.example.ch", "versand_chf": "8", "gratis_ab_chf": None, "mindestbestellwert_chf": None, "lieferzeit_default_tage": 3}],
             "required_line_ids": [10],
-            "lines": [{"id": 10, "position": 1, "suchtext": "Servo"}],
+            "lines": [{"id": 10, "position": 1, "suchtext": "Servo", "menge": 2, "status": "kandidaten", "kommentar": None}],
+            "selected_assignments": self.selected_assignments,
         }
+
+    def save_job_selection(self, job_id, assignments):
+        self.selected_assignments = assignments
+        return {"job_id": job_id, "selected_assignments": assignments}
+
+    def create_purchase(self, job_id, variant, ordered_at, promised_days):
+        purchase = {"id": 91, "job_id": job_id, "variante": variant}
+        self.purchases_created.append((job_id, variant, promised_days))
+        return purchase
 
     def list_purchases(self):
         return [{"id": 90, "job_id": 7, "total_chf": "28.00", "bestellt_am": "heute", "angekommen_am": None, "items": [{"produktname": "MG996R Servo", "menge": 2}]}]
@@ -269,6 +281,29 @@ def test_job_page_shows_literal_delivery_and_lager_text_with_labeled_fallback():
     assert "3 Tage" in page.text
     assert "Schätzung (Shop-Standard)" in page.text
     assert "Lagerstatus nicht angegeben" in page.text
+
+
+def test_matrix_selection_and_delta_endpoints_use_server_side_planning():
+    client, repository = client_and_repo()
+    matrix = client.post("/api/jobs/7/scenarios", json={"tempo": 0.5}).json()
+    assignments = matrix["scenarios"][0]["assignments"]
+
+    selected = client.put(
+        "/api/jobs/7/selection", json={"assignments": assignments}
+    )
+    delta = client.post(
+        "/api/jobs/7/lines/10/delta",
+        json={
+            "offer_id": 31,
+            "base_assignments": assignments,
+            "tempo": 0.5,
+        },
+    )
+
+    assert selected.status_code == 200
+    assert repository.selected_assignments == {"10": 31}
+    assert delta.status_code == 200
+    assert delta.json()["delta_chf"] == "0.00"
 
 
 def test_variants_page_and_server_side_tempo_api_include_links_and_totals():
