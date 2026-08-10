@@ -348,6 +348,41 @@ class PostgresRepository:
                 raise ValueError(f"Shop {shop_id} ist unbekannt")
             return dict(row)
 
+    def save_shop_platform(
+        self, shop_id: int, plattform: str, plattform_beleg: str
+    ) -> dict[str, Any]:
+        """Erkannte Plattform samt Nachweis festhalten; kein Wert ohne Beleg."""
+        if not plattform_beleg or not plattform_beleg.strip():
+            raise ValueError("Plattform darf nicht ohne Beleg gespeichert werden")
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                UPDATE shop SET
+                    plattform = %s,
+                    plattform_beleg = %s,
+                    plattform_geprueft_am = NOW()
+                WHERE id = %s
+                RETURNING id, plattform, plattform_beleg
+                """,
+                (plattform, plattform_beleg.strip(), shop_id),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Shop {shop_id} ist unbekannt")
+            return dict(row)
+
+    def save_offer_product_ids(self, produkt_ids: dict[int, str]) -> int:
+        """Shopinterne Produkt-IDs cachen. Quelle ist jeweils die Produktseite."""
+        if not produkt_ids:
+            return 0
+        with self._connect() as connection:
+            with connection.transaction():
+                for offer_id, produkt_id in produkt_ids.items():
+                    connection.execute(
+                        "UPDATE offer SET shop_produkt_id = %s WHERE id = %s",
+                        (str(produkt_id), int(offer_id)),
+                    )
+        return len(produkt_ids)
+
     def create_offer(self, **values: Any) -> dict[str, Any]:
         if values.get("lieferzeit_tage") is not None and not values.get("lieferzeit_text"):
             raise ValueError(
@@ -475,6 +510,7 @@ class PostgresRepository:
                        o.id, o.line_id, o.shop_id, o.preis_chf,
                        o.lieferzeit_tage, o.lieferzeit_text, o.lager_text,
                        o.produktname, o.produkt_url, o.quelle_url, o.gesehen_am,
+                       o.shop_produkt_id,
                        bl.menge, bl.suchtext, bl.position,
                        d.override_status
                 FROM offer o
@@ -499,7 +535,8 @@ class PostgresRepository:
             shops = connection.execute(
                 """
                 SELECT id, name, url, versand_chf, gratis_ab_chf,
-                       mindestbestellwert_chf, lieferzeit_default_tage
+                       mindestbestellwert_chf, lieferzeit_default_tage,
+                       plattform, plattform_beleg
                 FROM shop WHERE id = ANY(%s)
                 """,
                 (shop_ids,),
