@@ -349,9 +349,18 @@ class PostgresRepository:
             return dict(row)
 
     def save_shop_platform(
-        self, shop_id: int, plattform: str, plattform_beleg: str
+        self, shop_id: int, plattform: str | None, plattform_beleg: str
     ) -> dict[str, Any]:
-        """Erkannte Plattform samt Nachweis festhalten; kein Wert ohne Beleg."""
+        """Ergebnis einer ABGESCHLOSSENEN Plattform-Erkennung festhalten.
+
+        ``plattform=None`` ist ein gültiges Ergebnis und heisst "geprüft, nichts
+        Bekanntes gefunden" - zusammen mit ``plattform_geprueft_am`` macht das
+        den Unterschied zu "noch nie geprüft". Der Beleg ist immer Pflicht: er
+        hält fest, was gesehen wurde, auch im negativen Fall.
+
+        Der Aufrufer darf diese Methode nur nach einer abgeschlossenen Erkennung
+        aufrufen. Ein Timeout ist kein Ergebnis und schreibt nichts.
+        """
         if not plattform_beleg or not plattform_beleg.strip():
             raise ValueError("Plattform darf nicht ohne Beleg gespeichert werden")
         with self._connect() as connection:
@@ -536,7 +545,7 @@ class PostgresRepository:
                 """
                 SELECT id, name, url, versand_chf, gratis_ab_chf,
                        mindestbestellwert_chf, lieferzeit_default_tage,
-                       plattform, plattform_beleg
+                       plattform, plattform_beleg, plattform_geprueft_am
                 FROM shop WHERE id = ANY(%s)
                 """,
                 (shop_ids,),

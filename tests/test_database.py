@@ -87,6 +87,36 @@ def test_job_selection_is_saved_as_jsonb():
     assert saved["selected_assignments"] == {"10": 31}
 
 
+def test_optimization_input_selects_the_columns_the_cart_handover_needs():
+    """Ohne plattform_geprueft_am kann der Füllknopf nie verschwinden.
+
+    Ein Fake-Repository liefert den Schlüssel immer mit, deshalb prüft dieser
+    Test die tatsächliche Spaltenliste statt des Verhaltens.
+    """
+    statements = []
+
+    class ShopColumnConnection(Connection):
+        def execute(self, sql, params=None):
+            normalized = " ".join(sql.split())
+            statements.append(normalized)
+            if "FROM job WHERE id" in normalized:
+                return Result(one={"status": "in_arbeit", "selected_assignments": None})
+            if "FROM offer o" in normalized:
+                return Result(many=[{"id": 1, "line_id": 1, "shop_id": 5}])
+            return Result(many=[])
+
+    repository = PostgresRepository("unused")
+    repository._connect = lambda: ShopColumnConnection()
+
+    repository.optimization_input(1)
+
+    shop_query = next(sql for sql in statements if "FROM shop WHERE id = ANY" in sql)
+    for column in ("plattform", "plattform_beleg", "plattform_geprueft_am"):
+        assert column in shop_query
+    offer_query = next(sql for sql in statements if "FROM offer o" in sql)
+    assert "o.shop_produkt_id" in offer_query
+
+
 class HistoryConnection(Connection):
     def __init__(self):
         self.sql = ""

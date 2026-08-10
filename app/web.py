@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from .cart import CartError, CartTemporaryError, CartVerificationError
 from .database import PostgresRepository
 from .mcp_server import build_mcp
 from .migrations import current_schema_version
@@ -272,6 +273,45 @@ def create_app(
     def variants(job_id: int, tempo: float = 0.5) -> list[dict[str, Any]]:
         try:
             return procurement.plan_order(job_id, tempo)
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @application.get("/api/jobs/{job_id}/cart-shops")
+    def cart_shops(job_id: int) -> list[dict[str, Any]]:
+        try:
+            return procurement.cart_shops(job_id)
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @application.post("/api/jobs/{job_id}/shops/{shop_id}/cart")
+    def fill_cart(
+        job_id: int,
+        shop_id: int,
+        stub: str | None = None,
+        x_e2e_marker: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """Gast-Warenkorb füllen und nach Rückverifikation übergeben.
+
+        Die Statuscodes trennen die Ausgänge, die die Oberfläche unterschiedlich
+        darstellen muss: 503 ist wiederholbar, 409 ist ein belegter Unterschied
+        zwischen Erfassung und Korb.
+
+        ``stub`` ist ausschliesslich für den E2E-Klickpfad und nur mit gültigem
+        Marker erreichbar, damit kein Aufruf von aussen einen erfundenen Korb
+        bestätigt bekommt.
+        """
+        if stub is not None:
+            require_e2e_marker(x_e2e_marker)
+            if stub not in {"ok", "mismatch"}:
+                raise HTTPException(422, "stub muss 'ok' oder 'mismatch' sein")
+        try:
+            return procurement.fill_cart(job_id, shop_id, stub=stub)
+        except CartTemporaryError as error:
+            raise HTTPException(503, str(error)) from error
+        except CartVerificationError as error:
+            raise HTTPException(409, str(error)) from error
+        except CartError as error:
+            raise HTTPException(422, str(error)) from error
         except (ValidationError, ValueError) as error:
             raise HTTPException(422, str(error)) from error
 

@@ -12,6 +12,7 @@ from app.cart import (
     PLATFORM_OPENCART,
     CartError,
     CartItem,
+    CartTemporaryError,
     CartUnsupported,
     CartVerificationError,
     OpenCartAdapter,
@@ -20,6 +21,7 @@ from app.cart import (
     extract_opencart_product_id,
     parse_chf,
     parse_opencart_cart,
+    start_guest_session,
 )
 
 
@@ -343,14 +345,54 @@ def test_shop_refusing_the_add_is_reported_without_a_cart():
     assert "Nicht verfügbar" in str(error.value)
 
 
-def test_a_shop_that_is_not_opencart_is_left_alone():
-    cart, _ = adapter(
-        pages={SHOP_URL: "<html><body>Kein OpenCart</body></html>"},
-        cookies={},
+# ---------------------------------------------------------------------------
+# Gast-Session eröffnen und dabei erkennen
+# ---------------------------------------------------------------------------
+
+def test_starting_a_session_reports_the_completed_detection():
+    session = FakeSession(pages={SHOP_URL: HOME_HTML})
+
+    evidence = start_guest_session(session, SHOP_URL)
+
+    assert evidence is not None
+    assert evidence.plattform == PLATFORM_OPENCART
+
+
+def test_a_shop_without_known_markers_is_a_completed_negative_result():
+    session = FakeSession(
+        pages={SHOP_URL: "<html><body>Ein Shop ohne Merkmale</body></html>"},
+        cookies={"PHPSESSID": "x"},
     )
 
-    with pytest.raises(CartUnsupported):
-        cart.fill(SHOP_URL, [item()])
+    assert start_guest_session(session, SHOP_URL) is None
+
+
+def test_a_timeout_is_not_a_detection_result():
+    """Ein Netzwerkhänger darf nie als 'unbekannte Plattform' durchgehen.
+
+    Sonst würde ein einziger Timeout einen unterstützten Shop dauerhaft
+    stummschalten. Der Aufrufer muss diesen Fall vom echten Negativergebnis
+    unterscheiden können, deshalb eine eigene Fehlerklasse.
+    """
+
+    class TimingOutSession(FakeSession):
+        def get(self, url):
+            raise TimeoutError("read timeout")
+
+    with pytest.raises(CartTemporaryError) as error:
+        start_guest_session(TimingOutSession(), SHOP_URL)
+
+    assert "wiederholen" in str(error.value)
+    assert not isinstance(error.value, CartUnsupported)
+
+
+def test_an_error_response_is_also_no_detection_result():
+    session = FakeSession(pages={SHOP_URL: FakeResponse("Wartung", status_code=503)})
+
+    with pytest.raises(CartTemporaryError) as error:
+        start_guest_session(session, SHOP_URL)
+
+    assert "503" in str(error.value)
 
 
 # ---------------------------------------------------------------------------
