@@ -119,8 +119,8 @@ def test_search_history_matches_product_or_shop_and_resolves_promised_days():
 
     rows = repository.search_history("servo")
 
-    assert "o.produktname ILIKE" in connection.sql
-    assert "s.name ILIKE" in connection.sql
+    assert "o.produktname ILIKE '%%' ||" in connection.sql
+    assert "s.name ILIKE '%%' ||" in connection.sql
     assert connection.params == ("servo", "servo")
     assert rows[0]["zugesagt_liefertage"] == 2
     assert "zugesagt_liefertage_pro_shop" not in rows[0]

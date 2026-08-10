@@ -665,8 +665,8 @@ class PostgresRepository:
                 JOIN purchase p ON p.id = pi.purchase_id
                 JOIN offer o ON o.id = pi.offer_id
                 JOIN shop s ON s.id = o.shop_id
-                WHERE o.produktname ILIKE '%' || CAST(%s AS TEXT) || '%'
-                   OR s.name ILIKE '%' || CAST(%s AS TEXT) || '%'
+                WHERE o.produktname ILIKE '%%' || CAST(%s AS TEXT) || '%%'
+                   OR s.name ILIKE '%%' || CAST(%s AS TEXT) || '%%'
                 ORDER BY p.bestellt_am DESC, pi.id DESC
                 LIMIT 100
                 """,
