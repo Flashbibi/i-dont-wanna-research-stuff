@@ -149,3 +149,15 @@ def test_job_plan_selection_migration_is_additive():
     assert "ADD COLUMN IF NOT EXISTS selected_assignments JSONB" in sql
     assert "DELETE " not in sql.upper()
     assert "DROP " not in sql.upper()
+
+
+def test_shop_platform_migration_is_additive_and_enforces_evidence():
+    sql = Path("migrations/009_shop_platform_and_product_ids.sql").read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS plattform TEXT" in sql
+    assert "ADD COLUMN IF NOT EXISTS plattform_beleg TEXT" in sql
+    assert "ADD COLUMN IF NOT EXISTS shop_produkt_id TEXT" in sql
+    assert "shop_platform_requires_evidence" in sql
+    assert "'opencart', 'woocommerce', 'shopify'" in sql
+    assert "DELETE " not in sql.upper()
+    assert "DROP TABLE" not in sql.upper()

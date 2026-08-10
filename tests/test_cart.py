@@ -1,0 +1,384 @@
+"""Adapter-Tests gegen gemockte HTTP-Antworten.
+
+Kein Test in dieser Datei spricht mit einem echten Shop. Die Fixtures bilden
+OpenCart-3-Markup nach, wie es Bastelgarage ausliefert.
+"""
+
+from decimal import Decimal
+
+import pytest
+
+from app.cart import (
+    PLATFORM_OPENCART,
+    CartError,
+    CartItem,
+    CartUnsupported,
+    CartVerificationError,
+    OpenCartAdapter,
+    build_adapter,
+    detect_platform,
+    extract_opencart_product_id,
+    parse_chf,
+    parse_opencart_cart,
+)
+
+
+SHOP_URL = "https://www.bastelgarage.ch/"
+DUPONT_URL = "https://www.bastelgarage.ch/dupont-jumper-cable-set-10cm-60-pieces"
+BREADBOARD_URL = "https://www.bastelgarage.ch/half-size-transparent-breadboard-zy-60"
+
+HOME_HTML = """
+<html><head><link href="catalog/view/theme/custom/stylesheet.css"></head>
+<body><a href="index.php?route=checkout/cart">Warenkorb</a></body></html>
+"""
+
+PRODUCT_HTML = """
+<html><body>
+  <div class="product">
+    <label for="input-quantity">Anzahl</label>
+    <input type="text" name="quantity" value="1" id="input-quantity" />
+    <input type="hidden" name="product_id" value="96" />
+    <button type="button" id="button-cart">In den Warenkorb</button>
+  </div>
+  <div class="related">
+    <button onclick="wishlist.add('227');">Merken</button>
+    <button onclick="compare.add('2569');">Vergleichen</button>
+  </div>
+</body></html>
+"""
+
+BREADBOARD_HTML = PRODUCT_HTML.replace('value="96"', 'value="412"')
+
+
+def cart_html(rows: str, zwischensumme: str) -> str:
+    return f"""
+    <html><body>
+    <table class="table table-bordered"><tbody>{rows}</tbody></table>
+    <table class="table table-bordered">
+      <tr><td class="text-right"><strong>Zwischensumme:</strong></td>
+          <td class="text-right">{zwischensumme}</td></tr>
+      <tr><td class="text-right"><strong>Versandkosten:</strong></td>
+          <td class="text-right">CHF 6.90</td></tr>
+      <tr><td class="text-right"><strong>Total:</strong></td>
+          <td class="text-right">CHF 25.60</td></tr>
+    </table></body></html>
+    """
+
+
+def cart_row(url: str, name: str, menge: int, einzel: str, zeile: str, key: int) -> str:
+    return f"""
+    <tr>
+      <td class="text-center"><a href="{url}"><img src="/image/x.jpg" alt="{name}" /></a></td>
+      <td class="text-left"><a href="{url}">{name}</a></td>
+      <td class="text-left">BG-{key}</td>
+      <td class="text-left">
+        <input type="text" name="quantity[{key}]" value="{menge}" size="1" class="form-control" />
+      </td>
+      <td class="text-right">{einzel}</td>
+      <td class="text-right">{zeile}</td>
+    </tr>
+    """
+
+
+DUPONT_ROW = cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 5.90", "CHF 11.80", 42)
+BREADBOARD_ROW = cart_row(BREADBOARD_URL, "Breadboard Half Size", 1, "CHF 6.90", "CHF 6.90", 43)
+
+
+def item(url=DUPONT_URL, *, offer_id=31, menge=2, preis="5.90", name="Dupont Jumper Cable Set 10cm",
+         line_id=10, shop_produkt_id=None) -> CartItem:
+    return CartItem(
+        line_id=line_id,
+        offer_id=offer_id,
+        produktname=name,
+        produkt_url=url,
+        menge=menge,
+        einzelpreis_chf=Decimal(preis),
+        shop_produkt_id=shop_produkt_id,
+    )
+
+
+class FakeResponse:
+    def __init__(self, text="", status_code=200, payload=None):
+        self.text = text
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self):
+        if self._payload is None:
+            raise ValueError("keine JSON-Antwort")
+        return self._payload
+
+
+class FakeSession:
+    """Attrappe. Kennt nur die Antworten, die ihr mitgegeben wurden."""
+
+    def __init__(self, pages=None, add_responses=None, cart_page=None, cookies=None):
+        self.pages = dict(pages or {})
+        self.add_responses = list(add_responses or [])
+        self.cart_page = cart_page
+        self.cookies = dict(cookies if cookies is not None else {"OCSESSID": "sess-abc-123"})
+        self.posted = []
+        self.fetched = []
+
+    def get(self, url):
+        self.fetched.append(url)
+        if "route=checkout/cart" in url:
+            return FakeResponse(self.cart_page or "")
+        if url in self.pages:
+            page = self.pages[url]
+            return page if isinstance(page, FakeResponse) else FakeResponse(page)
+        if url.rstrip("/") == SHOP_URL.rstrip("/"):
+            return FakeResponse(HOME_HTML)
+        return FakeResponse("", status_code=404)
+
+    def post(self, url, data):
+        self.posted.append((url, dict(data)))
+        if self.add_responses:
+            return self.add_responses.pop(0)
+        return FakeResponse(payload={"success": "Artikel hinzugefügt"})
+
+
+def adapter(**kwargs) -> tuple[OpenCartAdapter, FakeSession]:
+    session = FakeSession(**kwargs)
+    return OpenCartAdapter(session), session
+
+
+# ---------------------------------------------------------------------------
+# Betragsformate und Plattform-Erkennung
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("CHF 5.90", Decimal("5.90")),
+        ("CHF5,90", Decimal("5.90")),
+        ("CHF 1'234.55", Decimal("1234.55")),
+        ("CHF 1'234,55", Decimal("1234.55")),
+        ("Fr. 12.00", Decimal("12.00")),
+    ],
+)
+def test_swiss_amount_formats_are_read_correctly(text, expected):
+    assert parse_chf(text) == expected
+
+
+def test_platform_detection_reports_opencart_with_evidence():
+    evidence = detect_platform(HOME_HTML, ["OCSESSID", "currency"])
+
+    assert evidence is not None
+    assert evidence.plattform == PLATFORM_OPENCART
+    assert "OCSESSID" in evidence.beleg
+    assert "catalog/view/theme" in evidence.beleg
+
+
+def test_platform_detection_returns_nothing_instead_of_guessing():
+    assert detect_platform("<html><body>Ein Shop</body></html>", ["PHPSESSID"]) is None
+
+
+def test_unimplemented_and_unknown_platforms_keep_the_link_list():
+    for plattform in ("woocommerce", "shopify", None, "magento"):
+        with pytest.raises(CartUnsupported):
+            build_adapter(plattform, FakeSession())
+
+
+# ---------------------------------------------------------------------------
+# product_id-Extraktion
+# ---------------------------------------------------------------------------
+
+def test_product_id_comes_from_the_cart_form_not_from_related_products():
+    assert extract_opencart_product_id(PRODUCT_HTML, DUPONT_URL) == "96"
+
+
+def test_product_id_extraction_fails_loudly_when_absent():
+    with pytest.raises(CartError) as error:
+        extract_opencart_product_id("<html><body>kein Formular</body></html>", DUPONT_URL)
+
+    assert "keine product_id" in str(error.value)
+    assert DUPONT_URL in str(error.value)
+
+
+def test_product_id_extraction_refuses_to_choose_between_candidates():
+    ambiguous = PRODUCT_HTML + '<input type="hidden" name="product_id" value="777" />'
+
+    with pytest.raises(CartError) as error:
+        extract_opencart_product_id(ambiguous, DUPONT_URL)
+
+    assert "Mehrdeutig" in str(error.value)
+    assert "96" in str(error.value) and "777" in str(error.value)
+
+
+# ---------------------------------------------------------------------------
+# Korb zurücklesen
+# ---------------------------------------------------------------------------
+
+def test_cart_readback_yields_positions_and_subtotal():
+    entries, subtotal = parse_opencart_cart(cart_html(DUPONT_ROW + BREADBOARD_ROW, "CHF 18.70"))
+
+    assert [entry.menge for entry in entries] == [2, 1]
+    assert entries[0].name == "Dupont Jumper Cable Set 10cm"
+    assert entries[0].zeilensumme_chf == Decimal("11.80")
+    assert subtotal == Decimal("18.70")
+
+
+def test_cart_without_subtotal_is_refused_rather_than_assumed():
+    with pytest.raises(CartError) as error:
+        parse_opencart_cart(f"<table><tbody>{DUPONT_ROW}</tbody></table>")
+
+    assert "Zwischensumme" in str(error.value)
+
+
+# ---------------------------------------------------------------------------
+# Füllen und Rückverifikation
+# ---------------------------------------------------------------------------
+
+def test_fill_adds_every_position_and_hands_over_the_verified_session():
+    cart, session = adapter(
+        pages={DUPONT_URL: PRODUCT_HTML, BREADBOARD_URL: BREADBOARD_HTML},
+        cart_page=cart_html(DUPONT_ROW + BREADBOARD_ROW, "CHF 18.70"),
+    )
+
+    result = cart.fill(
+        SHOP_URL,
+        [item(), item(BREADBOARD_URL, offer_id=32, menge=1, preis="6.90",
+                     name="Breadboard Half Size", line_id=11)],
+    )
+
+    assert result.verifiziert is True
+    assert result.plattform == PLATFORM_OPENCART
+    assert result.artikel_anzahl == 3
+    assert result.total_chf == Decimal("18.70")
+    assert result.cookie_name == "OCSESSID"
+    assert result.cookie_wert == "sess-abc-123"
+    assert result.produkt_ids == {31: "96", 32: "412"}
+    assert [data["product_id"] for _, data in session.posted] == ["96", "412"]
+    assert [data["quantity"] for _, data in session.posted] == [2, 1]
+
+
+def test_cached_product_id_skips_the_product_page_request():
+    cart, session = adapter(cart_page=cart_html(DUPONT_ROW, "CHF 11.80"))
+
+    result = cart.fill(SHOP_URL, [item(shop_produkt_id="96")])
+
+    assert result.verifiziert is True
+    assert DUPONT_URL not in session.fetched
+    assert result.produkt_ids == {}
+
+
+def test_changed_shop_price_blocks_handover_with_an_exact_diff():
+    cart, _ = adapter(
+        pages={DUPONT_URL: PRODUCT_HTML},
+        cart_page=cart_html(
+            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 6.10", "CHF 12.20", 42),
+            "CHF 12.20",
+        ),
+    )
+
+    with pytest.raises(CartVerificationError) as error:
+        cart.fill(SHOP_URL, [item()])
+
+    message = str(error.value)
+    assert "erfasst CHF 11.80" in message
+    assert "Korb CHF 12.20" in message
+
+
+def test_missing_position_blocks_handover_and_names_it():
+    cart, _ = adapter(
+        pages={DUPONT_URL: PRODUCT_HTML, BREADBOARD_URL: BREADBOARD_HTML},
+        cart_page=cart_html(DUPONT_ROW, "CHF 11.80"),
+    )
+
+    with pytest.raises(CartVerificationError) as error:
+        cart.fill(
+            SHOP_URL,
+            [item(), item(BREADBOARD_URL, offer_id=32, menge=1, preis="6.90",
+                          name="Breadboard Half Size", line_id=11)],
+        )
+
+    message = str(error.value)
+    assert "Position fehlt im Korb: Breadboard Half Size" in message
+    assert "Artikelzahl weicht ab: erfasst 3, Korb 2" in message
+
+
+def test_quantity_mismatch_is_reported_per_position():
+    cart, _ = adapter(
+        pages={DUPONT_URL: PRODUCT_HTML},
+        cart_page=cart_html(
+            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 1, "CHF 5.90", "CHF 5.90", 42),
+            "CHF 5.90",
+        ),
+    )
+
+    with pytest.raises(CartVerificationError) as error:
+        cart.fill(SHOP_URL, [item()])
+
+    assert "erfasst 2 Stück, Korb 1 Stück" in str(error.value)
+
+
+def test_product_with_required_options_is_reported_in_plain_text():
+    cart, _ = adapter(
+        pages={DUPONT_URL: PRODUCT_HTML},
+        add_responses=[
+            FakeResponse(payload={"error": {"option": "Bitte Farbe auswählen!"}})
+        ],
+        cart_page=cart_html("", "CHF 0.00"),
+    )
+
+    with pytest.raises(CartError) as error:
+        cart.fill(SHOP_URL, [item()])
+
+    message = str(error.value)
+    assert "verlangt eine Auswahl im Shop" in message
+    assert "Bitte Farbe auswählen!" in message
+
+
+def test_shop_refusing_the_add_is_reported_without_a_cart():
+    cart, _ = adapter(
+        pages={DUPONT_URL: PRODUCT_HTML},
+        add_responses=[FakeResponse(payload={"error": {"warning": "Nicht verfügbar"}})],
+        cart_page=cart_html("", "CHF 0.00"),
+    )
+
+    with pytest.raises(CartError) as error:
+        cart.fill(SHOP_URL, [item()])
+
+    assert "Nicht verfügbar" in str(error.value)
+
+
+def test_a_shop_that_is_not_opencart_is_left_alone():
+    cart, _ = adapter(
+        pages={SHOP_URL: "<html><body>Kein OpenCart</body></html>"},
+        cookies={},
+    )
+
+    with pytest.raises(CartUnsupported):
+        cart.fill(SHOP_URL, [item()])
+
+
+# ---------------------------------------------------------------------------
+# Vertraulichkeit
+# ---------------------------------------------------------------------------
+
+def test_no_session_cookie_leaks_into_any_failure_message():
+    secret = "sess-abc-123"
+    cart, _ = adapter(
+        pages={DUPONT_URL: PRODUCT_HTML},
+        cart_page=cart_html(
+            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 6.10", "CHF 12.20", 42),
+            "CHF 12.20",
+        ),
+    )
+
+    with pytest.raises(CartVerificationError) as error:
+        cart.fill(SHOP_URL, [item()])
+
+    assert secret not in str(error.value)
+    assert all(secret not in line for line in error.value.abweichungen)
+
+
+def test_empty_selection_for_a_shop_is_rejected_before_any_request():
+    cart, session = adapter()
+
+    with pytest.raises(CartError):
+        cart.fill(SHOP_URL, [])
+
+    assert session.fetched == []
+    assert session.posted == []
