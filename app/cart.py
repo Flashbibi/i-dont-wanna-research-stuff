@@ -101,6 +101,8 @@ class CartFill:
     cookie_name: str | None = None
     cookie_wert: str | None = None
     cart_url: str | None = None
+    #: Wohin der Ein-Klick-Weg den Tab öffnet, nachdem das Cookie sitzt.
+    uebergabe_url: str | None = None
     plattform_beleg: str | None = None
     #: offer_id -> shopinterne Produkt-ID, zum Cachen durch den Aufrufer.
     produkt_ids: dict[int, str] = field(default_factory=dict)
@@ -432,6 +434,7 @@ class OpenCartAdapter:
             cookie_name=self.cookie_name,
             cookie_wert=self.session.cookies.get(self.cookie_name),
             cart_url=self._cart_url(base_url),
+            uebergabe_url=self._cart_url(base_url),
             produkt_ids=produkt_ids,
         )
 

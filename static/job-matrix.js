@@ -3,7 +3,33 @@
   if (!host) return;
 
   const jobId = Number(host.dataset.job);
-  const state = { data: null, tempo: 0.5, detail: null, checks: new Set(), ordered: host.dataset.status === "bestellt", cartShops: {}, cart: {} };
+  const state = { data: null, tempo: 0.5, detail: null, checks: new Set(), ordered: host.dataset.status === "bestellt", cartShops: {}, cart: {}, extension: null, extensionInfo: null, handoff: {} };
+
+  const HANDOFF = "beschaffung/cart-handoff";
+  const HANDOFF_RESULT = "beschaffung/cart-handoff-result";
+  const EXTENSION_READY = "beschaffung/extension-ready";
+  const fromThisPage = (event) => event.source === window && event.origin === window.location.origin;
+
+  // Die Erweiterung meldet sich selbst. Ohne dieses Signal bleibt die Seite
+  // exakt beim Kopierflow - der ist der Fallback für jeden Browser ohne sie.
+  window.addEventListener("message", (event) => {
+    if (!fromThisPage(event) || !event.data || event.data.type !== EXTENSION_READY) return;
+    if (state.extension && state.extension.version === event.data.version) return;
+    state.extension = { version: event.data.version };
+    if (state.data) renderRail();
+  });
+
+  // Cookie-Werte werden hier bewusst nirgends geloggt.
+  const requestHandoff = (payload) => new Promise((resolve) => {
+    const done = (result) => { clearTimeout(timer); window.removeEventListener("message", onResult); resolve(result); };
+    function onResult(event) {
+      if (!fromThisPage(event) || !event.data || event.data.type !== HANDOFF_RESULT) return;
+      done(event.data);
+    }
+    const timer = setTimeout(() => done({ ok: false, error: "Erweiterung hat nicht geantwortet." }), 8000);
+    window.addEventListener("message", onResult);
+    window.postMessage({ type: HANDOFF, ...payload }, window.location.origin);
+  });
   const esc = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const chf = (value) => Number(value).toFixed(2);
   const sameAssignments = (a, b) => JSON.stringify(a || {}) === JSON.stringify(b || {});
@@ -45,7 +71,16 @@
     });
     state.checks.clear();
     await loadCartShops();
+    if (!state.extensionInfo) await loadExtensionInfo();
     render();
+  }
+
+  async function loadExtensionInfo() {
+    try {
+      state.extensionInfo = await json("/api/extension");
+    } catch {
+      state.extensionInfo = null;
+    }
   }
 
   async function loadCartShops() {
@@ -188,10 +223,33 @@
     box.innerHTML = `<h2>Offen</h2>${state.data.open_lines.map((line) => `<div class="open-line"><b>Position ${line.position}: ${esc(line.suchtext)}</b><div class="note">${esc(line.status)}${line.kommentar ? ` · ${esc(line.kommentar)}` : ""}</div></div>`).join("")}`;
   }
 
+  function oneClickBlock(shop) {
+    const info = state.extensionInfo;
+    const download = info
+      ? `<a href="${esc(info.download_url)}" download>Erweiterung v${esc(info.version)} herunterladen</a>`
+      : "";
+    if (!state.extension) {
+      // Kein Bereitschafts-Signal: alles bleibt exakt wie ohne Erweiterung.
+      return download
+        ? `<div class="note extnote">Ein-Klick-Übernahme braucht die Browser-Erweiterung. ${download}</div>`
+        : "";
+    }
+    const status = state.handoff[String(shop.id)];
+    if (status && status.state === "busy") return '<div class="note extnote">Wird übernommen …</div>';
+    const line = status && status.state === "ok"
+      ? '<div class="okmsg cartok">Übernommen ✓ — Tab geöffnet</div>'
+      : status && status.state === "err"
+        ? `<div class="warn cartdiff">${esc(status.text)}</div>`
+        : "";
+    return `${line}<button type="button" class="btn oneclick" data-handoff="${shop.id}">Im Browser übernehmen</button>
+      <span class="extver">Erweiterung v${esc(state.extension.version)}</span>`;
+  }
+
   function handover(shop, data) {
     const cookie = data.cookie || {};
     return `<div class="okmsg cartok">Korb geprüft: ${data.artikel_anzahl} Artikel, CHF ${chf(data.total_chf)} ✓</div>
       <div class="handover">
+        ${oneClickBlock(shop)}
         <div class="rrow"><span class="k">Cookie</span><span><code>${esc(cookie.name)}</code></span></div>
         <div class="cookiebox"><code data-cookie="${shop.id}">${esc(cookie.wert)}</code><button type="button" class="btn copy" data-copy="${shop.id}">Kopieren</button></div>
         <ol class="steps">
@@ -271,6 +329,26 @@
     const purchase = event.target.closest("#record-purchase");
     const cartFill = event.target.closest("[data-cart]");
     const cartCopy = event.target.closest("[data-copy]");
+    const cartHandoff = event.target.closest("[data-handoff]");
+
+    if (cartHandoff) {
+      event.preventDefault();
+      const id = String(cartHandoff.dataset.handoff);
+      const filled = state.cart[id];
+      if (!filled || filled.state !== "ok") return;
+      state.handoff[id] = { state: "busy" };
+      renderRail();
+      const result = await requestHandoff({
+        cookie: filled.data.cookie,
+        shop_url: filled.data.shop_url,
+        uebergabe_url: filled.data.uebergabe_url,
+      });
+      state.handoff[id] = result.ok
+        ? { state: "ok" }
+        : { state: "err", text: result.error || "Übernahme fehlgeschlagen." };
+      renderRail();
+      return;
+    }
 
     if (cartCopy) {
       event.preventDefault();

@@ -130,6 +130,57 @@ Der Browser-Klickpfad (`tests/e2e/decision_click.mjs`) legt sich über
 `/api/e2e/jobs` einen eigenen, als `[E2E-TEST]` markierten Wegwerf-Job an und
 räumt ihn wieder ab. Er fasst reale Jobs nicht an.
 
+## Extension
+
+Die Browser-Erweiterung unter `extension/` setzt das Gast-Session-Cookie im Shop
+und öffnet den gefüllten Warenkorb — der Ein-Klick-Abschluss der Warenkorb-
+Übergabe. Sie ist nötig, weil die Same-Origin-Policy die Job-Seite von der
+Shop-Origin trennt; nur Code im Shop-Kontext darf dort ein Cookie setzen.
+
+**Der Kopierflow bleibt vollständig bestehen.** Ohne Erweiterung ändert sich an
+der Job-Seite nichts — sie ist der Fallback für jeden Browser.
+
+### Laden
+
+**Chromium-Familie** (Chrome, Edge, Brave):
+`chrome://extensions` → Entwicklermodus → «Entpackte Erweiterung laden» →
+`extension/` im Clone auswählen. Alternativ ohne Clone: `extension.zip` vom Tool
+herunterladen (Link steht im Übergabe-Kasten), entpacken, denselben Weg.
+
+**Firefox:** `about:debugging#/runtime/this-firefox` → «Temporäres Add-on
+laden» → `extension/manifest.json` auswählen. Temporär geladene Add-ons
+verschwinden beim Neustart und müssen dann erneut geladen werden.
+
+Ein Codebase trägt beide: das Manifest führt `background.service_worker` für
+Chromium und `background.scripts` für Firefox, der Code spricht die API über
+`globalThis.browser ?? globalThis.chrome` an.
+
+### Update
+
+Clone: `git pull`, dann in `chrome://extensions` auf «Neu laden». Ohne Clone:
+`extension.zip` neu herunterladen und die entpackte Erweiterung erneut laden.
+
+`GET /extension.zip` zippt das `extension/`-Verzeichnis des **deployten** Standes
+im Moment des Abrufs — der Download ist damit per Konstruktion immer das, was auf
+dem Server liegt. Kein Build, kein CI, kein Hook. Die angezeigte Version kommt
+aus `manifest.json`; sie wird bei jeder Änderung um einen Patch erhöht, damit auf
+der Seite und in `chrome://extensions` sichtbar ist, welcher Stand geladen ist.
+
+### Neuer Shop
+
+`host_permissions` sind bewusst eng — Tool-Origin plus `*://*.bastelgarage.ch/*`,
+kein `<all_urls>`. Cookie-Zugriff auf alle Domains wäre ein unnötig breiter
+Radius für ein Werkzeug, das genau zwei Origins braucht.
+
+Kommt ein Shop mit unterstützter Plattform dazu, kostet das:
+
+1. eine Zeile in `host_permissions` (`*://*.neuer-shop.ch/*`),
+2. einen Patch-Bump der `version` in `manifest.json`,
+3. Erweiterung neu laden.
+
+Bis dahin greift bei diesem Shop der Kopierflow — der Ein-Klick-Knopf schlägt
+dort sonst mit einer Rechte-Fehlermeldung fehl.
+
 ## Konventionen
 
 ### Kodierung

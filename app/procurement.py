@@ -834,6 +834,9 @@ class ProcurementService:
                 else {"name": fill.cookie_name, "wert": fill.cookie_wert}
             ),
             "cart_url": fill.cart_url,
+            # Ziel der Ein-Klick-Übergabe, plattformspezifisch. Bei OpenCart die
+            # Korbseite, damit der gefüllte Korb sofort sichtbar ist.
+            "uebergabe_url": fill.uebergabe_url,
         }
 
     def _selected_plan(
