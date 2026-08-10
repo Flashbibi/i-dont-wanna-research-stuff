@@ -1,0 +1,5 @@
+# Shell-Skripte müssen LF behalten. run.sh wird auf dem Linux-Deployziel
+# ausgecheckt, und .githooks/* wird auf jedem Entwicklungsrechner von sh
+# ausgeführt - mit CRLF scheitert bereits die Shebang-Zeile.
+*.sh text eol=lf
+.githooks/* text eol=lf
