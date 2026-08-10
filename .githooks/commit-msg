@@ -1,0 +1,22 @@
+#!/bin/sh
+# Third wall against tool attribution in commit messages.
+#
+# The first two walls are .claude/settings.json (attribution disabled) and the
+# standing instruction never to write such lines. This hook makes the rule hold
+# even if both are bypassed.
+#
+# Enable in a fresh clone with:
+#   git config core.hooksPath .githooks
+set -e
+
+MSG_FILE="$1"
+
+# Drop attribution trailers and generator advertisements, case-insensitively.
+# Also drop a trailing "Generated with" line that carries a markdown link.
+sed -i -E \
+  -e '/^[[:space:]]*Co-Authored-By:[[:space:]]/Id' \
+  -e '/^[[:space:]]*(🤖[[:space:]]*)?Generated with[[:space:]]/Id' \
+  "$MSG_FILE"
+
+# Collapse any blank lines the removal left at the end of the message.
+perl -0pi -e 's/\n{3,}\z/\n/' "$MSG_FILE" 2>/dev/null || true
