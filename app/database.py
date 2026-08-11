@@ -574,7 +574,7 @@ class PostgresRepository:
                         values,
                     ).fetchone()
                     connection.execute(
-                        "UPDATE bom_line SET status = 'kandidaten' WHERE id = %s",
+                        "UPDATE bom_line SET status = 'kandidaten', kommentar = NULL WHERE id = %s",
                         (values["line_id"],),
                     )
                     connection.execute(
