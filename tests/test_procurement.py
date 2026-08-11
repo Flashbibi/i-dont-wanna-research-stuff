@@ -423,19 +423,30 @@ def test_plan_order_calls_pure_optimizer_and_serializes_variant():
 
 
 def test_plan_scenarios_groups_identical_presets_and_keeps_badges():
+    """Ohne Auslandsangebote faellt «Nur Schweiz» mit dem Gesamtoptimum zusammen.
+
+    Genau dann darf es keine eigene Karte werden, sondern muss in die
+    Hauptkarte verschmelzen - eigenstaendig wird es erst, wenn es Angebote
+    ausserhalb der Heimat gibt.
+    """
     procurement = service()
 
     result = procurement.plan_scenarios(5)
 
     assert len(result["scenarios"]) == 1
     scenario = result["scenarios"][0]
-    assert scenario["keys"] == ["cheapest", "fastest", "one_shop", "balanced"]
+    assert scenario["keys"] == ["cheapest", "fastest", "one_shop", "balanced", "only_ch"]
     assert scenario["labels"] == [
         "Am günstigsten",
         "Am schnellsten",
         "Ein Shop",
         "Ausgewogen",
+        "Nur Schweiz",
     ]
+    assert scenario["same_result_note"]
+    # Reiner CH-Plan: kein Aufschlag, keine Aufschlagszeile.
+    assert scenario["aufschlaege"] == []
+    assert scenario["aufschlag_chf"] == "0.00"
     assert scenario["contains_estimates"] is False
     assert scenario["fastest_max_exclusively_estimated"] is False
     assert scenario["lines"][0]["lieferzeit_text"] == "2 Tage"

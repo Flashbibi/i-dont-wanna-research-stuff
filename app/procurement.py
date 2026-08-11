@@ -36,6 +36,14 @@ class ValidationError(ValueError):
     pass
 
 
+#: Schweizer Wertfreigrenze pro Person und Tag. Nur Anzeige - es wird nie eine
+#: Steuer berechnet und nichts davon fliesst in ein Total.
+WERTFREIGRENZE_CHF = Decimal("150")
+
+#: Deutscher MwSt-Satz, um aus Bruttopreisen den Nettowert zu naehern.
+AUSLAND_MWST = Decimal("1.19")
+
+
 class ProcurementRepository(Protocol):
     def create_job(self, source_text: str, lines: list[BomInputLine]) -> int: ...
     def get_job(self, job_id: int) -> dict[str, Any] | None: ...
@@ -551,10 +559,11 @@ class ProcurementService:
             "fastest": "Am schnellsten",
             "one_shop": "Ein Shop",
             "balanced": "Ausgewogen",
+            "only_ch": "Nur Schweiz",
         }
         named_presets = [
             (key, presets[key])
-            for key in ("cheapest", "fastest", "one_shop", "balanced")
+            for key in ("cheapest", "fastest", "one_shop", "balanced", "only_ch")
             if key in presets
         ]
         visible_preset_ids = {
@@ -1191,6 +1200,51 @@ class ProcurementService:
         variant["max_delivery_only_estimated"] = bool(max_lines) and all(
             row["lieferzeit_geschaetzt"] for row in max_lines
         )
+        # Wertfreigrenzen-Indikator pro Nicht-Heim-Ziel. Reine Anzeige: der Wert
+        # fliesst nirgends in ein Total ein, und es wird keine Steuer berechnet.
+        einfuhr: list[dict[str, Any]] = []
+        for shop_id in variant["shop_ids"]:
+            shop_row = shop_rows[int(shop_id)]
+            if str(shop_row.get("lieferziel_land") or "CH").upper() == "CH":
+                continue
+            brutto = sum(
+                (
+                    Decimal(row["einzelpreis_chf"]) * row["menge"]
+                    for row in variant["lines"]
+                    if int(row["shop_id"]) == int(shop_id)
+                ),
+                Decimal("0.00"),
+            )
+            eintrag = next(
+                (item for item in einfuhr if item["lieferziel_id"] == shop_row["lieferziel_id"]),
+                None,
+            )
+            if eintrag is None:
+                eintrag = {
+                    "lieferziel_id": shop_row["lieferziel_id"],
+                    "name": shop_row.get("lieferziel_name"),
+                    "land": str(shop_row.get("lieferziel_land")).upper(),
+                    "brutto_chf": Decimal("0.00"),
+                }
+                einfuhr.append(eintrag)
+            eintrag["brutto_chf"] += brutto
+        for eintrag in einfuhr:
+            netto = (eintrag["brutto_chf"] / AUSLAND_MWST).quantize(Decimal("0.01"))
+            ueber = netto > WERTFREIGRENZE_CHF
+            eintrag["brutto_chf"] = str(eintrag["brutto_chf"])
+            eintrag["netto_ca_chf"] = str(netto)
+            eintrag["ueber_freigrenze"] = ueber
+            eintrag["text"] = (
+                f"{eintrag['land']}-Anteil netto ≈ CHF {netto} — über der Wertfreigrenze "
+                f"von CHF {WERTFREIGRENZE_CHF}; bei Einfuhr 8.1 % MwSt auf den Gesamtwert"
+                if ueber
+                else
+                f"{eintrag['land']}-Anteil netto ≈ CHF {netto} — unter der Wertfreigrenze "
+                f"von CHF {WERTFREIGRENZE_CHF}"
+            )
+        variant["einfuhr"] = einfuhr
+        variant["enthaelt_abholung"] = bool(variant.get("aufschlaege"))
+
         variant["missing_lines"] = [
             {
                 "line_id": line_id,
@@ -1238,6 +1292,15 @@ class ProcurementService:
                     if row.get("lieferzeit_default_tage") is None
                     else int(row["lieferzeit_default_tage"])
                 ),
+                lieferziel_id=(
+                    None if row.get("lieferziel_id") is None else int(row["lieferziel_id"])
+                ),
+                lieferziel_name=row.get("lieferziel_name"),
+                aufschlag_chf=Decimal(str(row.get("lieferziel_aufschlag_chf") or "0.00")),
+                zuschlag_tage=int(row.get("lieferziel_zuschlag_tage") or 0),
+                # Ohne Zielangabe gilt Heimat - so verhalten sich Bestandsdaten
+                # wie vor der Einfuehrung der Lieferziele.
+                ist_heimat=str(row.get("lieferziel_land") or "CH").upper() == "CH",
             )
             for row in data.get("shops", [])
         ]
@@ -1256,4 +1319,9 @@ class ProcurementService:
             "contains_estimates": variant.contains_estimates,
             "contains_unknown_delivery": variant.contains_unknown_delivery,
             "missing_line_ids": list(variant.missing_line_ids),
+            "aufschlaege": [
+                {"lieferziel_id": ziel_id, "name": name, "betrag_chf": str(betrag)}
+                for ziel_id, name, betrag in variant.aufschlaege
+            ],
+            "aufschlag_chf": str(variant.aufschlag_chf),
         }
