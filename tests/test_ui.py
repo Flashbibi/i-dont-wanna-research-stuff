@@ -20,6 +20,7 @@ class UIRepository:
         self.purchases_created = []
         self.platform_writes = []
         self.product_id_writes = []
+        self.artikelnummer_writes = []
 
     def create_job(self, source_text, lines):
         return 7
@@ -184,6 +185,10 @@ class UIRepository:
     def save_offer_product_ids(self, produkt_ids):
         self.product_id_writes.append(dict(produkt_ids))
         return len(produkt_ids)
+
+    def save_offer_artikelnummern(self, artikelnummern):
+        self.artikelnummer_writes.append(dict(artikelnummern))
+        return len(artikelnummern)
 
     def list_shops(self):
         return [{"id": 1, "name": "Servo Shop", "url": "https://shop.example.ch", "status": "ungeprueft", "versand_chf": "8.00", "lieferzeit_default_tage": 3}]

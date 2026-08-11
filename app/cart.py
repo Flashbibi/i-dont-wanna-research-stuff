@@ -14,9 +14,10 @@ Grenzen, die hier bewusst hart sind:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Protocol
 from urllib.parse import urljoin, urlparse
@@ -83,6 +84,9 @@ class CartItem:
     menge: int
     einzelpreis_chf: Decimal
     shop_produkt_id: str | None = None
+    #: Shopinterne Artikelnummer. Wenn gesetzt, ankert der Positionsvergleich
+    #: auf ihr statt auf dem sprachabhängigen URL-Slug.
+    artikelnummer: str | None = None
 
     @property
     def positionspreis_chf(self) -> Decimal:
@@ -112,6 +116,8 @@ class CartFill:
     plattform_beleg: str | None = None
     #: offer_id -> shopinterne Produkt-ID, zum Cachen durch den Aufrufer.
     produkt_ids: dict[int, str] = field(default_factory=dict)
+    #: offer_id -> shopinterne Artikelnummer, ebenfalls zum Cachen.
+    artikelnummern: dict[int, str] = field(default_factory=dict)
 
 
 class Response(Protocol):
@@ -292,12 +298,47 @@ def extract_opencart_product_id(html: str, produkt_url: str) -> str:
     )
 
 
+_JSONLD = re.compile(
+    r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def extract_opencart_artikelnummer(html: str) -> str | None:
+    """Shopinterne Artikelnummer aus den strukturierten Produktdaten lesen.
+
+    Anker ist ``"model"`` im JSON-LD-Product-Block. Sprachunabhängig - anders als
+    die sichtbare Zeile, die je nach Sprache "Product Code" oder
+    "Artikelnummer" heisst, und anders als der URL-Slug, an dem sich der
+    Sprach-Vorfall entzündet hat.
+
+    Kein eindeutiger Treffer -> ``None``. Die Artikelnummer ist eine Zugabe;
+    fehlt sie, bleibt der strikte URL-Vergleich zuständig.
+    """
+    gefunden: set[str] = set()
+    for block in _JSONLD.findall(html or ""):
+        try:
+            daten = json.loads(block.strip())
+        except (ValueError, TypeError):
+            continue
+        for knoten in daten if isinstance(daten, list) else [daten]:
+            if not isinstance(knoten, dict):
+                continue
+            if str(knoten.get("@type", "")).lower() != "product":
+                continue
+            modell = str(knoten.get("model") or "").strip()
+            if modell:
+                gefunden.add(modell)
+    return gefunden.pop() if len(gefunden) == 1 else None
+
+
 @dataclass(frozen=True)
 class CartEntry:
     href: str | None
     name: str
     menge: int
     zeilensumme_chf: Decimal
+    artikelnummer: str | None = None
 
 
 def parse_opencart_cart(html: str) -> tuple[list[CartEntry], dict[str, Decimal]]:
@@ -342,6 +383,8 @@ def parse_opencart_cart(html: str) -> tuple[list[CartEntry], dict[str, Decimal]]
                 menge=quantity,
                 # Letzte Geldzelle der Zeile ist die Zeilensumme (brutto).
                 zeilensumme_chf=amounts[-1],
+                # OpenCart stellt die Artikelnummer hinter den Produktnamen.
+                artikelnummer=name_cells[1] if len(name_cells) > 1 else None,
             )
         )
 
@@ -400,6 +443,7 @@ class OpenCartAdapter:
             raise CartError("Für diesen Shop enthält der gewählte Plan keine Position")
 
         produkt_ids: dict[int, str] = {}
+        artikelnummern: dict[int, str] = {}
         produktseite_besucht = False
         for item in items:
             product_id = item.shop_produkt_id
@@ -415,6 +459,10 @@ class OpenCartAdapter:
                     )
                 product_id = extract_opencart_product_id(page.text, item.produkt_url)
                 produkt_ids[item.offer_id] = product_id
+                # Quelle der Artikelnummer ist dieselbe Seite wie die der ID.
+                nummer = extract_opencart_artikelnummer(page.text)
+                if nummer and not item.artikelnummer:
+                    artikelnummern[item.offer_id] = nummer
             hinzugefuegt = self._add(base_url, item, product_id)
             # Die Add-Antwort nennt das tatsächlich eingelegte Produkt. Zeigt eine
             # gecachte ID auf ein anderes Produkt, steht der Beleg genau hier.
@@ -423,7 +471,14 @@ class OpenCartAdapter:
                 item.offer_id, product_id, quelle, item.produkt_url, hinzugefuegt,
             )
 
-        if not produktseite_besucht:
+        # Der Sprachkontext zählt nur für den URL-Vergleich. Trägt jede Position
+        # eine Artikelnummer, ankert der Vergleich sprachunabhängig und der
+        # zusätzliche Abruf entfällt.
+        braucht_slugvergleich = any(
+            not (item.artikelnummer or artikelnummern.get(item.offer_id))
+            for item in items
+        )
+        if not produktseite_besucht and braucht_slugvergleich:
             # Sprachkontext festlegen, bevor der Korb gelesen wird.
             #
             # Bastelgarage ist zweisprachig und rendert die Korb-Links in der
@@ -443,11 +498,17 @@ class OpenCartAdapter:
         cart_page = self.session.get(self._cart_url(base_url))
         entries, _totals = parse_opencart_cart(cart_page.text)
         log.info(
-            "cart-read status=%s bytes=%s positionen=%s hrefs=%s",
+            "cart-read status=%s bytes=%s positionen=%s hrefs=%s artikelnummern=%s",
             cart_page.status_code, len(cart_page.text or ""), len(entries),
             [entry.href for entry in entries],
+            [entry.artikelnummer for entry in entries],
         )
-        self._verify(base_url, items, entries)
+        # Frisch gelesene Nummern für den Vergleich einsetzen.
+        aufgeloest = [
+            replace(item, artikelnummer=item.artikelnummer or artikelnummern.get(item.offer_id))
+            for item in items
+        ]
+        self._verify(base_url, aufgeloest, entries)
 
         return CartFill(
             plattform=PLATFORM_OPENCART,
@@ -474,6 +535,7 @@ class OpenCartAdapter:
             cart_url=self._cart_url(base_url),
             uebergabe_url=self._cart_url(base_url),
             produkt_ids=produkt_ids,
+            artikelnummern=artikelnummern,
         )
 
     def _add(self, base_url: str, item: CartItem, product_id: str) -> str | None:
@@ -548,11 +610,22 @@ class OpenCartAdapter:
         abweichungen: list[str] = []
 
         for item in items:
-            matching = [
-                entry
-                for entry in entries
-                if _same_product(entry.href, base_url, item.produkt_url)
-            ]
+            if item.artikelnummer:
+                # Artikelnummer schlägt den Slug: sie ist sprachunabhängig,
+                # die URL bleibt Provenienz. Kein Rückfall auf die URL, wenn die
+                # Nummer nicht trifft - sonst wäre es doch wieder Aliasing.
+                matching = [
+                    entry
+                    for entry in entries
+                    if entry.artikelnummer
+                    and entry.artikelnummer.strip() == item.artikelnummer.strip()
+                ]
+            else:
+                matching = [
+                    entry
+                    for entry in entries
+                    if _same_product(entry.href, base_url, item.produkt_url)
+                ]
             if not matching:
                 abweichungen.append(f"Position fehlt im Korb: {item.produktname}.")
                 continue
