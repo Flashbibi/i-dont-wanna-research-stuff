@@ -310,11 +310,17 @@ class PostgresRepository:
                     INSERT INTO shop(
                         name, url, domain, land, versand_chf, gratis_ab_chf,
                         mindestbestellwert_chf, lieferzeit_default_tage,
-                        profil_quelle_url, versand_text, lieferziel_id
+                        profil_quelle_url, versand_text, lieferziel_id,
+                        versand_original, gratis_ab_original,
+                        mindestbestellwert_original, versand_waehrung,
+                        versand_kurs, versand_kurs_am, versand_kurs_quelle
                     ) VALUES (%(name)s, %(url)s, %(domain)s, %(land)s,
                               %(versand_chf)s, %(gratis_ab_chf)s,
                               %(mindestbestellwert_chf)s, %(lieferzeit_default_tage)s,
-                              %(profil_quelle_url)s, %(versand_text)s, %(lieferziel_id)s)
+                              %(profil_quelle_url)s, %(versand_text)s, %(lieferziel_id)s,
+                              %(versand_original)s, %(gratis_ab_original)s,
+                              %(mindestbestellwert_original)s, %(versand_waehrung)s,
+                              %(versand_kurs)s, %(versand_kurs_am)s, %(versand_kurs_quelle)s)
                     RETURNING *
                     """,
                     values,
@@ -338,7 +344,14 @@ class PostgresRepository:
                     mindestbestellwert_chf = %(mindestbestellwert_chf)s,
                     lieferzeit_default_tage = %(lieferzeit_default_tage)s,
                     profil_quelle_url = %(profil_quelle_url)s,
-                    versand_text = %(versand_text)s
+                    versand_text = %(versand_text)s,
+                    versand_original = %(versand_original)s,
+                    gratis_ab_original = %(gratis_ab_original)s,
+                    mindestbestellwert_original = %(mindestbestellwert_original)s,
+                    versand_waehrung = %(versand_waehrung)s,
+                    versand_kurs = %(versand_kurs)s,
+                    versand_kurs_am = %(versand_kurs_am)s,
+                    versand_kurs_quelle = %(versand_kurs_quelle)s
                 WHERE id = %(shop_id)s
                 RETURNING *
                 """,
@@ -683,6 +696,9 @@ class PostgresRepository:
                 """
                 SELECT s.id, s.name, s.url, s.versand_chf, s.gratis_ab_chf,
                        s.mindestbestellwert_chf, s.lieferzeit_default_tage,
+                       s.versand_original, s.gratis_ab_original,
+                       s.mindestbestellwert_original, s.versand_waehrung,
+                       s.versand_kurs, s.versand_kurs_am, s.versand_kurs_quelle,
                        s.plattform, s.plattform_beleg, s.plattform_geprueft_am,
                        s.lieferziel_id,
                        z.name AS lieferziel_name, z.land AS lieferziel_land,

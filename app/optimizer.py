@@ -23,7 +23,7 @@ def _delivery_rank(days: int | None) -> tuple[int, int]:
 class ShopProfile:
     id: int
     name: str
-    versand_chf: Decimal
+    versand_chf: Decimal | None
     gratis_ab_chf: Decimal | None
     mindestbestellwert_chf: Decimal | None
     lieferzeit_default_tage: int | None
@@ -56,12 +56,13 @@ class OrderVariant:
     shop_ids: tuple[int, ...]
     assignments: dict[int, int]
     subtotals: dict[int, Decimal]
-    shipping: dict[int, Decimal]
+    shipping: dict[int, Decimal | None]
     total_chf: Decimal
     max_liefertage: int | None
     score: Decimal
     contains_estimates: bool = False
     contains_unknown_delivery: bool = False
+    contains_unknown_shipping: bool = False
     missing_line_ids: tuple[int, ...] = ()
     #: (lieferziel_id, name, betrag) je beteiligtem Nicht-Heim-Ziel, einmal pro
     #: Ziel und Plan - eine Abholfahrt, egal wie viele Shops dort liegen.
@@ -136,7 +137,7 @@ def _build_variant(
         minimum = shops_by_id[shop_id].mindestbestellwert_chf
         if minimum is not None and subtotals[shop_id] < minimum:
             return None
-    shipping: dict[int, Decimal] = {}
+    shipping: dict[int, Decimal | None] = {}
     for shop_id in shop_ids:
         shop = shops_by_id[shop_id]
         free_from = shop.gratis_ab_chf
@@ -163,7 +164,7 @@ def _build_variant(
 
     total = (
         sum(subtotals.values(), Decimal("0.00"))
-        + sum(shipping.values(), Decimal("0.00"))
+        + sum((value for value in shipping.values() if value is not None), Decimal("0.00"))
         + sum((betrag for _, _, betrag in aufschlaege), Decimal("0.00"))
     )
     # Wartezeit bis zur Abholung liegt oben auf der Lieferzeit jedes Shops
@@ -189,6 +190,7 @@ def _build_variant(
     known_days = [value for value in effective_days if value is not None]
     max_days = None if len(known_days) != len(effective_days) else max(known_days)
     score_days = UNKNOWN_DELIVERY_SCORE_DAYS if max_days is None else max_days
+    contains_unknown_shipping = any(value is None for value in shipping.values())
     score = total + Decimal(str(tempo)) * TEMPO_COST_PER_DAY_CHF * score_days
     return OrderVariant(
         shop_ids=shop_ids,
@@ -204,6 +206,7 @@ def _build_variant(
             for offer in chosen.values()
         ),
         contains_unknown_delivery=max_days is None,
+        contains_unknown_shipping=contains_unknown_shipping,
         missing_line_ids=missing_line_ids,
         aufschlaege=aufschlaege,
     )
@@ -244,6 +247,7 @@ def optimize_orders(
     for variant in variants:
         key = variant.shop_ids
         rank = (
+            variant.contains_unknown_shipping,
             variant.score,
             variant.total_chf,
             _delivery_rank(variant.max_liefertage),
@@ -251,6 +255,7 @@ def optimize_orders(
         )
         current = best_by_shop_set.get(key)
         if current is None or rank < (
+            current.contains_unknown_shipping,
             current.score,
             current.total_chf,
             _delivery_rank(current.max_liefertage),
@@ -260,6 +265,7 @@ def optimize_orders(
     result = list(best_by_shop_set.values())
     result.sort(
         key=lambda item: (
+            item.contains_unknown_shipping,
             item.score,
             item.total_chf,
             _delivery_rank(item.max_liefertage),
@@ -282,11 +288,13 @@ def filter_dominated_variants(variants: list[OrderVariant]) -> list[OrderVariant
         dominated = any(
             other is not candidate
             and not other.missing_line_ids
+            and other.contains_unknown_shipping <= candidate.contains_unknown_shipping
             and other.total_chf <= candidate.total_chf
             and _delivery_rank(other.max_liefertage)
             <= _delivery_rank(candidate.max_liefertage)
             and (
-                other.total_chf < candidate.total_chf
+                other.contains_unknown_shipping < candidate.contains_unknown_shipping
+                or other.total_chf < candidate.total_chf
                 or _delivery_rank(other.max_liefertage)
                 < _delivery_rank(candidate.max_liefertage)
             )
@@ -313,6 +321,7 @@ def plan_scenarios(
         scenarios["cheapest"] = min(
             complete,
             key=lambda item: (
+                item.contains_unknown_shipping,
                 item.total_chf,
                 _delivery_rank(item.max_liefertage),
                 len(item.shop_ids),
@@ -322,6 +331,7 @@ def plan_scenarios(
         scenarios["fastest"] = min(
             complete,
             key=lambda item: (
+                item.contains_unknown_shipping,
                 _delivery_rank(item.max_liefertage),
                 item.total_chf,
                 len(item.shop_ids),
@@ -331,6 +341,7 @@ def plan_scenarios(
         scenarios["balanced"] = min(
             complete,
             key=lambda item: (
+                item.contains_unknown_shipping,
                 item.score,
                 item.total_chf,
                 _delivery_rank(item.max_liefertage),
@@ -353,6 +364,7 @@ def plan_scenarios(
     bester_heimat = lambda kandidaten: min(  # noqa: E731
         kandidaten,
         key=lambda item: (
+            item.contains_unknown_shipping,
             item.score,
             item.total_chf,
             _delivery_rank(item.max_liefertage),
@@ -403,6 +415,7 @@ def plan_scenarios(
             one_shop_candidates,
             key=lambda item: (
                 len(item.missing_line_ids),
+                item.contains_unknown_shipping,
                 item.total_chf,
                 _delivery_rank(item.max_liefertage),
                 item.shop_ids,

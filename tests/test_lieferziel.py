@@ -1,7 +1,7 @@
 """Lieferziele als Daten.
 
-Die Semantik ist bewusst eng: eine Adresse eröffnet den Heimmarkt ihres
-Landes. Kein Cross-Border, keine Shop-mal-Adresse-Matrix.
+Shop-Herkunftsland, Angebotswährung und beliefertes Ziel sind unabhängige
+Fakten. Entscheidend ist die belegte Lieferung an eine konfigurierte Adresse.
 """
 
 from decimal import Decimal
@@ -107,11 +107,15 @@ def test_several_targets_in_one_country_demand_an_explicit_choice():
     assert gewaehlt["lieferziel_id"] == 2
 
 
-def test_an_explicit_target_must_lie_in_the_stated_country():
+def test_an_explicit_target_may_differ_from_the_shop_country():
     procurement, _ = service()
 
-    with pytest.raises(ValidationError, match="liegt in CH, nicht in DE"):
-        anlegen(procurement, "Reichelt", "https://www.reichelt.de/", "DE", lieferziel_id=1)
+    shop = anlegen(
+        procurement, "SparkFun", "https://www.sparkfun.com/", "US", lieferziel_id=1
+    )
+
+    assert shop["land"] == "US"
+    assert shop["lieferziel_id"] == 1
 
 
 def test_an_unknown_target_is_refused():
@@ -122,7 +126,7 @@ def test_an_unknown_target_is_refused():
 
 
 # ---------------------------------------------------------------------------
-# Währung muss zum Ziel des Shops passen
+# Angebotswährung ist unabhängig von Shopland und Lieferziel
 # ---------------------------------------------------------------------------
 
 def euro_ready():
@@ -135,27 +139,31 @@ def euro_ready():
     return procurement, repository
 
 
-def test_a_euro_offer_at_a_swiss_shop_is_refused():
+def test_a_euro_offer_at_a_shop_delivering_to_switzerland_is_converted():
     procurement, _ = euro_ready()
 
-    with pytest.raises(ValidationError, match="Shop liefert nach CHF"):
-        procurement.record_offer(
-            10, 1, "Servo", "https://shop.example.ch/servo", "7.99",
-            lieferzeit_text="2 Tage", waehrung="EUR",
-        )
+    gespeichert = procurement.record_offer(
+        10, 1, "Servo", "https://shop.example.ch/servo", "7.99",
+        lieferzeit_text="2 Tage", waehrung="EUR",
+    )
+
+    assert gespeichert["waehrung"] == "EUR"
+    assert gespeichert["preis_chf"] == Decimal("7.51")
 
 
-def test_a_franc_offer_at_a_german_shop_is_refused():
+def test_a_chf_offer_at_a_shop_delivering_to_germany_stays_chf():
     procurement, _ = euro_ready()
 
-    with pytest.raises(ValidationError, match="Shop liefert nach EUR"):
-        procurement.record_offer(
-            10, 2, "Servo", "https://www.reichelt.de/servo", "7.99",
-            lieferzeit_text="2 Tage",
-        )
+    gespeichert = procurement.record_offer(
+        10, 2, "Servo", "https://www.reichelt.de/servo", "7.99",
+        lieferzeit_text="2 Tage", waehrung="CHF",
+    )
+
+    assert gespeichert["waehrung"] == "CHF"
+    assert gespeichert["preis_chf"] == Decimal("7.99")
 
 
-def test_the_matching_currency_goes_through_for_both_targets():
+def test_both_target_currencies_still_go_through():
     procurement, _ = euro_ready()
 
     schweiz = procurement.record_offer(

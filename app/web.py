@@ -89,12 +89,13 @@ class PlanDeltaRequest(BaseModel):
 
 
 class ShopProfileRequest(BaseModel):
-    versand_chf: float
+    versand_chf: float | None
     gratis_ab_chf: float | None = None
     mindestbestellwert_chf: float | None = None
     lieferzeit_default_tage: int | None = None
     profil_quelle_url: str
     versand_text: str
+    waehrung: str = "CHF"
 
 
 class PurchaseRequest(BaseModel):
@@ -255,6 +256,7 @@ def create_app(
                 lieferzeit_default_tage=profile.lieferzeit_default_tage,
                 profil_quelle_url=profile.profil_quelle_url,
                 versand_text=profile.versand_text,
+                waehrung=profile.waehrung,
             )
         except (ValidationError, ValueError) as error:
             raise HTTPException(422, str(error)) from error

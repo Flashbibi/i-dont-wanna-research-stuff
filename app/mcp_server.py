@@ -83,15 +83,16 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         name: str,
         url: str,
         land: str,
-        versand_chf: float,
+        versand_chf: float | None,
         gratis_ab_chf: float | None,
         mindestbestellwert_chf: float | None,
         lieferzeit_default_tage: int | None,
         profil_quelle_url: str,
         versand_text: str,
         lieferziel_id: int | None = None,
+        waehrung: str = "CHF",
     ) -> dict[str, Any]:
-        """Shop mit angegebener HTTP(S)-Profilquelle, Versand-Originaltext und validierten Profilwerten erfassen. Das Land wird auf eine konfigurierte Lieferadresse abgebildet: gibt es für dieses Land keine, wird abgewiesen; gibt es mehrere, ist lieferziel_id Pflicht. Die Adresse eröffnet den Heimmarkt ihres Landes (eine DE-Adresse heisst innerdeutscher Versand dorthin) - kein Cross-Border. Angebote dieses Shops müssen in der Währung seines Ziels erfasst werden."""
+        """Shop mit tatsächlichem Herkunftsland, explizitem Lieferziel, HTTP(S)-Profilquelle und Versand-Originaltext erfassen. Shopland und Lieferziel dürfen verschieden sein; ohne lieferziel_id wird nur bei genau einer Adresse im Shopland abgeleitet. Bei waehrung != CHF tragen versand_chf, gratis_ab_chf und mindestbestellwert_chf die Originalbeträge; der Server rechnet sie mit belegtem Tageskurs um. Unbekannte Versandkosten werden als null erfasst, niemals als kostenlos."""
         return service.record_shop(
             name,
             url,
@@ -103,6 +104,7 @@ def build_mcp(service: ProcurementService) -> FastMCP:
             profil_quelle_url,
             versand_text,
             lieferziel_id,
+            waehrung,
         )
 
     @mcp.tool()
