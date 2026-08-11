@@ -112,10 +112,22 @@ Als Sofortmassnahme prüft ein Test die *Spaltenliste* dieser einen Abfrage
 (`test_optimization_input_selects_the_columns_the_cart_handover_needs`). Das
 schliesst den konkreten Fall, nicht die Klasse.
 
-**Wenn die Klasse erneut zuschlägt, ist die Antwort kein weiterer
-SQL-String-Test**, sondern ein dünner Integrationstest-Layer für die
-Repository-Schicht gegen das Docker-Postgres: wenige Tests, die echte Rows
-schreiben und lesen, statt Abfragetexte zu inspizieren.
+Die Klasse hat danach zweimal erneut zugeschlagen — `shop.land` war im Schema
+noch auf `'CH'` festgenagelt, und `create_shop` verwarf `lieferziel_id` im
+INSERT. Beides sah kein Fake, beides fand erst der Live-Versuch.
+
+Deshalb gibt es jetzt `tests/test_repository_integration.py`: ein dünner
+Integrationslayer, der eine Wegwerf-Datenbank anlegt, die Migrationen fährt,
+echte Rows schreibt und zurückliest — und sie danach wieder abräumt. Ohne
+erreichbares Postgres überspringen sich diese Tests, die übrige Suite bleibt
+also datenbankfrei.
+
+```sh
+# nutzt standardmässig die Dev-DB auf 5433; überschreibbar:
+BESCHAFFUNG_TEST_DATABASE_URL=postgresql://... .venv/Scripts/python -m pytest tests/test_repository_integration.py
+```
+
+**Neue Repository-Spalten gehören dorthin**, nicht in weitere SQL-String-Tests.
 
 ### 5. E2E
 

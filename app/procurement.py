@@ -1082,6 +1082,39 @@ class ProcurementService:
             if int(line["shop_id"]) == shop_id
         ]
 
+    #: Symbole für die Originalbeträge; unbekannte Währungen zeigen ihren Code.
+    WAEHRUNGSSYMBOLE = {"EUR": "€", "USD": "$", "GBP": "£", "CHF": "CHF"}
+
+    @staticmethod
+    def _waehrungs_felder(row: Mapping[str, Any]) -> dict[str, Any]:
+        """Originalbetrag und Umrechnung mit Beleg, wie bei Lieferzeit-Texten.
+
+        Bei CHF gibt es nichts zu zeigen - dann bleibt die Zeile so knapp wie
+        bisher.
+        """
+        code = str(row.get("waehrung") or HOME_CURRENCY).upper()
+        if code == HOME_CURRENCY or row.get("preis_original") is None:
+            return {"waehrung": HOME_CURRENCY, "waehrung_fremd": False, "waehrung_beleg": None}
+        symbol = ProcurementService.WAEHRUNGSSYMBOLE.get(code, code)
+        original = Decimal(str(row["preis_original"]))
+        kurs = row.get("kurs")
+        kurs_am = row.get("kurs_am")
+        quelle = str(row.get("kurs_quelle") or "")
+        quelle_kurz = "EZB" if "frankfurter" in quelle else "Quelle"
+        beleg = None
+        if kurs is not None and kurs_am is not None:
+            tag = kurs_am if isinstance(kurs_am, str) else f"{kurs_am:%d.%m.}"
+            beleg = f"Kurs {Decimal(str(kurs)):.4f} ({quelle_kurz}, {tag})"
+        return {
+            "waehrung": code,
+            "waehrung_fremd": True,
+            "preis_original": str(original),
+            "preis_original_text": f"{symbol} {original}",
+            "kurs": None if kurs is None else str(kurs),
+            "kurs_quelle": quelle or None,
+            "waehrung_beleg": beleg,
+        }
+
     @staticmethod
     def _product_key(name: Any) -> str:
         return re.sub(r"[^a-z0-9]+", " ", str(name or "").lower()).strip()
@@ -1151,6 +1184,9 @@ class ProcurementService:
                 ),
                 "artikelanzahl": assignment_shop_counts.get(shop_id, 0),
                 "versand_gratis": Decimal(variant["shipping"][str(shop_id)]) == 0,
+                "lieferziel_name": shop_rows[shop_id].get("lieferziel_name"),
+                "lieferziel_land": str(shop_rows[shop_id].get("lieferziel_land") or "CH").upper(),
+                "abholung": str(shop_rows[shop_id].get("lieferziel_land") or "CH").upper() != "CH",
             }
             for shop_id in variant["shop_ids"]
         ]
@@ -1189,6 +1225,11 @@ class ProcurementService:
                     "assumption": assumption,
                     "assumption_text": f"Annahme: {row.get('produktname')}" if assumption else None,
                     "pinned": row.get("override_status") == "pin",
+                    # Abholung: Shops mit fremdem Ziel tragen den Vermerk mit.
+                    "lieferziel_name": shop.get("lieferziel_name"),
+                    "lieferziel_land": str(shop.get("lieferziel_land") or "CH").upper(),
+                    "abholung": str(shop.get("lieferziel_land") or "CH").upper() != "CH",
+                    **ProcurementService._waehrungs_felder(row),
                 }
             )
         variant["lines"] = sorted(lines, key=lambda row: (row["position"], row["line_id"]))
@@ -1253,6 +1294,14 @@ class ProcurementService:
             }
             for line_id in variant.get("missing_line_ids", [])
         ]
+        if variant["missing_lines"]:
+            offen = ", ".join(
+                f"Position {row['position']}: {row['suchtext']}"
+                for row in variant["missing_lines"]
+            )
+            variant["deckt_nicht_ab"] = f"deckt {offen} nicht ab"
+        else:
+            variant["deckt_nicht_ab"] = None
         variant["complete"] = not variant["missing_lines"]
         variant["incomplete"] = not variant["complete"]
         variant["shop_count"] = len(variant["shop_ids"])

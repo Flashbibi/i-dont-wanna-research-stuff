@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from itertools import product
 
@@ -349,21 +349,33 @@ def plan_scenarios(
         line_id: [offer for offer in offers if offer.shop_id in heimat_shops]
         for line_id, offers in filtered.items()
     }
+    required = tuple(sorted(set(required_line_ids)))
+    bester_heimat = lambda kandidaten: min(  # noqa: E731
+        kandidaten,
+        key=lambda item: (
+            item.score,
+            item.total_chf,
+            _delivery_rank(item.max_liefertage),
+            item.shop_ids,
+        ),
+    )
     heimat_komplett = _complete_variants(
         nur_heimat, shops_by_id, required_line_ids, tempo=0.5
     )
     if heimat_komplett:
-        scenarios["only_ch"] = min(
-            heimat_komplett,
-            key=lambda item: (
-                item.score,
-                item.total_chf,
-                _delivery_rank(item.max_liefertage),
-                item.shop_ids,
-            ),
-        )
-
-    required = tuple(sorted(set(required_line_ids)))
+        scenarios["only_ch"] = bester_heimat(heimat_komplett)
+    else:
+        # Deckt der Heimmarkt nicht jede Zeile ab, verschwindet das Preset
+        # nicht - es erscheint unvollständig wie «Ein Shop». Die Liste der
+        # offenen Zeilen ist genau die Auskunft, welche Positionen ins Ausland
+        # zwingen; die wäre weg, wenn der Plan stillschweigend entfiele.
+        abgedeckt = [line_id for line_id in required if nur_heimat.get(line_id)]
+        fehlend = tuple(line_id for line_id in required if line_id not in abgedeckt)
+        teilweise = _complete_variants(nur_heimat, shops_by_id, abgedeckt, tempo=0.5)
+        if teilweise:
+            scenarios["only_ch"] = replace(
+                bester_heimat(teilweise), missing_line_ids=fehlend
+            )
     one_shop_candidates: list[OrderVariant] = []
     for shop_id in sorted(shops_by_id):
         chosen: dict[int, Offer] = {}
