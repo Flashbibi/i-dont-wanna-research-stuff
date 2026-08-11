@@ -8,6 +8,12 @@ from app.procurement import ProcurementService, ValidationError, parse_delivery_
 
 class FakeProcurementRepository:
     def __init__(self):
+        self.lieferziele = {
+            1: {"id": 1, "name": "Zuhause (CH)", "adresse": "Heimadresse", "land": "CH",
+                "waehrung": "CHF", "aufschlag_chf": Decimal("0"), "zuschlag_tage": 0},
+            2: {"id": 2, "name": "Postfach (DE)", "adresse": "Grenzstrasse 1", "land": "DE",
+                "waehrung": "EUR", "aufschlag_chf": Decimal("25.00"), "zuschlag_tage": 3},
+        }
         self.shops = {
             1: {
                 "id": 1,
@@ -15,7 +21,16 @@ class FakeProcurementRepository:
                 "url": "https://shop.example.ch",
                 "domain": "shop.example.ch",
                 "status": "bestaetigt",
-            }
+                "lieferziel_id": 1,
+            },
+            2: {
+                "id": 2,
+                "name": "Reichelt",
+                "url": "https://www.reichelt.de",
+                "domain": "reichelt.de",
+                "status": "bestaetigt",
+                "lieferziel_id": 2,
+            },
         }
         self.lines = {10: {"id": 10, "job_id": 5, "suchtext": "Servo", "menge": 2}}
         self.offers = []
@@ -69,6 +84,25 @@ class FakeProcurementRepository:
         if line_id not in self.lines:
             return None
         return {"line": self.lines[line_id], "stock": [], "previous_purchases": [], "cached_offers": []}
+
+    def list_lieferziele(self):
+        return [dict(z) for z in self.lieferziele.values()]
+
+    def get_lieferziel(self, lieferziel_id):
+        return self.lieferziele.get(lieferziel_id)
+
+    def lieferziele_fuer_land(self, land):
+        return [dict(z) for z in self.lieferziele.values() if z["land"] == land]
+
+    def create_lieferziel(self, **values):
+        neu = max(self.lieferziele) + 1
+        row = {"id": neu, **values}
+        self.lieferziele[neu] = row
+        return row
+
+    def update_lieferziel(self, lieferziel_id, **values):
+        self.lieferziele[lieferziel_id].update(values)
+        return self.lieferziele[lieferziel_id]
 
     def get_kurs(self, waehrung):
         return self.kurse.get(waehrung)
@@ -238,7 +272,7 @@ def test_next_job_and_check_line_are_single_repository_calls():
     assert set(checked) == {"line", "stock", "previous_purchases", "cached_offers"}
 
 
-def test_record_shop_accepts_only_sourced_ch_profile_and_starts_unverified():
+def test_record_shop_maps_the_country_to_a_configured_delivery_target():
     procurement = service()
 
     shop = procurement.record_shop(
@@ -256,10 +290,22 @@ def test_record_shop_accepts_only_sourced_ch_profile_and_starts_unverified():
     assert shop["status"] == "ungeprueft"
     assert shop["domain"] == "neu.ch"
     assert shop["profil_quelle_url"] == "https://neu.ch/versand"
-    with pytest.raises(ValidationError, match="nur Shops aus der Schweiz"):
+    # Land wird auf das konfigurierte Ziel abgebildet, die Signatur bleibt gleich.
+    assert shop["lieferziel_id"] == 1
+    assert shop["land"] == "CH"
+
+    deutsch = procurement.record_shop(
+        "Reichelt DE", "https://www.reichelt.de/", "DE", 5.95, 100, None, 3,
+        "https://www.reichelt.de/versand", "Versand 5,95 EUR",
+    )
+    assert deutsch["lieferziel_id"] == 2
+    assert deutsch["land"] == "DE"
+
+    # Ein Land ohne konfigurierte Adresse wird abgewiesen, nicht erfunden.
+    with pytest.raises(ValidationError, match="Keine Lieferadresse für Land US"):
         procurement.record_shop(
-            "DE", "https://de.example", "DE", 5, None, None, 3,
-            "https://de.example/versand", "Versand 5 EUR",
+            "US Shop", "https://us.example", "US", 5, None, None, 3,
+            "https://us.example/versand", "Versand 5 USD",
         )
     with pytest.raises(ValidationError, match="Profil-Quelle"):
         procurement.record_shop(

@@ -21,6 +21,7 @@ from .waehrung import (
     KursError,
     aktueller_kurs,
     nach_chf,
+    waehrung_fuer_land,
 )
 from .optimizer import (
     Offer,
@@ -57,6 +58,11 @@ class ProcurementRepository(Protocol):
     ) -> dict[str, Any]: ...
     def save_offer_product_ids(self, produkt_ids: dict[int, str]) -> int: ...
     def save_offer_artikelnummern(self, artikelnummern: dict[int, str]) -> int: ...
+    def list_lieferziele(self) -> list[dict[str, Any]]: ...
+    def get_lieferziel(self, lieferziel_id: int) -> dict[str, Any] | None: ...
+    def lieferziele_fuer_land(self, land: str) -> list[dict[str, Any]]: ...
+    def create_lieferziel(self, **values: Any) -> dict[str, Any]: ...
+    def update_lieferziel(self, lieferziel_id: int, **values: Any) -> dict[str, Any]: ...
     def get_kurs(self, waehrung: str) -> dict[str, Any] | None: ...
     def save_kurs(
         self, waehrung: str, kurs: Any, geholt_am: Any, quelle_url: str
@@ -214,6 +220,103 @@ class ProcurementService:
             "versand_text": versand_text.strip(),
         }
 
+    # -- Lieferziele ---------------------------------------------------------
+
+    def list_lieferziele(self) -> list[dict[str, Any]]:
+        return [
+            {**dict(ziel), "ist_heimat": ziel["land"] == "CH"}
+            for ziel in self.repository.list_lieferziele()
+        ]
+
+    def record_lieferziel(
+        self,
+        name: str,
+        adresse: str,
+        land: str,
+        *,
+        waehrung: str | None = None,
+        aufschlag_chf: Any = 0,
+        zuschlag_tage: int = 0,
+    ) -> dict[str, Any]:
+        """Eine Lieferadresse anlegen.
+
+        Semantik, bewusst eng: eine Adresse eröffnet den **Heimmarkt ihres
+        Landes**. Eine deutsche Adresse heisst innerdeutscher Versand dorthin -
+        nichts weiter. Kein Cross-Border, keine Shop-mal-Adresse-Matrix; was ein
+        Shop liefert, beantwortet weiterhin sein belegtes Versandprofil.
+        """
+        if not name.strip():
+            raise ValidationError("Name der Lieferadresse fehlt")
+        if not adresse.strip():
+            raise ValidationError("Adresse fehlt")
+        code = (land or "").strip().upper()
+        if len(code) != 2 or not code.isalpha():
+            raise ValidationError("Land muss ein zweibuchstabiger Ländercode sein")
+        gewaehlt = (waehrung or "").strip().upper() or waehrung_fuer_land(code)
+        if not gewaehlt:
+            raise ValidationError(
+                f"Für Land {code} ist keine Währung hinterlegt; bitte explizit angeben"
+            )
+        aufschlag = _decimal(aufschlag_chf, "Aufschlag")
+        if not isinstance(zuschlag_tage, int) or isinstance(zuschlag_tage, bool) or zuschlag_tage < 0:
+            raise ValidationError("Zuschlag-Tage müssen eine Zahl ab 0 sein")
+        return self.repository.create_lieferziel(
+            name=name.strip(),
+            adresse=adresse.strip(),
+            land=code,
+            waehrung=gewaehlt,
+            aufschlag_chf=aufschlag,
+            zuschlag_tage=zuschlag_tage,
+        )
+
+    def update_lieferziel(
+        self,
+        lieferziel_id: int,
+        *,
+        adresse: str,
+        waehrung: str,
+        aufschlag_chf: Any,
+        zuschlag_tage: int,
+    ) -> dict[str, Any]:
+        if self.repository.get_lieferziel(lieferziel_id) is None:
+            raise ValidationError(f"Lieferadresse {lieferziel_id} ist unbekannt")
+        if not adresse.strip():
+            raise ValidationError("Adresse fehlt")
+        if not isinstance(zuschlag_tage, int) or isinstance(zuschlag_tage, bool) or zuschlag_tage < 0:
+            raise ValidationError("Zuschlag-Tage müssen eine Zahl ab 0 sein")
+        return self.repository.update_lieferziel(
+            lieferziel_id,
+            adresse=adresse.strip(),
+            waehrung=(waehrung or "").strip().upper() or HOME_CURRENCY,
+            aufschlag_chf=_decimal(aufschlag_chf, "Aufschlag"),
+            zuschlag_tage=zuschlag_tage,
+        )
+
+    def _ziel_fuer_land(self, land: str, lieferziel_id: int | None = None) -> dict[str, Any]:
+        """Das Lieferziel eines Shops bestimmen - ohne Raten bei Mehrdeutigkeit."""
+        code = (land or "").strip().upper()
+        if lieferziel_id is not None:
+            ziel = self.repository.get_lieferziel(lieferziel_id)
+            if ziel is None:
+                raise ValidationError(f"Lieferadresse {lieferziel_id} ist unbekannt")
+            if str(ziel["land"]).upper() != code:
+                raise ValidationError(
+                    f"Lieferadresse «{ziel['name']}» liegt in {ziel['land']}, nicht in {code}"
+                )
+            return ziel
+        kandidaten = self.repository.lieferziele_fuer_land(code)
+        if not kandidaten:
+            raise ValidationError(
+                f"Keine Lieferadresse für Land {code} konfiguriert; "
+                "zuerst eine Lieferadresse anlegen"
+            )
+        if len(kandidaten) > 1:
+            namen = ", ".join(f"«{ziel['name']}»" for ziel in kandidaten)
+            raise ValidationError(
+                f"Mehrere Lieferadressen in {code} ({namen}); bitte lieferziel_id angeben"
+            )
+        return kandidaten[0]
+
     def record_shop(
         self,
         name: str,
@@ -225,9 +328,11 @@ class ProcurementService:
         lieferzeit_default_tage: int | None,
         profil_quelle_url: str,
         versand_text: str,
+        lieferziel_id: int | None = None,
     ) -> dict[str, Any]:
-        if land != "CH":
-            raise ValidationError("Es sind nur Shops aus der Schweiz (land=CH) erlaubt")
+        # Das Land wird auf das konfigurierte Lieferziel abgebildet. Kein Ziel
+        # fuer das Land -> Abweisung; mehrere -> explizite Angabe noetig.
+        ziel = self._ziel_fuer_land(land, lieferziel_id)
         if not name.strip():
             raise ValidationError("Shop-Name fehlt")
         domain = _hostname(url, "Shop-URL")
@@ -243,7 +348,8 @@ class ProcurementService:
             name=name.strip(),
             url=url,
             domain=domain,
-            land="CH",
+            land=str(ziel["land"]).upper(),
+            lieferziel_id=int(ziel["id"]),
             **profile,
         )
 
@@ -294,6 +400,7 @@ class ProcurementService:
         # Bei Fremdwährung ist der übergebene Betrag der Originalpreis; den
         # CHF-Wert rechnet der Server selbst aus, mit belegtem Tageskurs.
         original = _decimal(preis_chf, "Preis", positive=True)
+        self._pruefe_waehrung_passt_zum_shop(shop, waehrung)
         umrechnung = self._umrechnung(waehrung, original)
         price = umrechnung["preis_chf"]
         product_domain = _hostname(produkt_url, "Produkt-URL")
@@ -323,6 +430,25 @@ class ProcurementService:
             artikelnummer=(artikelnummer or "").strip() or None,
             **umrechnung["spalten"],
         )
+
+    def _pruefe_waehrung_passt_zum_shop(self, shop: Mapping[str, Any], waehrung: str) -> None:
+        """Ein CH-Shop rechnet nicht in EUR ab und umgekehrt.
+
+        Die Zielwaehrung steht am Lieferziel des Shops; ohne Ziel gilt die
+        Heimwaehrung. Das faengt vertauschte Betraege ab, bevor sie als
+        umgerechneter CHF-Wert in der Historie landen.
+        """
+        code = (waehrung or HOME_CURRENCY).strip().upper()
+        ziel_id = shop.get("lieferziel_id")
+        erwartet = HOME_CURRENCY
+        if ziel_id is not None:
+            ziel = self.repository.get_lieferziel(int(ziel_id))
+            if ziel is not None:
+                erwartet = str(ziel["waehrung"]).upper()
+        if code != erwartet:
+            raise ValidationError(
+                f"Shop liefert nach {erwartet}; ein Angebot in {code} passt nicht dazu"
+            )
 
     def _umrechnung(self, waehrung: str, preis_original: Decimal) -> dict[str, Any]:
         """Originalpreis in CHF überführen und die Umrechnung belegen.

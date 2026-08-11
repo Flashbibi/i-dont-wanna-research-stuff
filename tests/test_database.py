@@ -110,11 +110,20 @@ def test_optimization_input_selects_the_columns_the_cart_handover_needs():
 
     repository.optimization_input(1)
 
-    shop_query = next(sql for sql in statements if "FROM shop WHERE id = ANY" in sql)
-    for column in ("plattform", "plattform_beleg", "plattform_geprueft_am"):
+    shop_query = next(sql for sql in statements if "FROM shop s LEFT JOIN lieferziel" in sql)
+    for column in (
+        "plattform",
+        "plattform_beleg",
+        "plattform_geprueft_am",
+        "lieferziel_name",
+        "lieferziel_land",
+        "lieferziel_aufschlag_chf",
+        "lieferziel_zuschlag_tage",
+    ):
         assert column in shop_query
     offer_query = next(sql for sql in statements if "FROM offer o" in sql)
-    assert "o.shop_produkt_id" in offer_query
+    for column in ("o.shop_produkt_id", "o.artikelnummer", "o.preis_original", "o.waehrung", "o.kurs"):
+        assert column in offer_query
 
 
 class HistoryConnection(Connection):

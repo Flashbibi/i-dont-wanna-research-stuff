@@ -21,6 +21,7 @@ class UIRepository:
         self.platform_writes = []
         self.product_id_writes = []
         self.artikelnummer_writes = []
+        self.lieferziel_writes = []
 
     def create_job(self, source_text, lines):
         return 7
@@ -189,6 +190,28 @@ class UIRepository:
     def save_offer_artikelnummern(self, artikelnummern):
         self.artikelnummer_writes.append(dict(artikelnummern))
         return len(artikelnummern)
+
+    def list_lieferziele(self):
+        return [
+            {"id": 1, "name": "Zuhause (CH)", "adresse": "Heimadresse", "land": "CH",
+             "waehrung": "CHF", "aufschlag_chf": "0.00", "zuschlag_tage": 0, "shop_count": 1},
+            {"id": 2, "name": "Postfach (DE)", "adresse": "Grenzstrasse 1", "land": "DE",
+             "waehrung": "EUR", "aufschlag_chf": "25.00", "zuschlag_tage": 3, "shop_count": 0},
+        ]
+
+    def get_lieferziel(self, lieferziel_id):
+        return next((z for z in self.list_lieferziele() if z["id"] == lieferziel_id), None)
+
+    def lieferziele_fuer_land(self, land):
+        return [z for z in self.list_lieferziele() if z["land"] == land]
+
+    def create_lieferziel(self, **values):
+        self.lieferziel_writes.append(dict(values))
+        return {"id": 3, **values}
+
+    def update_lieferziel(self, lieferziel_id, **values):
+        self.lieferziel_writes.append({"id": lieferziel_id, **values})
+        return {"id": lieferziel_id, **values}
 
     def list_shops(self):
         return [{"id": 1, "name": "Servo Shop", "url": "https://shop.example.ch", "status": "ungeprueft", "versand_chf": "8.00", "lieferzeit_default_tage": 3}]
@@ -676,6 +699,45 @@ def test_one_click_handover_sits_above_an_intact_copy_flow():
     assert "Die Session ist flüchtig" in script
     # Cookie-Werte werden nie geloggt.
     assert "console.log" not in script
+
+
+def test_the_shops_page_lets_linus_add_and_edit_delivery_addresses():
+    client, repository = client_and_repo()
+
+    page = client.get("/shops").text
+
+    # Keine fest verdrahteten Ziele - die Liste kommt aus den Daten.
+    assert "Lieferadresse hinzufügen" in page
+    assert "Zuhause (CH)" in page and "Postfach (DE)" in page
+    assert 'action="/lieferziele"' in page
+    assert 'action="/lieferziele/1"' in page
+    # Die Semantik steht auf der Seite, nicht nur im Auftrag.
+    assert "eröffnet den Heimmarkt ihres Landes" in page
+
+    angelegt = client.post(
+        "/lieferziele",
+        data={"name": "Postfach Süd", "adresse": "Weg 3", "land": "de",
+              "aufschlag_chf": "20", "zuschlag_tage": "2"},
+        follow_redirects=False,
+    )
+
+    assert angelegt.status_code == 303
+    geschrieben = repository.lieferziel_writes[-1]
+    assert geschrieben["land"] == "DE"
+    assert geschrieben["waehrung"] == "EUR"   # folgt dem Land
+    assert geschrieben["zuschlag_tage"] == 2
+
+
+def test_an_address_in_a_country_without_a_known_currency_is_rejected():
+    client, _ = client_and_repo()
+
+    response = client.post(
+        "/lieferziele",
+        data={"name": "Irgendwo", "adresse": "Weg 1", "land": "ZZ"},
+    )
+
+    assert response.status_code == 422
+    assert "Währung" in response.json()["detail"]
 
 
 def test_history_repeat_arrival_and_shop_moderation_are_available():
