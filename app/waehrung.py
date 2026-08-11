@@ -17,7 +17,6 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Callable, Protocol
-from urllib.request import Request, urlopen
 
 
 HOME_CURRENCY = "CHF"
@@ -29,6 +28,10 @@ KURS_API = "https://api.frankfurter.app/latest"
 KURS_MAX_ALTER_TAGE = 7
 
 RATE_TIMEOUT = 15
+
+#: Die Quelle blockt anonyme Bibliotheks-Clients; ein benannter Agent ist höflich
+#: und funktioniert.
+KURS_USER_AGENT = "beschaffung/1.0 (LAN-Beschaffungstool)"
 
 
 class KursError(ValueError):
@@ -72,9 +75,19 @@ def fetch_kurs(waehrung: str, *, opener: Callable[[str], str] | None = None) -> 
     url = f"{KURS_API}?from={waehrung}&to={HOME_CURRENCY}"
     if opener is None:
         def opener(target: str) -> str:
-            request = Request(target, headers={"Accept": "application/json"})
-            with urlopen(request, timeout=RATE_TIMEOUT) as response:
-                return response.read().decode("utf-8")
+            # httpx statt urllib: die Quelle weist urllibs Default-User-Agent
+            # mit HTTP 403 ab. Gemockte Tests sehen das nicht, der erste echte
+            # Abruf schon - deshalb hier derselbe Weg wie im Cart-Adapter.
+            import httpx
+
+            response = httpx.get(
+                target,
+                headers={"Accept": "application/json", "User-Agent": KURS_USER_AGENT},
+                timeout=RATE_TIMEOUT,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            return response.text
 
     payload = json.loads(opener(url))
     rate = payload.get("rates", {}).get(HOME_CURRENCY)
