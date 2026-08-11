@@ -185,7 +185,10 @@
     const chosen = selected ? lineOffer(selected, line.line_id) : null;
     const rows = candidates.map((candidate) => {
       const inPlan = chosen && chosen.offer_id === candidate.offer_id;
-      const provenance = `Produktseite: «${esc(candidate.lieferzeit_text || "Lieferzeit nicht angegeben") }» · Lager: ${esc(candidate.lager_text || "Lagerstatus nicht angegeben")}`;
+      const seller = candidate.provenienz_text
+        ? ` · Provenienz: ${esc(candidate.provenienz_text)}`
+        : "";
+      const provenance = `Produktseite: «${esc(candidate.lieferzeit_text || "Lieferzeit nicht angegeben") }» · Lager: ${esc(candidate.lager_text || "Lagerstatus nicht angegeben")}${seller}`;
       const action = candidate.pinned
         ? `<button class="btn small" type="submit" name="status" value="neutral" data-decision="neutral" data-offer="${candidate.offer_id}">Pin lösen</button>`
         : `<button class="btn small" type="submit" name="status" value="pin" data-decision="pin" data-offer="${candidate.offer_id}">Pinnen</button>`;

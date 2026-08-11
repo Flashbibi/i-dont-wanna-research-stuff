@@ -395,6 +395,7 @@ class ProcurementService:
         lager_text: str | None = None,
         artikelnummer: str | None = None,
         waehrung: str = HOME_CURRENCY,
+        provenienz_text: str | None = None,
     ) -> dict[str, Any]:
         if self.repository.get_line(line_id) is None:
             raise ValidationError(f"Zeile {line_id} ist unbekannt")
@@ -436,6 +437,7 @@ class ProcurementService:
             lager_text=normalized_stock_text,
             lager=normalized_stock_text,
             artikelnummer=(artikelnummer or "").strip() or None,
+            provenienz_text=(provenienz_text or "").strip() or None,
             **umrechnung["spalten"],
         )
 
@@ -825,6 +827,7 @@ class ProcurementService:
                 "preis_chf": str(row["preis_chf"]),
                 "lieferzeit_text": row.get("lieferzeit_text"),
                 "lager_text": row.get("lager_text"),
+                "provenienz_text": row.get("provenienz_text"),
                 "pinned": row.get("override_status") == "pin",
                 "excluded": offer_id in excludes,
                 # Auch die Kandidatenzeilen tragen Originalbetrag, Umrechnung

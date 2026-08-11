@@ -257,6 +257,7 @@ def test_job_page_loads_candidates_from_matrix_api_and_decision_buttons_are_wire
     assert page.status_code == 200
     assert matrix["lines"][0]["candidates"][0]["produktname"] == "MG996R Servo"
     assert "Pinnen" in script and "Pin lösen" in script and "Ausschliessen" in script
+    assert "candidate.provenienz_text" in script
     assert decision.status_code == 200
     assert repository.decisions == [(31, "pin")]
 

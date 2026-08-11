@@ -177,6 +177,15 @@ def test_currency_migration_backfills_stock_rows_and_demands_evidence():
     assert "DROP TABLE" not in sql.upper()
 
 
+def test_offer_provenance_migration_is_additive():
+    sql = Path("migrations/014_offer_provenienz.sql").read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS provenienz_text TEXT" in sql
+    assert "offer_provenienz_not_blank" in sql
+    assert "DELETE " not in sql.upper()
+    assert "DROP TABLE" not in sql.upper()
+
+
 def test_lieferziel_migration_derives_the_home_address_from_stock_data():
     sql = Path("migrations/012_lieferziel.sql").read_text(encoding="utf-8")
 
