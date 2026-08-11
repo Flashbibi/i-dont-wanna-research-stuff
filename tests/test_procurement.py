@@ -23,6 +23,8 @@ class FakeProcurementRepository:
         self.purchases = []
         self.selected_assignments = None
         self.created_jobs = []
+        self.kurse = {}
+        self.saved_kurse = []
 
     def get_job(self, job_id):
         return {
@@ -67,6 +69,15 @@ class FakeProcurementRepository:
         if line_id not in self.lines:
             return None
         return {"line": self.lines[line_id], "stock": [], "previous_purchases": [], "cached_offers": []}
+
+    def get_kurs(self, waehrung):
+        return self.kurse.get(waehrung)
+
+    def save_kurs(self, waehrung, kurs, geholt_am, quelle_url):
+        row = {"waehrung": waehrung, "kurs": kurs, "geholt_am": geholt_am, "quelle_url": quelle_url}
+        self.kurse[waehrung] = row
+        self.saved_kurse.append(row)
+        return row
 
     def create_shop(self, **values):
         shop_id = max(self.shops) + 1

@@ -232,6 +232,11 @@ def offer_values(**changes):
         "lieferzeit_text": "3-4 Tage, bei Lieferant an Lager",
         "lager_text": "Filiale rot; CH-Lieferant an Lager",
         "lager": "Filiale rot; CH-Lieferant an Lager",
+        "preis_original": "63.62",
+        "waehrung": "CHF",
+        "kurs": "1",
+        "kurs_am": None,
+        "kurs_quelle": None,
     }
     return {**values, **changes}
 
@@ -248,6 +253,8 @@ def test_create_offer_updates_same_day_but_inserts_new_daily_observation():
 
     insert_sql = connection.statements[0][0]
     assert "lieferzeit_text, lager_text" in insert_sql
+    # Die Preishistorie fuehrt den Originalbetrag mit.
+    assert "preis_original" in insert_sql
     assert first["id"] == corrected["id"]
     assert next_day["id"] != corrected["id"]
     assert len(connection.rows) == 2

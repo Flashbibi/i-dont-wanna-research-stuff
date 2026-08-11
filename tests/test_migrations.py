@@ -160,6 +160,23 @@ def test_offer_artikelnummer_migration_is_additive():
     assert "DROP TABLE" not in sql.upper()
 
 
+def test_currency_migration_backfills_stock_rows_and_demands_evidence():
+    sql = Path("migrations/011_offer_currency.sql").read_text(encoding="utf-8")
+
+    for column in ("preis_original", "waehrung", "kurs", "kurs_am", "kurs_quelle"):
+        assert f"ADD COLUMN IF NOT EXISTS {column}" in sql
+    # Bestandszeilen werden befuellt, nicht sich selbst ueberlassen.
+    assert "UPDATE offer" in sql
+    assert "COALESCE(waehrung, 'CHF')" in sql
+    assert "COALESCE(kurs, 1)" in sql
+    # Kein CHF-Wert ohne belegte Umrechnung.
+    assert "offer_foreign_currency_requires_evidence" in sql
+    assert "CREATE TABLE IF NOT EXISTS kurs" in sql
+    assert "UNIQUE (waehrung, geholt_am)" in sql
+    assert "DELETE " not in sql.upper()
+    assert "DROP TABLE" not in sql.upper()
+
+
 def test_shop_platform_migration_is_additive_and_enforces_evidence():
     sql = Path("migrations/009_shop_platform_and_product_ids.sql").read_text(encoding="utf-8")
 

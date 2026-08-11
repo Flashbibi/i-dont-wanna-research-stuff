@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 import re
 from typing import Any, Mapping, Protocol
@@ -16,6 +16,12 @@ from .cart import (
     start_guest_session,
 )
 from .jobs import BomInputLine, parse_bom
+from .waehrung import (
+    HOME_CURRENCY,
+    KursError,
+    aktueller_kurs,
+    nach_chf,
+)
 from .optimizer import (
     Offer,
     ShopProfile,
@@ -51,6 +57,10 @@ class ProcurementRepository(Protocol):
     ) -> dict[str, Any]: ...
     def save_offer_product_ids(self, produkt_ids: dict[int, str]) -> int: ...
     def save_offer_artikelnummern(self, artikelnummern: dict[int, str]) -> int: ...
+    def get_kurs(self, waehrung: str) -> dict[str, Any] | None: ...
+    def save_kurs(
+        self, waehrung: str, kurs: Any, geholt_am: Any, quelle_url: str
+    ) -> dict[str, Any]: ...
     def create_purchase(
         self,
         job_id: int,
@@ -270,6 +280,7 @@ class ProcurementService:
         lieferzeit_text: str | None = None,
         lager_text: str | None = None,
         artikelnummer: str | None = None,
+        waehrung: str = HOME_CURRENCY,
     ) -> dict[str, Any]:
         if self.repository.get_line(line_id) is None:
             raise ValidationError(f"Zeile {line_id} ist unbekannt")
@@ -280,7 +291,11 @@ class ProcurementService:
             raise ValidationError(f"Shop {shop_id} ist gesperrt")
         if not produktname.strip():
             raise ValidationError("Produktname fehlt")
-        price = _decimal(preis_chf, "Preis", positive=True)
+        # Bei Fremdwährung ist der übergebene Betrag der Originalpreis; den
+        # CHF-Wert rechnet der Server selbst aus, mit belegtem Tageskurs.
+        original = _decimal(preis_chf, "Preis", positive=True)
+        umrechnung = self._umrechnung(waehrung, original)
+        price = umrechnung["preis_chf"]
         product_domain = _hostname(produkt_url, "Produkt-URL")
         shop_domain = str(shop["domain"]).lower().removeprefix("www.")
         if product_domain != shop_domain and not product_domain.endswith("." + shop_domain):
@@ -306,7 +321,48 @@ class ProcurementService:
             lager_text=normalized_stock_text,
             lager=normalized_stock_text,
             artikelnummer=(artikelnummer or "").strip() or None,
+            **umrechnung["spalten"],
         )
+
+    def _umrechnung(self, waehrung: str, preis_original: Decimal) -> dict[str, Any]:
+        """Originalpreis in CHF überführen und die Umrechnung belegen.
+
+        Bei CHF ist das ein No-op mit Kurs 1. Bei Fremdwährung holt der Server
+        den Tageskurs und legt Kurs, Kursdatum und Quelle zum Angebot - ohne
+        diese vier Felder lässt die Datenbank die Zeile ohnehin nicht zu.
+        """
+        code = (waehrung or HOME_CURRENCY).strip().upper()
+        if code == HOME_CURRENCY:
+            return {
+                "preis_chf": preis_original,
+                "kurs": None,
+                "spalten": {
+                    "preis_original": preis_original,
+                    "waehrung": HOME_CURRENCY,
+                    "kurs": Decimal("1"),
+                    "kurs_am": None,
+                    "kurs_quelle": None,
+                },
+            }
+        try:
+            kurs = aktueller_kurs(self.repository, code, self._heute())
+        except KursError as error:
+            raise ValidationError(str(error)) from error
+        return {
+            "preis_chf": nach_chf(preis_original, kurs.kurs),
+            "kurs": kurs,
+            "spalten": {
+                "preis_original": preis_original,
+                "waehrung": code,
+                "kurs": kurs.kurs,
+                "kurs_am": kurs.geholt_am,
+                "kurs_quelle": kurs.quelle_url,
+            },
+        }
+
+    @staticmethod
+    def _heute() -> date:
+        return datetime.now(timezone.utc).date()
 
     def mark_line(
         self, line_id: int, status: str, kommentar: str | None = None

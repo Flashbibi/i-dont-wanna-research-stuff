@@ -404,6 +404,39 @@ class PostgresRepository:
                     )
         return len(produkt_ids)
 
+    def get_kurs(self, waehrung: str) -> dict[str, Any] | None:
+        """Neuesten bekannten Kurs einer Währung lesen."""
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT waehrung, kurs, geholt_am, quelle_url
+                FROM kurs WHERE waehrung = %s
+                ORDER BY geholt_am DESC LIMIT 1
+                """,
+                (waehrung,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def save_kurs(
+        self, waehrung: str, kurs: Any, geholt_am: Any, quelle_url: str
+    ) -> dict[str, Any]:
+        """Tageskurs samt Quelle festhalten; ein Kurs pro Währung und Tag."""
+        if not quelle_url or not str(quelle_url).strip():
+            raise ValueError("Kurs darf nicht ohne Quelle gespeichert werden")
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                INSERT INTO kurs(waehrung, kurs, geholt_am, quelle_url)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (waehrung, geholt_am) DO UPDATE SET
+                    kurs = EXCLUDED.kurs,
+                    quelle_url = EXCLUDED.quelle_url
+                RETURNING waehrung, kurs, geholt_am, quelle_url
+                """,
+                (waehrung, str(kurs), geholt_am, str(quelle_url).strip()),
+            ).fetchone()
+            return dict(row)
+
     def save_offer_artikelnummern(self, artikelnummern: dict[int, str]) -> int:
         """Shopinterne Artikelnummern cachen. Quelle ist die Produktseite.
 
@@ -436,11 +469,13 @@ class PostgresRepository:
                         INSERT INTO offer(
                             line_id, shop_id, produktname, produkt_url, quelle_url,
                             preis_chf, lieferzeit_tage, lieferzeit_text, lager_text, lager,
-                            artikelnummer
+                            artikelnummer, preis_original, waehrung, kurs, kurs_am, kurs_quelle
                         ) VALUES (%(line_id)s, %(shop_id)s, %(produktname)s,
                                   %(produkt_url)s, %(quelle_url)s, %(preis_chf)s,
                                   %(lieferzeit_tage)s, %(lieferzeit_text)s,
-                                  %(lager_text)s, %(lager)s, %(artikelnummer)s)
+                                  %(lager_text)s, %(lager)s, %(artikelnummer)s,
+                                  %(preis_original)s, %(waehrung)s, %(kurs)s,
+                                  %(kurs_am)s, %(kurs_quelle)s)
                         ON CONFLICT (line_id, produkt_url, beobachtungstag) DO UPDATE SET
                             shop_id = EXCLUDED.shop_id,
                             produktname = EXCLUDED.produktname,
@@ -451,6 +486,11 @@ class PostgresRepository:
                             lager_text = EXCLUDED.lager_text,
                             lager = EXCLUDED.lager,
                             artikelnummer = COALESCE(EXCLUDED.artikelnummer, offer.artikelnummer),
+                            preis_original = EXCLUDED.preis_original,
+                            waehrung = EXCLUDED.waehrung,
+                            kurs = EXCLUDED.kurs,
+                            kurs_am = EXCLUDED.kurs_am,
+                            kurs_quelle = EXCLUDED.kurs_quelle,
                             gesehen_am = NOW()
                         RETURNING *
                         """,
@@ -553,6 +593,7 @@ class PostgresRepository:
                        o.lieferzeit_tage, o.lieferzeit_text, o.lager_text,
                        o.produktname, o.produkt_url, o.quelle_url, o.gesehen_am,
                        o.shop_produkt_id, o.artikelnummer,
+                       o.preis_original, o.waehrung, o.kurs, o.kurs_am, o.kurs_quelle,
                        bl.menge, bl.suchtext, bl.position,
                        d.override_status
                 FROM offer o
