@@ -132,7 +132,7 @@ def test_returns_at_most_three_variants_with_distinct_shop_sets():
     assert len({variant.shop_ids for variant in variants}) == 3
 
 
-def test_never_uses_more_than_three_shops():
+def test_builds_complete_plan_when_four_shops_are_required():
     shops = [
         ShopProfile(shop_id, f"Shop {shop_id}", Decimal("0"), None, None, 1)
         for shop_id in range(1, 5)
@@ -142,7 +142,11 @@ def test_never_uses_more_than_three_shops():
         for shop_id in range(1, 5)
     ]
 
-    assert optimize_orders(offers, shops, tempo=0) == []
+    variants = optimize_orders(offers, shops, tempo=0)
+
+    assert variants[0].shop_ids == (1, 2, 3, 4)
+    assert variants[0].missing_line_ids == ()
+    assert variants[0].total_chf == Decimal("40.00")
 
 
 def test_scenarios_use_shop_default_as_estimate_when_offer_has_no_days():

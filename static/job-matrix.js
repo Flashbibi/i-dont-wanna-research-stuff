@@ -3,7 +3,7 @@
   if (!host) return;
 
   const jobId = Number(host.dataset.job);
-  const state = { data: null, tempo: 0.5, currencyMode: "chf", detail: null, checks: new Set(), ordered: host.dataset.status === "bestellt", cartShops: {}, cart: {}, extension: null, extensionInfo: null, handoff: {} };
+  const state = { data: null, tempo: 0.5, currencyMode: "chf", detail: null, showAllCandidates: false, checks: new Set(), ordered: host.dataset.status === "bestellt", cartShops: {}, cart: {}, extension: null, extensionInfo: null, handoff: {} };
 
   const HANDOFF = "beschaffung/cart-handoff";
   const HANDOFF_RESULT = "beschaffung/cart-handoff-result";
@@ -160,8 +160,9 @@
     const cols = columns();
     const selected = active();
     const full = cols.find((column) => !column.incomplete);
+    const offerCount = state.data.lines.reduce((sum, line) => sum + line.candidates.length, 0);
     root.style.gridTemplateColumns = `230px repeat(${cols.length},minmax(210px,1fr))`;
-    let html = `<div class="mc chead"><h2>Bestellpläne im Vergleich</h2><div class="note" style="margin-top:6px">Alle Pläne werden aus denselben ${state.data.lines.reduce((sum, line) => sum + line.candidates.length, 0)} Angeboten gerechnet.</div></div>`;
+    let html = `<div class="mc chead"><h2>Bestellpläne im Vergleich</h2><div class="note" style="margin-top:6px">Alle Pläne werden aus denselben ${offerCount} Angeboten gerechnet.</div><button class="btn small" type="button" data-show-all-candidates>${state.showAllCandidates ? "Angebotsliste schliessen" : `Alle ${offerCount} Angebote anzeigen`}</button></div>`;
 
     html += cols.map((column, index) => {
       const chosen = sameAssignments(column.assignments, selected && selected.assignments);
@@ -186,7 +187,7 @@
     }).join("");
 
     state.data.lines.filter((line) => line.required).forEach((line) => {
-      const isOpen = state.detail === line.line_id;
+      const isOpen = state.showAllCandidates || state.detail === line.line_id;
       const candidates = line.candidates.filter((candidate) => !candidate.excluded);
       html += `<div class="mc rname" data-row="${line.line_id}"><div class="no">Position ${line.position}</div><div class="nm">${esc(line.suchtext)}</div><div class="hint">${isOpen ? "Kandidaten ausblenden ▴" : `${candidates.length} Kandidaten ▾`}</div></div>`;
       html += cols.map((column, index) => {
@@ -388,7 +389,15 @@
     const cartFill = event.target.closest("[data-cart]");
     const cartCopy = event.target.closest("[data-copy]");
     const cartHandoff = event.target.closest("[data-handoff]");
+    const showAllCandidates = event.target.closest("[data-show-all-candidates]");
     const currencyToggle = event.target.closest("#currency-toggle");
+
+    if (showAllCandidates) {
+      state.showAllCandidates = !state.showAllCandidates;
+      state.detail = null;
+      render();
+      return;
+    }
 
     if (currencyToggle) {
       state.currencyMode = state.currencyMode === "chf" ? "original" : "chf";

@@ -128,8 +128,6 @@ def _build_variant(
     if not chosen:
         return None
     shop_ids = tuple(sorted({offer.shop_id for offer in chosen.values()}))
-    if len(shop_ids) > 3:
-        return None
     subtotals = {shop_id: Decimal("0.00") for shop_id in shop_ids}
     for offer in chosen.values():
         subtotals[offer.shop_id] += offer.positionspreis
