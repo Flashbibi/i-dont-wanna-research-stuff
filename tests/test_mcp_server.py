@@ -121,7 +121,15 @@ def test_all_tool_descriptions_match_current_behavior():
         "get_stock": "Aktuell positiven Bestand lesen (read-only).",
         "plan_scenarios": (
             "Die vollständige Szenariomatrix mit optionalem Tempo, Pins und Excludes "
-            "über exakt dieselbe Serverfunktion wie die Job-UI berechnen (read-only)."
+            "über exakt dieselbe Serverfunktion wie die Job-UI berechnen (read-only). "
+            "Totale enthalten den Abhol-Aufschlag je beteiligtem Nicht-Heim-Lieferziel, "
+            "einmal pro Ziel und Plan (Feld aufschlaege); Wartezeiten des Ziels stecken "
+            "in den Lieferzeiten. Das Preset «Nur Schweiz» (only_ch) verschmilzt mit dem "
+            "Gesamtoptimum, solange kein Auslandsangebot gewinnt, und erscheint "
+            "unvollständig mit deckt_nicht_ab, wenn der Heimmarkt nicht jede Zeile "
+            "abdeckt. Das Feld einfuhr ist ein reiner Anzeige-Indikator zur "
+            "Wertfreigrenze - es wird keine Steuer berechnet und nichts davon fliesst "
+            "in ein Total."
         ),
         "next_job": (
             "Ältesten nicht als Test markierten offenen Job mit seinen noch offenen "
@@ -132,8 +140,13 @@ def test_all_tool_descriptions_match_current_behavior():
             "eine Zeile gemeinsam laden (read-only)."
         ),
         "record_shop": (
-            "Neuen Schweizer Shop mit angegebener HTTP(S)-Profilquelle, "
-            "Versand-Originaltext und validierten Profilwerten erfassen."
+            "Shop mit angegebener HTTP(S)-Profilquelle, Versand-Originaltext und "
+            "validierten Profilwerten erfassen. Das Land wird auf eine konfigurierte "
+            "Lieferadresse abgebildet: gibt es für dieses Land keine, wird abgewiesen; "
+            "gibt es mehrere, ist lieferziel_id Pflicht. Die Adresse eröffnet den "
+            "Heimmarkt ihres Landes (eine DE-Adresse heisst innerdeutscher Versand "
+            "dorthin) - kein Cross-Border. Angebote dieses Shops müssen in der Währung "
+            "seines Ziels erfasst werden."
         ),
         "record_offer": (
             "Angebot einer bekannten Zeile bei einem nicht gesperrten Shop erfassen "
@@ -152,7 +165,8 @@ def test_all_tool_descriptions_match_current_behavior():
         "plan_order": (
             "Bis zu drei Bestellvarianten aus den neuesten Angeboten nicht gesperrter "
             "Shops berechnen; Pins, Excludes, Versand, Mindestwerte, Lieferzeiten, "
-            "Tempo und Unbekannt-Malus werden berücksichtigt."
+            "Tempo, Unbekannt-Malus und der Abhol-Aufschlag je Nicht-Heim-Lieferziel "
+            "werden berücksichtigt."
         ),
         "record_purchase": (
             "Tatsächlich ausgelöste vollständige Bestellung nach erneuter serverseitiger "
@@ -309,3 +323,42 @@ def test_streamable_http_endpoint_initializes_and_lists_tools():
         "plan_order",
         "record_purchase",
     }
+
+
+def test_record_shop_accepts_an_explicit_delivery_target_and_stays_compatible():
+    tools = asyncio.run(build_mcp(StubService()).list_tools())
+    record_shop = next(tool for tool in tools if tool.name == "record_shop")
+    properties = record_shop.inputSchema["properties"]
+    pflicht = set(record_shop.inputSchema.get("required", []))
+
+    # Additiv: neu und optional, die bestehende Signatur bleibt aufrufbar.
+    assert "lieferziel_id" in properties
+    assert "lieferziel_id" not in pflicht
+    assert {"name", "url", "land", "versand_chf", "profil_quelle_url", "versand_text"} <= pflicht
+
+
+def test_record_offer_exposes_currency_and_article_number_as_optional():
+    tools = asyncio.run(build_mcp(StubService()).list_tools())
+    record_offer = next(tool for tool in tools if tool.name == "record_offer")
+    properties = record_offer.inputSchema["properties"]
+    pflicht = set(record_offer.inputSchema.get("required", []))
+
+    assert "waehrung" in properties and "waehrung" not in pflicht
+    assert "artikelnummer" in properties and "artikelnummer" not in pflicht
+
+
+def test_the_descriptions_state_the_currency_and_target_rules():
+    tools = asyncio.run(build_mcp(StubService()).list_tools())
+    beschreibung = {tool.name: tool.description for tool in tools}
+
+    # Waehrung: der Server rechnet, der Agent liefert den Originalpreis.
+    assert "niemals selbst umrechnen" in beschreibung["record_offer"]
+    assert "Tageskurs" in beschreibung["record_offer"]
+    # Ziele: Abbildung, Abweisung, Mehrdeutigkeit, kein Cross-Border.
+    assert "lieferziel_id ist Pflicht" in beschreibung["record_shop"] or \
+        "lieferziel_id Pflicht" in beschreibung["record_shop"]
+    assert "kein Cross-Border" in beschreibung["record_shop"]
+    # Aufschlag und Indikator stehen im Vertrag, nicht nur im Code.
+    assert "einmal pro Ziel und Plan" in beschreibung["plan_scenarios"]
+    assert "keine Steuer berechnet" in beschreibung["plan_scenarios"]
+    assert "Abhol-Aufschlag" in beschreibung["plan_order"]

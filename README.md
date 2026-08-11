@@ -223,3 +223,22 @@ git config core.hooksPath .githooks
 
 Migrationen sind additiv — kein `DROP`, kein `DELETE`. Die Tests in
 `tests/test_migrations.py` erzwingen das.
+
+Genauer gilt eine dreistufige Regel, weil «additiv» nicht jeden Fall trifft:
+
+| Stufe | Beispiel | Vorgehen |
+| ----- | -------- | -------- |
+| **Rein additiv** | neue Spalte, neue Tabelle, neuer Index | normale Kadenz, ohne Rückfrage |
+| **Erweiternd** | Constraint-Tausch, der nur erlaubt was vorher verboten war; `DROP NOT NULL` | normale Kadenz, aber **ausdrücklich melden** (so geschehen bei 013) |
+| **Verengend oder potenziell datenverlierend** | Spalte entfernen, Constraint verschärfen, Daten löschen oder umschreiben | **vorher fragen**, nie direkt deployen |
+
+**Vor jedem Deploy, der eine Migration enthält, sind die Integrationstests
+Pflicht:**
+
+```sh
+.venv/Scripts/python -m pytest tests/test_repository_integration.py
+```
+
+Sie fahren die Migrationen auf einer leeren Wegwerf-Datenbank und lesen danach
+echte Rows zurück. Genau dort fällt auf, wenn eine Migration auf grüner Wiese
+scheitert oder eine Spalte nie geschrieben wird — beides ist schon passiert.
