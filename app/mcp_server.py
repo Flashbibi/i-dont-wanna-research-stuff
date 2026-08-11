@@ -113,8 +113,9 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         lieferzeit_text: str | None = None,
         lager_text: str | None = None,
         artikelnummer: str | None = None,
+        waehrung: str = "CHF",
     ) -> dict[str, Any]:
-        """Angebot einer bekannten Zeile bei einem nicht gesperrten Shop erfassen oder die heutige Beobachtung aktualisieren; URL, Preis und wörtliche Liefer-/Lagertexte werden validiert. Die optionale shopinterne Artikelnummer ankert die Warenkorb-Prüfung sprachunabhängig; ohne sie zieht der Adapter sie beim ersten Füllen selbst von der Produktseite."""
+        """Angebot einer bekannten Zeile bei einem nicht gesperrten Shop erfassen oder die heutige Beobachtung aktualisieren; URL, Preis und wörtliche Liefer-/Lagertexte werden validiert. Die optionale shopinterne Artikelnummer ankert die Warenkorb-Prüfung sprachunabhängig; ohne sie zieht der Adapter sie beim ersten Füllen selbst von der Produktseite. Bei waehrung != CHF ist preis_chf der Preis in DIESER Währung; der Server rechnet selbst mit dem belegten Tageskurs in CHF um und legt Kurs, Kursdatum und Quelle dazu - niemals selbst umrechnen."""
         return service.record_offer(
             line_id,
             shop_id,
@@ -124,6 +125,7 @@ def build_mcp(service: ProcurementService) -> FastMCP:
             lieferzeit_text,
             lager_text,
             artikelnummer,
+            waehrung,
         )
 
     @mcp.tool()
