@@ -305,6 +305,14 @@ def test_job_matrix_browser_uses_only_server_planning_and_reference_wording():
     assert "item_count" not in script
 
 
+def test_job_matrix_offers_an_explicit_all_candidates_view():
+    script = Path("static/job-matrix.js").read_text(encoding="utf-8")
+
+    assert "showAllCandidates" in script
+    assert "data-show-all-candidates" in script
+    assert "Alle ${offerCount} Angebote anzeigen" in script
+
+
 def test_e2e_jobs_are_marker_guarded_disposable_and_not_real_job_ids():
     client, repository = client_and_repo()
     marker = {"X-E2E-Marker": "beschaffung-e2e-disposable"}
@@ -796,6 +804,7 @@ def test_the_browser_shows_currency_evidence_pickup_and_no_quick_action_for_only
     assert "waehrung_beleg" in script
     assert '<div class="fx">' in script and ".fx {" in css
     assert 'id="currency-toggle"' in page
+    assert 'job-matrix.js?v=6' in page
     assert "currencyMode" in script
     assert "versandOriginalText" in script
     assert "versand_kurs" in script
