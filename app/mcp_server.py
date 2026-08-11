@@ -63,7 +63,7 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         pins: dict[int | str, int] | None = None,
         excludes: list[int] | None = None,
     ) -> dict[str, Any]:
-        """Die vollständige Szenariomatrix mit optionalem Tempo, Pins und Excludes über exakt dieselbe Serverfunktion wie die Job-UI berechnen (read-only)."""
+        """Die vollständige Szenariomatrix mit optionalem Tempo, Pins und Excludes über exakt dieselbe Serverfunktion wie die Job-UI berechnen (read-only). Totale enthalten den Abhol-Aufschlag je beteiligtem Nicht-Heim-Lieferziel, einmal pro Ziel und Plan (Feld aufschlaege); Wartezeiten des Ziels stecken in den Lieferzeiten. Das Preset «Nur Schweiz» (only_ch) verschmilzt mit dem Gesamtoptimum, solange kein Auslandsangebot gewinnt, und erscheint unvollständig mit deckt_nicht_ab, wenn der Heimmarkt nicht jede Zeile abdeckt. Das Feld einfuhr ist ein reiner Anzeige-Indikator zur Wertfreigrenze - es wird keine Steuer berechnet und nichts davon fliesst in ein Total."""
         return service.plan_scenarios(
             job_id, tempo=tempo, pins=pins, excludes=excludes
         )
@@ -89,8 +89,9 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         lieferzeit_default_tage: int | None,
         profil_quelle_url: str,
         versand_text: str,
+        lieferziel_id: int | None = None,
     ) -> dict[str, Any]:
-        """Neuen Schweizer Shop mit angegebener HTTP(S)-Profilquelle, Versand-Originaltext und validierten Profilwerten erfassen."""
+        """Shop mit angegebener HTTP(S)-Profilquelle, Versand-Originaltext und validierten Profilwerten erfassen. Das Land wird auf eine konfigurierte Lieferadresse abgebildet: gibt es für dieses Land keine, wird abgewiesen; gibt es mehrere, ist lieferziel_id Pflicht. Die Adresse eröffnet den Heimmarkt ihres Landes (eine DE-Adresse heisst innerdeutscher Versand dorthin) - kein Cross-Border. Angebote dieses Shops müssen in der Währung seines Ziels erfasst werden."""
         return service.record_shop(
             name,
             url,
@@ -101,6 +102,7 @@ def build_mcp(service: ProcurementService) -> FastMCP:
             lieferzeit_default_tage,
             profil_quelle_url,
             versand_text,
+            lieferziel_id,
         )
 
     @mcp.tool()
@@ -137,7 +139,7 @@ def build_mcp(service: ProcurementService) -> FastMCP:
 
     @mcp.tool()
     def plan_order(job_id: int, tempo: float) -> list[dict[str, Any]]:
-        """Bis zu drei Bestellvarianten aus den neuesten Angeboten nicht gesperrter Shops berechnen; Pins, Excludes, Versand, Mindestwerte, Lieferzeiten, Tempo und Unbekannt-Malus werden berücksichtigt."""
+        """Bis zu drei Bestellvarianten aus den neuesten Angeboten nicht gesperrter Shops berechnen; Pins, Excludes, Versand, Mindestwerte, Lieferzeiten, Tempo, Unbekannt-Malus und der Abhol-Aufschlag je Nicht-Heim-Lieferziel werden berücksichtigt."""
         return service.plan_order(job_id, tempo)
 
     @mcp.tool()
