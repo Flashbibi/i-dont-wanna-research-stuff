@@ -152,6 +152,7 @@ class FakeProcurementRepository:
                     "lieferzeit_tage": 2,
                     "lieferzeit_text": "2 Tage",
                     "lager_text": "5 Stück ab Lager",
+                    "provenienz_text": "Verkauf und Versand durch Amazon",
                     "quelle_url": "https://shop.example.ch/mg996r",
                     "produktname": "MG996R Servo",
                     "produkt_url": "https://shop.example.ch/mg996r",
@@ -362,6 +363,25 @@ def test_record_offer_stores_literal_source_text_and_parsed_upper_bound():
     assert offer["lager_text"] == "Filiale rot; CH-Lieferant an Lager"
 
 
+def test_record_offer_stores_marketplace_provenance_text():
+    procurement = service()
+
+    offer = procurement.record_offer(
+        10,
+        1,
+        "MG996R",
+        "https://shop.example.ch/mg996r",
+        12.5,
+        "3-4 Tage",
+        "lagernd",
+        artikelnummer="SKU-99",
+        provenienz_text="Verkauf und Versand durch Amazon",
+    )
+
+    assert offer["artikelnummer"] == "SKU-99"
+    assert offer["provenienz_text"] == "Verkauf und Versand durch Amazon"
+
+
 def test_record_offer_without_delivery_source_text_keeps_days_empty():
     procurement = service()
 
@@ -474,6 +494,7 @@ def test_matrix_payload_contains_provenance_delivery_source_shop_breakdown_and_c
     assert candidate["offer_id"] == 31
     assert candidate["last_candidate"] is True
     assert candidate["lieferzeit_chip"] == "2 Tage"
+    assert candidate["provenienz_text"] == "Verkauf und Versand durch Amazon"
 
 
 def test_shop_breakdown_is_sorted_by_subtotal_descending_like_reference():

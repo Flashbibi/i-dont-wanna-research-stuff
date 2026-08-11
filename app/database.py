@@ -530,12 +530,14 @@ class PostgresRepository:
                         INSERT INTO offer(
                             line_id, shop_id, produktname, produkt_url, quelle_url,
                             preis_chf, lieferzeit_tage, lieferzeit_text, lager_text, lager,
-                            artikelnummer, preis_original, waehrung, kurs, kurs_am, kurs_quelle
+                            artikelnummer, provenienz_text,
+                            preis_original, waehrung, kurs, kurs_am, kurs_quelle
                         ) VALUES (%(line_id)s, %(shop_id)s, %(produktname)s,
                                   %(produkt_url)s, %(quelle_url)s, %(preis_chf)s,
                                   %(lieferzeit_tage)s, %(lieferzeit_text)s,
                                   %(lager_text)s, %(lager)s, %(artikelnummer)s,
-                                  %(preis_original)s, %(waehrung)s, %(kurs)s,
+                                  %(provenienz_text)s, %(preis_original)s,
+                                  %(waehrung)s, %(kurs)s,
                                   %(kurs_am)s, %(kurs_quelle)s)
                         ON CONFLICT (line_id, produkt_url, beobachtungstag) DO UPDATE SET
                             shop_id = EXCLUDED.shop_id,
@@ -547,6 +549,7 @@ class PostgresRepository:
                             lager_text = EXCLUDED.lager_text,
                             lager = EXCLUDED.lager,
                             artikelnummer = COALESCE(EXCLUDED.artikelnummer, offer.artikelnummer),
+                            provenienz_text = EXCLUDED.provenienz_text,
                             preis_original = EXCLUDED.preis_original,
                             waehrung = EXCLUDED.waehrung,
                             kurs = EXCLUDED.kurs,
@@ -653,7 +656,7 @@ class PostgresRepository:
                        o.id, o.line_id, o.shop_id, o.preis_chf,
                        o.lieferzeit_tage, o.lieferzeit_text, o.lager_text,
                        o.produktname, o.produkt_url, o.quelle_url, o.gesehen_am,
-                       o.shop_produkt_id, o.artikelnummer,
+                       o.shop_produkt_id, o.artikelnummer, o.provenienz_text,
                        o.preis_original, o.waehrung, o.kurs, o.kurs_am, o.kurs_quelle,
                        bl.menge, bl.suchtext, bl.position,
                        d.override_status
@@ -779,7 +782,7 @@ class PostgresRepository:
                 """
                 SELECT o.id, o.line_id, o.produktname, o.produkt_url,
                        o.preis_chf, o.lieferzeit_tage, o.lieferzeit_text,
-                       o.lager_text, o.lager, o.gesehen_am,
+                       o.lager_text, o.lager, o.provenienz_text, o.gesehen_am,
                        s.id AS shop_id, s.name AS shop_name, s.status AS shop_status,
                        s.lieferzeit_default_tage, d.override_status AS decision
                 FROM offer o JOIN shop s ON s.id = o.shop_id

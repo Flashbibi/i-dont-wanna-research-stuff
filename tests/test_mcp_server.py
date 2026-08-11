@@ -156,7 +156,9 @@ def test_all_tool_descriptions_match_current_behavior():
             "zieht der Adapter sie beim ersten Füllen selbst von der Produktseite. "
             "Bei waehrung != CHF ist preis_chf der Preis in DIESER Währung; der Server "
             "rechnet selbst mit dem belegten Tageskurs in CHF um und legt Kurs, "
-            "Kursdatum und Quelle dazu - niemals selbst umrechnen."
+            "Kursdatum und Quelle dazu - niemals selbst umrechnen. Bei Marktplätzen "
+            "nennt provenienz_text den sichtbaren Verkäufer und die Versandpartei "
+            "wörtlich."
         ),
         "mark_line": (
             "Zeile als Bestand, nichts gefunden oder erledigt markieren; bei Bestand "
@@ -345,6 +347,7 @@ def test_record_offer_exposes_currency_and_article_number_as_optional():
 
     assert "waehrung" in properties and "waehrung" not in pflicht
     assert "artikelnummer" in properties and "artikelnummer" not in pflicht
+    assert "provenienz_text" in properties and "provenienz_text" not in pflicht
 
 
 def test_the_descriptions_state_the_currency_and_target_rules():
@@ -354,6 +357,7 @@ def test_the_descriptions_state_the_currency_and_target_rules():
     # Waehrung: der Server rechnet, der Agent liefert den Originalpreis.
     assert "niemals selbst umrechnen" in beschreibung["record_offer"]
     assert "Tageskurs" in beschreibung["record_offer"]
+    assert "Verkäufer" in beschreibung["record_offer"]
     # Ziele: Abbildung, Abweisung, Mehrdeutigkeit, kein Cross-Border.
     assert "lieferziel_id ist Pflicht" in beschreibung["record_shop"] or \
         "lieferziel_id Pflicht" in beschreibung["record_shop"]
