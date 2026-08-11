@@ -151,6 +151,15 @@ def test_job_plan_selection_migration_is_additive():
     assert "DROP " not in sql.upper()
 
 
+def test_offer_artikelnummer_migration_is_additive():
+    sql = Path("migrations/010_offer_artikelnummer.sql").read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS artikelnummer TEXT" in sql
+    assert "offer_artikelnummer_not_blank" in sql
+    assert "DELETE " not in sql.upper()
+    assert "DROP TABLE" not in sql.upper()
+
+
 def test_shop_platform_migration_is_additive_and_enforces_evidence():
     sql = Path("migrations/009_shop_platform_and_product_ids.sql").read_text(encoding="utf-8")
 

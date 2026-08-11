@@ -24,7 +24,7 @@ from tests.test_cart import (
 
 
 SHOP_URL = "https://www.bastelgarage.ch/"
-DUPONT_ROW = cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 5.90", "CHF 11.80", 42)
+DUPONT_ROW = cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 5.90", "CHF 11.80", 42, "420027")
 
 
 class CartRepository:
@@ -44,6 +44,7 @@ class CartRepository:
         self.shop_produkt_id = shop_produkt_id
         self.saved_platforms = []
         self.saved_product_ids = []
+        self.saved_artikelnummern = []
         self.selected_assignments = {"10": 31}
 
     def get_shop(self, shop_id):
@@ -63,6 +64,10 @@ class CartRepository:
     def save_offer_product_ids(self, produkt_ids):
         self.saved_product_ids.append(dict(produkt_ids))
         return len(produkt_ids)
+
+    def save_offer_artikelnummern(self, artikelnummern):
+        self.saved_artikelnummern.append(dict(artikelnummern))
+        return len(artikelnummern)
 
     def optimization_input(self, job_id):
         return {
@@ -134,6 +139,8 @@ def test_one_press_detects_then_fills_and_verifies():
     assert len(repository.saved_platforms) == 1
     assert repository.saved_platforms[0][1] == "opencart"
     assert repository.saved_product_ids == [{31: "96"}]
+    # Die Artikelnummer kommt von derselben Produktseite und wird mitgecacht.
+    assert repository.saved_artikelnummern == [{31: "420027"}]
 
 
 def test_a_timeout_during_detection_persists_nothing_and_stays_repeatable():
@@ -243,7 +250,7 @@ def test_a_mismatching_cart_blocks_the_handover():
     session = FakeSession(
         pages={SHOP_URL: HOME_HTML, DUPONT_URL: PRODUCT_HTML},
         cart_page=cart_html(
-            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 6.10", "CHF 12.20", 42),
+            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 6.10", "CHF 12.20", 42, "420027"),
             "CHF 12.20",
         ),
     )

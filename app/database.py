@@ -404,6 +404,25 @@ class PostgresRepository:
                     )
         return len(produkt_ids)
 
+    def save_offer_artikelnummern(self, artikelnummern: dict[int, str]) -> int:
+        """Shopinterne Artikelnummern cachen. Quelle ist die Produktseite.
+
+        Sie ist der sprachunabhängige Anker der Korb-Verifikation; die
+        produkt_url bleibt daneben als Provenienz stehen.
+        """
+        if not artikelnummern:
+            return 0
+        with self._connect() as connection:
+            with connection.transaction():
+                for offer_id, nummer in artikelnummern.items():
+                    if not str(nummer).strip():
+                        continue
+                    connection.execute(
+                        "UPDATE offer SET artikelnummer = %s WHERE id = %s",
+                        (str(nummer).strip(), int(offer_id)),
+                    )
+        return len(artikelnummern)
+
     def create_offer(self, **values: Any) -> dict[str, Any]:
         if values.get("lieferzeit_tage") is not None and not values.get("lieferzeit_text"):
             raise ValueError(
@@ -416,11 +435,12 @@ class PostgresRepository:
                         """
                         INSERT INTO offer(
                             line_id, shop_id, produktname, produkt_url, quelle_url,
-                            preis_chf, lieferzeit_tage, lieferzeit_text, lager_text, lager
+                            preis_chf, lieferzeit_tage, lieferzeit_text, lager_text, lager,
+                            artikelnummer
                         ) VALUES (%(line_id)s, %(shop_id)s, %(produktname)s,
                                   %(produkt_url)s, %(quelle_url)s, %(preis_chf)s,
                                   %(lieferzeit_tage)s, %(lieferzeit_text)s,
-                                  %(lager_text)s, %(lager)s)
+                                  %(lager_text)s, %(lager)s, %(artikelnummer)s)
                         ON CONFLICT (line_id, produkt_url, beobachtungstag) DO UPDATE SET
                             shop_id = EXCLUDED.shop_id,
                             produktname = EXCLUDED.produktname,
@@ -430,6 +450,7 @@ class PostgresRepository:
                             lieferzeit_text = EXCLUDED.lieferzeit_text,
                             lager_text = EXCLUDED.lager_text,
                             lager = EXCLUDED.lager,
+                            artikelnummer = COALESCE(EXCLUDED.artikelnummer, offer.artikelnummer),
                             gesehen_am = NOW()
                         RETURNING *
                         """,
@@ -531,7 +552,7 @@ class PostgresRepository:
                        o.id, o.line_id, o.shop_id, o.preis_chf,
                        o.lieferzeit_tage, o.lieferzeit_text, o.lager_text,
                        o.produktname, o.produkt_url, o.quelle_url, o.gesehen_am,
-                       o.shop_produkt_id,
+                       o.shop_produkt_id, o.artikelnummer,
                        bl.menge, bl.suchtext, bl.position,
                        d.override_status
                 FROM offer o

@@ -50,6 +50,7 @@ class ProcurementRepository(Protocol):
         self, shop_id: int, plattform: str | None, plattform_beleg: str
     ) -> dict[str, Any]: ...
     def save_offer_product_ids(self, produkt_ids: dict[int, str]) -> int: ...
+    def save_offer_artikelnummern(self, artikelnummern: dict[int, str]) -> int: ...
     def create_purchase(
         self,
         job_id: int,
@@ -268,6 +269,7 @@ class ProcurementService:
         preis_chf: Any,
         lieferzeit_text: str | None = None,
         lager_text: str | None = None,
+        artikelnummer: str | None = None,
     ) -> dict[str, Any]:
         if self.repository.get_line(line_id) is None:
             raise ValidationError(f"Zeile {line_id} ist unbekannt")
@@ -303,6 +305,7 @@ class ProcurementService:
             lieferzeit_text=normalized_delivery_text,
             lager_text=normalized_stock_text,
             lager=normalized_stock_text,
+            artikelnummer=(artikelnummer or "").strip() or None,
         )
 
     def mark_line(
@@ -813,8 +816,11 @@ class ProcurementService:
 
         adapter = build_adapter(plattform, session)
         fill = adapter.fill(shop_url, items)
-        if fill.produkt_ids and persist:
-            self.repository.save_offer_product_ids(fill.produkt_ids)
+        if persist:
+            if fill.produkt_ids:
+                self.repository.save_offer_product_ids(fill.produkt_ids)
+            if fill.artikelnummern:
+                self.repository.save_offer_artikelnummern(fill.artikelnummern)
 
         return {
             "status": "uebergabe",
@@ -867,7 +873,7 @@ class ProcurementService:
     ) -> list[CartItem]:
         data = self.repository.optimization_input(job_id)
         cached = {
-            int(row["id"]): row.get("shop_produkt_id")
+            int(row["id"]): (row.get("shop_produkt_id"), row.get("artikelnummer"))
             for row in data.get("offers", [])
         }
         return [
@@ -878,7 +884,8 @@ class ProcurementService:
                 produkt_url=line.get("produkt_url") or "",
                 menge=int(line["menge"]),
                 einzelpreis_chf=Decimal(str(line["einzelpreis_chf"])),
-                shop_produkt_id=cached.get(int(line["offer_id"])),
+                shop_produkt_id=cached.get(int(line["offer_id"]), (None, None))[0],
+                artikelnummer=cached.get(int(line["offer_id"]), (None, None))[1],
             )
             for line in variant.get("lines", [])
             if int(line["shop_id"]) == shop_id

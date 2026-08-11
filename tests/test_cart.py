@@ -46,10 +46,14 @@ PRODUCT_HTML = """
     <button onclick="wishlist.add('227');">Merken</button>
     <button onclick="compare.add('2569');">Vergleichen</button>
   </div>
+  <script type="application/ld+json">
+  {"@context":"http://schema.org","@type":"Product",
+   "name":"Dupont Jumper Cable Set 10cm 60 pieces.","model":"420027","sku":""}
+  </script>
 </body></html>
 """
 
-BREADBOARD_HTML = PRODUCT_HTML.replace('value="96"', 'value="412"')
+BREADBOARD_HTML = PRODUCT_HTML.replace('value="96"', 'value="412"').replace('"420027"', '"420467"')
 
 
 def cart_html(rows: str, zwischensumme: str) -> str:
@@ -104,6 +108,8 @@ BASTELGARAGE_CART_HTML = """
 
 BG_DUPONT = "https://www.bastelgarage.ch/dupont-jumper-cable-set-10cm-60-pieces"
 BG_BREADBOARD = "https://www.bastelgarage.ch/half-size-transparent-breadboard-zy-60"
+# Anderes Produkt als BG_BREADBOARD: das Lochraster-Board aus dem Sprach-Vorfall.
+BG_GRID = "https://www.bastelgarage.ch/breadboard-hole-grid-plug-in-board-half-size"
 
 # Echte Fehlantwort aus dem Vorfall vom 2026-08-11: derselbe Shop, dieselben
 # Produkt-IDs, aber der Korb rendert die Links in der Shop-Default-Sprache.
@@ -138,12 +144,13 @@ GERMAN_CART_HTML = """
 """
 
 
-def cart_row(url: str, name: str, menge: int, einzel: str, zeile: str, key: int) -> str:
+def cart_row(url: str, name: str, menge: int, einzel: str, zeile: str, key: int,
+             modell: str | None = None) -> str:
     return f"""
     <tr>
       <td class="text-center"><a href="{url}"><img src="/image/x.jpg" alt="{name}" /></a></td>
       <td class="text-left"><a href="{url}">{name}</a></td>
-      <td class="text-left">BG-{key}</td>
+      <td class="text-left">{modell or f"BG-{key}"}</td>
       <td class="text-left">
         <input type="text" name="quantity[{key}]" value="{menge}" size="1" class="form-control" />
       </td>
@@ -153,12 +160,12 @@ def cart_row(url: str, name: str, menge: int, einzel: str, zeile: str, key: int)
     """
 
 
-DUPONT_ROW = cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 5.90", "CHF 11.80", 42)
-BREADBOARD_ROW = cart_row(BREADBOARD_URL, "Breadboard Half Size", 1, "CHF 6.90", "CHF 6.90", 43)
+DUPONT_ROW = cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 5.90", "CHF 11.80", 42, "420027")
+BREADBOARD_ROW = cart_row(BREADBOARD_URL, "Breadboard Half Size", 1, "CHF 6.90", "CHF 6.90", 43, "420467")
 
 
 def item(url=DUPONT_URL, *, offer_id=31, menge=2, preis="5.90", name="Dupont Jumper Cable Set 10cm",
-         line_id=10, shop_produkt_id=None) -> CartItem:
+         line_id=10, shop_produkt_id=None, artikelnummer=None) -> CartItem:
     return CartItem(
         line_id=line_id,
         offer_id=offer_id,
@@ -167,6 +174,7 @@ def item(url=DUPONT_URL, *, offer_id=31, menge=2, preis="5.90", name="Dupont Jum
         menge=menge,
         einzelpreis_chf=Decimal(preis),
         shop_produkt_id=shop_produkt_id,
+        artikelnummer=artikelnummer,
     )
 
 
@@ -436,6 +444,73 @@ def test_a_cold_cache_does_not_fetch_the_first_page_twice():
     assert session.fetched.count(DUPONT_URL) == 1
 
 
+def test_the_article_number_anchors_across_languages():
+    """Die Fixture des Sprach-Vorfalls, jetzt über die Artikelnummer verankert.
+
+    Deutscher Korb, englisch erfasste URLs - der Slug passt nicht, die
+    shopinterne Nummer schon. Genau dafür ist der Anker da.
+    """
+    cart, session = adapter(
+        pages={BG_DUPONT: PRODUCT_HTML, BG_BREADBOARD: BREADBOARD_HTML},
+        cart_page=GERMAN_CART_HTML,
+    )
+
+    result = cart.fill(
+        SHOP_URL,
+        [
+            item(BG_DUPONT, offer_id=31, menge=1, preis="5.90",
+                 name="Dupont Jumper Cable Set", shop_produkt_id="96", artikelnummer="420027"),
+            item(BG_GRID, offer_id=32, menge=1, preis="4.90",
+                 name="Breadboard Lochraster Half-Size", line_id=11, shop_produkt_id="69",
+                 artikelnummer="420018"),
+        ],
+    )
+
+    assert result.verifiziert is True
+    assert result.total_chf == Decimal("10.80")
+    # Mit Nummern braucht es kein Sprach-Pinning mehr - der Anker ist
+    # sprachunabhängig, also entfällt der Zusatzabruf.
+    assert BG_DUPONT not in session.fetched
+
+
+def test_a_wrong_article_number_is_not_rescued_by_a_matching_url():
+    """Kein Rückfall auf die URL, wenn die Nummer nicht trifft - sonst wäre der
+    Anker doch wieder Aliasing."""
+    cart, _ = adapter(
+        pages={DUPONT_URL: PRODUCT_HTML},
+        cart_page=cart_html(DUPONT_ROW, "CHF 11.80"),
+    )
+
+    with pytest.raises(CartVerificationError) as error:
+        cart.fill(SHOP_URL, [item(shop_produkt_id="96", artikelnummer="999999")])
+
+    assert "Position fehlt im Korb" in str(error.value)
+
+
+def test_the_article_number_is_read_from_the_product_page_and_cached():
+    cart, _ = adapter(
+        pages={DUPONT_URL: PRODUCT_HTML},
+        cart_page=cart_html(DUPONT_ROW, "CHF 11.80"),
+    )
+
+    result = cart.fill(SHOP_URL, [item()])
+
+    assert result.produkt_ids == {31: "96"}
+    assert result.artikelnummern == {31: "420027"}
+
+
+def test_the_article_number_anchor_refuses_ambiguity():
+    from app.cart import extract_opencart_artikelnummer
+
+    zwei = PRODUCT_HTML.replace('"420027"', '"420027"') + (
+        '<script type="application/ld+json">{"@type":"Product","model":"999"}</script>'
+    )
+
+    assert extract_opencart_artikelnummer(PRODUCT_HTML) == "420027"
+    assert extract_opencart_artikelnummer(zwei) is None
+    assert extract_opencart_artikelnummer("<html></html>") is None
+
+
 def test_a_cart_rendered_in_another_language_is_blocked_not_guessed():
     """Die echte Fehlantwort des Vorfalls: gleiche Produkte, fremde Slugs.
 
@@ -449,7 +524,7 @@ def test_a_cart_rendered_in_another_language_is_blocked_not_guessed():
     assert not any("breadboard-hole-grid" in href or "dupont-jumper-cable" in href for href in hrefs)
 
     cart, _ = adapter(
-        pages={BG_DUPONT: PRODUCT_HTML, BG_BREADBOARD: BREADBOARD_HTML},
+        pages={BG_DUPONT: PRODUCT_HTML, BG_GRID: PRODUCT_HTML},
         cart_page=GERMAN_CART_HTML,
     )
 
@@ -457,9 +532,10 @@ def test_a_cart_rendered_in_another_language_is_blocked_not_guessed():
         cart.fill(
             SHOP_URL,
             [
-                item(BG_DUPONT, offer_id=31, menge=1, preis="5.90", name="Dupont Jumper Cable Set"),
-                item(BG_BREADBOARD, offer_id=32, menge=1, preis="4.90",
-                     name="Breadboard Half-Size", line_id=11),
+                item(BG_DUPONT, offer_id=31, menge=1, preis="5.90",
+                     name="Dupont Jumper Cable Set", shop_produkt_id="96"),
+                item(BG_GRID, offer_id=32, menge=1, preis="4.90",
+                     name="Breadboard Half-Size", line_id=11, shop_produkt_id="69"),
             ],
         )
 
@@ -475,7 +551,7 @@ def test_changed_shop_price_blocks_handover_with_an_exact_diff():
     cart, _ = adapter(
         pages={DUPONT_URL: PRODUCT_HTML},
         cart_page=cart_html(
-            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 6.10", "CHF 12.20", 42),
+            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 6.10", "CHF 12.20", 42, "420027"),
             "CHF 12.20",
         ),
     )
@@ -510,7 +586,7 @@ def test_quantity_mismatch_is_reported_per_position():
     cart, _ = adapter(
         pages={DUPONT_URL: PRODUCT_HTML},
         cart_page=cart_html(
-            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 1, "CHF 5.90", "CHF 5.90", 42),
+            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 1, "CHF 5.90", "CHF 5.90", 42, "420027"),
             "CHF 5.90",
         ),
     )
@@ -610,7 +686,7 @@ def test_no_session_cookie_leaks_into_any_failure_message():
     cart, _ = adapter(
         pages={DUPONT_URL: PRODUCT_HTML},
         cart_page=cart_html(
-            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 6.10", "CHF 12.20", 42),
+            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 6.10", "CHF 12.20", 42, "420027"),
             "CHF 12.20",
         ),
     )
