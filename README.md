@@ -219,6 +219,18 @@ muss pro Clone einmal aktiviert werden:
 git config core.hooksPath .githooks
 ```
 
+### Sichtbare Meldungen und E2E
+
+Ändert sich der Wortlaut oder die Form einer Meldung, die die Oberfläche zeigt,
+werden die E2E-Erwartungen **im selben Commit** mitgezogen. Sonst steht der
+Klickpfad rot, obwohl die Anwendung richtig ist — genau das ist bei der
+Netto/Brutto-Korrektur passiert, die den Diff von einer Summenzeile auf
+Pro-Position-Zeilen umgestellt hat.
+
+Lässt sich der Lauf nicht selbst fahren (Playwright liegt in CT 103), gehört in
+die Meldung der Satz **«E2E-Erwartung angepasst, Lauf ausstehend»** — angepasst
+zählt nicht als bestanden, nur gelaufen zählt.
+
 ### Migrationen
 
 Migrationen sind additiv — kein `DROP`, kein `DELETE`. Die Tests in
