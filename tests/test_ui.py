@@ -798,3 +798,8 @@ def test_the_scenario_payload_carries_the_pickup_and_import_fields():
     assert plan["lines"][0]["waehrung"] == "CHF"
     assert plan["lines"][0]["waehrung_fremd"] is False
     assert plan["lines"][0]["abholung"] is False
+    # Die Kandidatenzeilen der Matrix tragen dieselben Felder - dort schaut man
+    # beim Vergleichen hin, und nur dort rendert die Fremdwährungszeile.
+    kandidat = matrix["lines"][0]["candidates"][0]
+    for feld in ("waehrung", "waehrung_fremd", "waehrung_beleg", "abholung", "lieferziel_name"):
+        assert feld in kandidat, f"{feld} fehlt am Matrix-Kandidaten"
