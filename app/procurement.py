@@ -827,6 +827,11 @@ class ProcurementService:
                 "lager_text": row.get("lager_text"),
                 "pinned": row.get("override_status") == "pin",
                 "excluded": offer_id in excludes,
+                # Auch die Kandidatenzeilen tragen Originalbetrag, Umrechnung
+                # und Beleg - dort schaut man beim Vergleichen hin.
+                "lieferziel_name": shop.get("lieferziel_name"),
+                "abholung": str(shop.get("lieferziel_land") or "CH").upper() != "CH",
+                **cls._waehrungs_felder(row),
                 **cls._delivery_fields(row, shop),
             }
             offers_by_line.setdefault(int(row["line_id"]), []).append(candidate)
