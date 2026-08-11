@@ -126,7 +126,22 @@ try {
   const diff = rowAfterReload.locator('.cartdiff');
   await diff.waitFor();
   const diffText = (await diff.innerText()).trim();
-  assert.match(diffText, /Zwischensumme weicht ab: erfasst CHF \d+\.\d{2}, Korb CHF \d+\.\d{2}\./, `Unerwarteter Diff: ${diffText}`);
+
+  // Seit der Netto/Brutto-Korrektur vergleicht die App pro Position gegen die
+  // Zeilenpreise des Korbs, nicht mehr gegen eine Summenzeile. Der Diff nennt
+  // deshalb JEDE betroffene Position mit beiden Beträgen - genau das ist der
+  // Mehrwert gegenüber der alten Form, und genau das wird hier erwartet.
+  const positionen = [...diffText.matchAll(/([^.]+?): erfasst CHF (\d+\.\d{2}), Korb CHF (\d+\.\d{2})\./g)];
+  assert.equal(positionen.length, 2, `Erwartet zwei benannte Positionen, erhalten: ${diffText}`);
+  for (const [, name, erfasst, korb] of positionen) {
+    assert.ok(name.trim().length > 0, `Position ohne Namen im Diff: ${diffText}`);
+    assert.equal(erfasst, '1.00', `Unerwarteter Erfassungspreis: ${diffText}`);
+    assert.equal(korb, '1.30', `Unerwarteter Korbpreis: ${diffText}`);
+  }
+  // Die alte Summenform darf nicht zurückkommen.
+  assert.ok(!/Zwischensumme weicht ab/.test(diffText), `Alte Summenform im Diff: ${diffText}`);
+  evidence.mismatchPositions = positionen.map(([, name]) => name.trim());
+
   assert.equal(await rowAfterReload.locator('[data-cookie]').count(), 0, 'Bei Abweichung darf kein Cookie erscheinen');
   await rowAfterReload.getByRole('button', {name: 'Nochmal versuchen'}).waitFor();
   evidence.mismatchDiffVisible = diffText;
