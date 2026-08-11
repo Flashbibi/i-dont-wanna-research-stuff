@@ -45,6 +45,43 @@ def test_free_shipping_threshold_is_inclusive():
     assert variant.max_liefertage == 3
 
 
+def test_unknown_shipping_is_visible_but_ranked_after_a_known_total():
+    shops = [
+        ShopProfile(1, "Checkout", None, None, None, 3),
+        ShopProfile(2, "Belegt", Decimal("5.00"), None, None, 3),
+    ]
+    offers = [
+        Offer(1, 1, 1, Decimal("10.00"), 1, 3),
+        Offer(2, 1, 2, Decimal("2000000.00"), 1, 3),
+    ]
+    variants = optimize_orders(offers, shops, tempo=0, limit=10)
+
+    assert {variant.shop_ids for variant in variants} == {(1,), (2,)}
+    assert variants[0].shop_ids == (2,)
+    unknown = next(variant for variant in variants if variant.shop_ids == (1,))
+    assert unknown.shipping == {1: None}
+    assert unknown.total_chf == Decimal("10.00")
+    assert unknown.contains_unknown_shipping is True
+    scenarios = plan_scenarios(offers, shops, [1])
+    assert scenarios["cheapest"].shop_ids == (2,)
+    assert scenarios["fastest"].shop_ids == (2,)
+
+
+def test_same_shop_set_prefers_reaching_free_shipping_over_an_unknown_total():
+    shops = [ShopProfile(1, "Checkout", None, Decimal("20.00"), None, 3)]
+    offers = [
+        Offer(1, 1, 1, Decimal("10.00"), 1, 3),
+        Offer(2, 1, 1, Decimal("25.00"), 1, 3),
+    ]
+
+    variants = optimize_orders(offers, shops, tempo=0, limit=10)
+
+    assert len(variants) == 1
+    assert variants[0].assignments == {1: 2}
+    assert variants[0].shipping == {1: Decimal("0.00")}
+    assert variants[0].contains_unknown_shipping is False
+
+
 def test_rejects_shop_subset_below_minimum_order_value():
     shops = [
         ShopProfile(1, "Minimum", Decimal("0"), None, Decimal("50"), 2),

@@ -3,7 +3,7 @@
   if (!host) return;
 
   const jobId = Number(host.dataset.job);
-  const state = { data: null, tempo: 0.5, detail: null, checks: new Set(), ordered: host.dataset.status === "bestellt", cartShops: {}, cart: {}, extension: null, extensionInfo: null, handoff: {} };
+  const state = { data: null, tempo: 0.5, currencyMode: "chf", detail: null, checks: new Set(), ordered: host.dataset.status === "bestellt", cartShops: {}, cart: {}, extension: null, extensionInfo: null, handoff: {} };
 
   const HANDOFF = "beschaffung/cart-handoff";
   const HANDOFF_RESULT = "beschaffung/cart-handoff-result";
@@ -32,6 +32,32 @@
   });
   const esc = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const chf = (value) => Number(value).toFixed(2);
+  const originalMoney = (value, currency) => `${esc(String(currency || "CHF").toUpperCase())} ${Number(value).toFixed(2)}`;
+  const offerPrice = (row, chfField = "preis_chf") => (
+    state.currencyMode === "original" && row && row.waehrung_fremd && row.preis_original != null
+      ? originalMoney(row.preis_original, row.waehrung)
+      : `CHF ${chf(row && row[chfField])}`
+  );
+  const versandOriginalText = (shop, field = "versand_original") => (
+    shop && shop[field] != null
+      ? originalMoney(shop[field], shop.versand_waehrung)
+      : null
+  );
+  const versandText = (shop) => {
+    if (!shop || shop.versand_unbekannt || shop.versand_chf == null) return "Versand unbekannt";
+    if (Number(shop.versand_chf) === 0) return "gratis";
+    if (state.currencyMode === "original") {
+      const original = versandOriginalText(shop);
+      if (original) return original;
+    }
+    return `CHF ${chf(shop.versand_chf)}`;
+  };
+  const versandBeleg = (shop) => {
+    if (!shop || shop.versand_waehrung === "CHF" || shop.versand_kurs == null) return "";
+    const quelle = String(shop.versand_kurs_quelle || "").includes("frankfurter") ? "EZB" : "Quelle";
+    const datum = shop.versand_kurs_am ? `, ${esc(shop.versand_kurs_am)}` : "";
+    return ` · Kurs ${Number(shop.versand_kurs).toFixed(4)} (${quelle}${datum})`;
+  };
   const sameAssignments = (a, b) => JSON.stringify(a || {}) === JSON.stringify(b || {});
   const json = async (url, options = {}) => {
     const response = await fetch(url, {
@@ -124,6 +150,7 @@
     return [
       plan.contains_estimates ? '<span class="bdg">enthält Schätzungen</span>' : "",
       plan.contains_unknown_delivery ? '<span class="bdg unk">Lieferzeit unbekannt</span>' : "",
+      plan.contains_unknown_shipping ? '<span class="bdg unk">Versand unbekannt</span>' : "",
       plan.lines.some((line) => line.lieferzeit_bedingt) ? '<span class="bdg">bedingte Lieferzeit</span>' : "",
     ].join("");
   }
@@ -151,7 +178,7 @@
       }
       return `<div class="mc chead${classFor(column, index)}">
         <div class="labels">${column.labels.map(esc).join(" · ")}</div>
-        <div class="total"><small>CHF</small> ${chf(column.total_chf)}</div>
+        <div class="total"><small>${column.contains_unknown_shipping ? "ab CHF" : "CHF"}</small> ${chf(column.total_chf)}</div>
         <div class="days">${daysText(column)} · ${column.shop_count} Shop${column.shop_count === 1 ? "" : "s"}</div>
         ${warning}<div class="badges">${badges(column)}</div>
         <div class="act">${chosen ? '<span class="chosenmark">✓ Gewählt</span>' : `<button class="btn small" data-select="${esc(column.key)}">Diesen Plan wählen</button>`}</div>
@@ -169,14 +196,14 @@
         const differs = selected && !sameAssignments(column.assignments, selected.assignments) && selectedItem && selectedItem.offer_id !== item.offer_id;
         return `<div class="mc pcell${differs ? " diff" : ""}${classFor(column, index)}" data-row="${line.line_id}">
           <div class="prod" title="${esc(item.produktname)}">${esc(item.produktname)}</div>
-          <div class="l2"><span class="price">CHF ${chf(item.einzelpreis_chf)}</span>${chip(item)}${item.pinned ? '<span class="chip pin">gepinnt</span>' : ""}</div>
+          <div class="l2"><span class="price">${offerPrice(item, "einzelpreis_chf")}</span>${chip(item)}${item.pinned ? '<span class="chip pin">gepinnt</span>' : ""}</div>
         </div>`;
       }).join("");
       if (isOpen) html += renderDetail(line, selected);
     });
 
     html += '<div class="mc foot"><b style="color:var(--ink);font-size:12.5px">Versand</b></div>';
-    html += cols.map((column, index) => `<div class="mc foot${classFor(column, index)}">${column.shops.map((shop) => `${esc(shop.name.split(" ")[0])} ${Number(shop.versand_chf) === 0 ? '<span class="free">gratis</span>' : `CHF ${chf(shop.versand_chf)}`}`).join(" + ")}</div>`).join("");
+    html += cols.map((column, index) => `<div class="mc foot${classFor(column, index)}">${column.shops.map((shop) => `${esc(shop.name.split(" ")[0])} <span class="${shop.versand_unbekannt ? "unk" : Number(shop.versand_chf) === 0 ? "free" : ""}">${versandText(shop)}</span>`).join(" + ")}</div>`).join("");
     root.innerHTML = html;
   }
 
@@ -193,7 +220,7 @@
         ? `<button class="btn small" type="submit" name="status" value="neutral" data-decision="neutral" data-offer="${candidate.offer_id}">Pin lösen</button>`
         : `<button class="btn small" type="submit" name="status" value="pin" data-decision="pin" data-offer="${candidate.offer_id}">Pinnen</button>`;
       return `<div class="cand" id="candidate-${candidate.offer_id}">
-        <div class="l1">${inPlan ? '<span class="chip ok">im Plan</span>' : ""}${candidate.pinned ? '<span class="chip pin">gepinnt</span>' : ""}<span class="prod">${esc(candidate.produktname)}</span><span class="shop">· ${esc(candidate.shop_name)}</span><span class="price">CHF ${chf(candidate.preis_chf)}</span>${chip(candidate)}</div>
+        <div class="l1">${inPlan ? '<span class="chip ok">im Plan</span>' : ""}${candidate.pinned ? '<span class="chip pin">gepinnt</span>' : ""}<span class="prod">${esc(candidate.produktname)}</span><span class="shop">· ${esc(candidate.shop_name)}</span><span class="price">${offerPrice(candidate)}</span>${chip(candidate)}</div>
         <div class="src">${provenance} · <a href="${esc(candidate.quelle_url)}" target="_blank" rel="noopener">Seite öffnen ↗</a></div>${waehrungZeile(candidate)}
         <form class="l3" method="post" action="/offers/${candidate.offer_id}/decision"><input type="hidden" name="job_id" value="${jobId}">${action}<button class="btn small" type="submit" name="status" value="exclude" data-decision="exclude" data-offer="${candidate.offer_id}" ${candidate.last_candidate ? 'disabled title="letzter Kandidat dieser Zeile"' : ""}>Ausschliessen</button><span class="deltatx" data-delta="${candidate.offer_id}">${inPlan ? "im gewählten Plan enthalten" : "wird berechnet …"}</span></form>
       </div>`;
@@ -229,6 +256,11 @@
     document.getElementById("verdict").innerHTML = state.data.custom_verdict
       ? esc(state.data.custom_verdict).replace(/^(Ändert bei diesem Angebots-Pool nichts: )([^ ]+(?: [^ ]+)?)/, "$1<b>$2</b>")
       : state.data.custom ? "Deine Gewichtung ergibt einen eigenen Plan — neue Spalte «Eigene Gewichtung»." : "";
+    const toggle = document.getElementById("currency-toggle");
+    if (toggle) {
+      toggle.textContent = state.currencyMode === "chf" ? "Preise: CHF" : "Preise: Original";
+      toggle.setAttribute("aria-pressed", state.currencyMode === "original" ? "true" : "false");
+    }
   }
 
   function renderOpenLines() {
@@ -296,7 +328,7 @@
     const summary = document.getElementById("railsum");
     const order = document.getElementById("railorder");
     if (!selected) { summary.innerHTML = order.innerHTML = ""; return; }
-    summary.innerHTML = `<h2>Gewählter Plan</h2><div class="big"><small>CHF</small> ${chf(selected.total_chf)}</div>
+    summary.innerHTML = `<h2>Gewählter Plan</h2><div class="big"><small>${selected.contains_unknown_shipping ? "ab CHF" : "CHF"}</small> ${chf(selected.total_chf)}</div>
       <div class="rrow"><span class="k">Plan</span><span>${selected.labels.map(esc).join(" · ")}</span></div>
       <div class="rrow"><span class="k">Lieferzeit</span><span>${daysText(selected)}</span></div>
       <div class="rrow"><span class="k">Shops</span><span>${selected.shop_count}</span></div>
@@ -320,10 +352,19 @@
       })();
       const items = selected.lines.filter((line) => Number(line.shop_id) === Number(shop.id));
       const links = `<details><summary>Produktlinks öffnen ↗</summary><ul class="shop-links">${items.map((line) => `<li><a href="${esc(line.quelle_url)}" target="_blank" rel="noopener">${esc(line.produktname)} ↗</a></li>`).join("")}</ul></details>`;
-      return `<div class="shoprow"><div class="top"><span class="nm">${esc(shop.name)}</span><span class="amt">CHF ${chf(Number(shop.subtotal_chf) + Number(shop.versand_chf))}</span></div><div class="sub">${shop.artikelanzahl} Artikel · Versand ${Number(shop.versand_chf) === 0 ? "gratis" : `CHF ${chf(shop.versand_chf)}`}${shop.abholung ? ` · <b>Abholung: ${esc(shop.lieferziel_name)}</b>` : ""}</div>${links}${threshold}${cartBlock(shop)}<label><input type="checkbox" data-shop="${shop.id}" ${checked ? "checked" : ""}> bei ${esc(shop.name.split(" ")[0])} bestellt</label></div>`;
+      const shopAmount = shop.versand_unbekannt
+        ? `CHF ${chf(shop.subtotal_chf)} + Versand unbekannt`
+        : `CHF ${chf(Number(shop.subtotal_chf) + Number(shop.versand_chf))}`;
+      return `<div class="shoprow"><div class="top"><span class="nm">${esc(shop.name)}</span><span class="amt">${shopAmount}</span></div><div class="sub">${shop.artikelanzahl} Artikel · Versand ${versandText(shop)}${versandBeleg(shop)}${shop.abholung ? ` · <b>Abholung: ${esc(shop.lieferziel_name)}</b>` : ""}</div>${links}${threshold}${cartBlock(shop)}<label><input type="checkbox" data-shop="${shop.id}" ${checked ? "checked" : ""}> bei ${esc(shop.name.split(" ")[0])} bestellt</label></div>`;
     }).join("");
     const allChecked = selected.shops.every((shop) => state.checks.has(String(shop.id)));
-    order.innerHTML = `<h2>Bestellen</h2>${shopRows}<button class="cta" id="record-purchase" ${allChecked && !selected.incomplete ? "" : "disabled"}>Bestellung erfassen</button>${selected.incomplete ? '<div class="note">Unvollständige Pläne können nicht erfasst werden.</div>' : '<div class="note">Links öffnen, in jedem Shop bestellen, abhaken. Zahlung bleibt bei dir.</div>'}`;
+    const canRecord = allChecked && !selected.incomplete && !selected.contains_unknown_shipping;
+    const orderNote = selected.incomplete
+      ? "Unvollständige Pläne können nicht erfasst werden."
+      : selected.contains_unknown_shipping
+        ? "Bestellung erst erfassen, wenn alle Versandkosten bekannt und neu berechnet sind."
+        : "Links öffnen, in jedem Shop bestellen, abhaken. Zahlung bleibt bei dir.";
+    order.innerHTML = `<h2>Bestellen</h2>${shopRows}<button class="cta" id="record-purchase" ${canRecord ? "" : "disabled"}>Bestellung erfassen</button><div class="note">${orderNote}</div>`;
   }
 
   function render() {
@@ -347,6 +388,13 @@
     const cartFill = event.target.closest("[data-cart]");
     const cartCopy = event.target.closest("[data-copy]");
     const cartHandoff = event.target.closest("[data-handoff]");
+    const currencyToggle = event.target.closest("#currency-toggle");
+
+    if (currencyToggle) {
+      state.currencyMode = state.currencyMode === "chf" ? "original" : "chf";
+      render();
+      return;
+    }
 
     if (cartHandoff) {
       event.preventDefault();

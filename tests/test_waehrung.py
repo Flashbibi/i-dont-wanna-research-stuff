@@ -195,6 +195,44 @@ def test_record_offer_in_chf_stays_a_no_op_with_rate_one():
     assert gespeichert["kurs_quelle"] is None
 
 
+def test_record_shop_converts_foreign_shipping_and_keeps_original_evidence():
+    service, _ = euro_service()
+
+    shop = service.record_shop(
+        "Amazon.de", "https://www.amazon.de/", "DE",
+        "6.99", "49.00", None, 5,
+        "https://www.amazon.de/hilfe/versand", "6,99 EUR; gratis ab 49 EUR",
+        lieferziel_id=1, waehrung="EUR",
+    )
+
+    assert shop["land"] == "DE"
+    assert shop["lieferziel_id"] == 1
+    assert shop["versand_original"] == Decimal("6.99")
+    assert shop["gratis_ab_original"] == Decimal("49.00")
+    assert shop["versand_waehrung"] == "EUR"
+    assert shop["versand_chf"] == Decimal("6.57")
+    assert shop["gratis_ab_chf"] == Decimal("46.06")
+    assert shop["versand_kurs"] == Decimal("0.94")
+    assert shop["versand_kurs_quelle"].startswith("https://api.frankfurter.app/")
+
+
+def test_record_shop_allows_unknown_shipping_without_inventing_a_zero():
+    service, _ = euro_service()
+
+    shop = service.record_shop(
+        "SparkFun", "https://www.sparkfun.com/", "US",
+        None, None, None, 3,
+        "https://www.sparkfun.com/support#shipping-policy",
+        "Versandkosten erst adressabhängig im Checkout",
+        lieferziel_id=1, waehrung="USD",
+    )
+
+    assert shop["versand_original"] is None
+    assert shop["versand_chf"] is None
+    assert shop["versand_waehrung"] == "USD"
+    assert shop["versand_kurs"] is None
+
+
 def test_a_foreign_price_without_any_rate_is_refused_without_writing():
     repository = FakeProcurementRepository()
     service = ProcurementService(repository)
@@ -216,3 +254,16 @@ def test_a_foreign_price_without_any_rate_is_refused_without_writing():
         waehrung_modul.fetch_kurs = original
 
     assert repository.offers == []
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+def test_shop_shipping_rejects_non_finite_amounts(value):
+    service, _ = euro_service()
+
+    with pytest.raises(ValidationError, match="endliche Zahl"):
+        service.record_shop(
+            "Kaputt", "https://invalid.example", "CH",
+            value, None, None, None,
+            "https://invalid.example/shipping", "Unzulässiger Testwert",
+            lieferziel_id=1,
+        )

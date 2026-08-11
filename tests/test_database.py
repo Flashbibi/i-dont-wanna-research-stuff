@@ -119,6 +119,13 @@ def test_optimization_input_selects_the_columns_the_cart_handover_needs():
         "lieferziel_land",
         "lieferziel_aufschlag_chf",
         "lieferziel_zuschlag_tage",
+        "versand_original",
+        "gratis_ab_original",
+        "mindestbestellwert_original",
+        "versand_waehrung",
+        "versand_kurs",
+        "versand_kurs_am",
+        "versand_kurs_quelle",
     ):
         assert column in shop_query
     offer_query = next(sql for sql in statements if "FROM offer o" in sql)
@@ -194,6 +201,46 @@ def test_get_stock_returns_only_positive_stock_in_stable_order():
     assert "WHERE menge > 0" in connection.sql
     assert "ORDER BY lower(bezeichnung), id" in connection.sql
     assert rows[0]["bezeichnung"] == "Servo"
+
+
+def test_shop_writes_original_shipping_currency_and_rate_evidence():
+    class ShopConnection(Connection):
+        def __init__(self):
+            self.statements = []
+
+        def execute(self, sql, params=None):
+            normalized = " ".join(sql.split())
+            self.statements.append((normalized, params))
+            return Result(one={"id": 8, **(params or {})})
+
+    repository = PostgresRepository("unused")
+    connection = ShopConnection()
+    repository._connect = lambda: connection
+    values = {
+        "name": "Amazon.de", "url": "https://amazon.de", "domain": "amazon.de",
+        "land": "DE", "lieferziel_id": 1,
+        "versand_chf": "6.57", "gratis_ab_chf": "46.06",
+        "mindestbestellwert_chf": None, "lieferzeit_default_tage": 5,
+        "profil_quelle_url": "https://amazon.de/hilfe", "versand_text": "6,99 EUR",
+        "versand_original": "6.99", "gratis_ab_original": "49.00",
+        "mindestbestellwert_original": None, "versand_waehrung": "EUR",
+        "versand_kurs": "0.94", "versand_kurs_am": date(2026, 8, 11),
+        "versand_kurs_quelle": "https://api.frankfurter.app/latest",
+    }
+
+    repository.create_shop(**values)
+    repository.update_shop_profile(8, **{key: value for key, value in values.items() if key not in {
+        "name", "url", "domain", "land", "lieferziel_id"
+    }})
+
+    insert_sql, _ = connection.statements[0]
+    update_sql, _ = connection.statements[1]
+    for column in (
+        "versand_original", "gratis_ab_original", "mindestbestellwert_original",
+        "versand_waehrung", "versand_kurs", "versand_kurs_am", "versand_kurs_quelle",
+    ):
+        assert column in insert_sql
+        assert column in update_sql
 
 
 class OfferConnection:

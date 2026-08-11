@@ -22,6 +22,7 @@
         <div class="legendline"><span class="sw"></span>markierte Zellen weichen vom gewählten Plan ab · Zeile anklicken, um Kandidaten zu sehen und zu ändern</div>
         <div class="tuner">
           <label for="tempo">Gewichtung</label>
+          <button type="button" class="btn small" id="currency-toggle">Preise: CHF</button>
           <span class="cap">billig</span>
           <input type="range" id="tempo" min="0" max="100" value="50" step="5" aria-label="Gewichtung zwischen billig und schnell">
           <span class="cap">schnell</span>
@@ -40,4 +41,4 @@
   </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/job-matrix.js?v=4" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/job-matrix.js?v=5" defer></script>{% endblock %}

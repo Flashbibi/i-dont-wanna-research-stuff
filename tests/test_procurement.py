@@ -442,6 +442,32 @@ def test_plan_order_calls_pure_optimizer_and_serializes_variant():
     assert variants[0]["score"] == "43.000"
 
 
+def test_plan_scenarios_serializes_unknown_shipping_without_stringifying_none():
+    repository = FakeProcurementRepository()
+    repository.optimization_input = lambda _: {
+        **FakeProcurementRepository().optimization_input(5),
+        "shops": [{
+            "id": 1, "name": "Checkout", "url": "https://shop.example.ch",
+            "versand_chf": None, "gratis_ab_chf": None,
+            "mindestbestellwert_chf": None, "lieferzeit_default_tage": 3,
+            "versand_original": None, "gratis_ab_original": None,
+            "mindestbestellwert_original": None, "versand_waehrung": "USD",
+            "versand_kurs": None, "versand_kurs_am": None,
+            "versand_kurs_quelle": None,
+        }],
+    }
+
+    result = ProcurementService(repository).plan_scenarios(5)
+    scenario = result["scenarios"][0]
+
+    assert scenario["contains_unknown_shipping"] is True
+    assert scenario["shipping"]["1"] is None
+    assert scenario["shops"][0]["versand_chf"] is None
+    assert scenario["shops"][0]["versand_original"] is None
+    assert scenario["shops"][0]["versand_waehrung"] == "USD"
+    assert scenario["shops"][0]["versand_unbekannt"] is True
+
+
 def test_plan_scenarios_groups_identical_presets_and_keeps_badges():
     """Ohne Auslandsangebote faellt «Nur Schweiz» mit dem Gesamtoptimum zusammen.
 
@@ -712,3 +738,25 @@ def test_record_purchase_requires_valid_timestamp_shop_promises_and_variant():
         procurement.record_purchase(5, variant, "2026-08-09T12:00:00+00:00", {})
     with pytest.raises(ValidationError, match="Variante"):
         procurement.record_purchase(5, {"shop_ids": [1]}, "2026-08-09T12:00:00+00:00", {"1": 3})
+
+
+def test_record_purchase_rejects_a_plan_with_unknown_shipping():
+    repository = FakeProcurementRepository()
+    original = repository.optimization_input
+
+    def with_unknown_shipping(job_id):
+        data = original(job_id)
+        data["shops"][0]["versand_chf"] = None
+        return data
+
+    repository.optimization_input = with_unknown_shipping
+    procurement = ProcurementService(repository)
+    variant = procurement.plan_order(5, 0)[0]
+
+    with pytest.raises(ValidationError, match="Versandkosten sind unbekannt"):
+        procurement.record_purchase(
+            5,
+            variant,
+            "2026-08-09T12:00:00+00:00",
+            {"1": 3},
+        )

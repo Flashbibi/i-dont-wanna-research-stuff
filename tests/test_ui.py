@@ -22,6 +22,7 @@ class UIRepository:
         self.product_id_writes = []
         self.artikelnummer_writes = []
         self.lieferziel_writes = []
+        self.shop_profile_writes = []
 
     def create_job(self, source_text, lines):
         return 7
@@ -219,6 +220,10 @@ class UIRepository:
     def update_shop_status(self, shop_id, status):
         self.shop_status = (shop_id, status)
         return {"id": shop_id, "status": status}
+
+    def update_shop_profile(self, shop_id, **values):
+        self.shop_profile_writes.append({"id": shop_id, **values})
+        return {"id": shop_id, **values}
 
 
 def client_and_repo():
@@ -713,7 +718,8 @@ def test_the_shops_page_lets_linus_add_and_edit_delivery_addresses():
     assert 'action="/lieferziele"' in page
     assert 'action="/lieferziele/1"' in page
     # Die Semantik steht auf der Seite, nicht nur im Auftrag.
-    assert "eröffnet den Heimmarkt ihres Landes" in page
+    assert "Shopherkunft und Lieferziel sind getrennte Fakten" in page
+    assert "aus jedem Land stammen" in page
 
     angelegt = client.post(
         "/lieferziele",
@@ -741,6 +747,24 @@ def test_an_address_in_a_country_without_a_known_currency_is_rejected():
     assert "Währung" in response.json()["detail"]
 
 
+def test_shop_profile_api_accepts_unknown_shipping_and_keeps_currency():
+    client, repository = client_and_repo()
+
+    response = client.put("/api/shops/1/profile", json={
+        "versand_chf": None,
+        "gratis_ab_chf": None,
+        "mindestbestellwert_chf": None,
+        "lieferzeit_default_tage": 3,
+        "profil_quelle_url": "https://shop.example.ch/shipping",
+        "versand_text": "Versandkosten erst im Checkout",
+        "waehrung": "USD",
+    })
+
+    assert response.status_code == 200
+    assert repository.shop_profile_writes[0]["versand_chf"] is None
+    assert repository.shop_profile_writes[0]["versand_waehrung"] == "USD"
+
+
 def test_history_repeat_arrival_and_shop_moderation_are_available():
     client, repository = client_and_repo()
 
@@ -756,6 +780,7 @@ def test_history_repeat_arrival_and_shop_moderation_are_available():
     assert arrived.status_code == 303
     assert repository.arrived == [90]
     assert "Servo Shop" in shops.text
+    assert "Shopherkunft und Lieferziel sind getrennte Fakten" in shops.text
     assert updated.status_code == 303
     assert repository.shop_status == (1, "bestaetigt")
 
@@ -763,12 +788,18 @@ def test_history_repeat_arrival_and_shop_moderation_are_available():
 def test_the_browser_shows_currency_evidence_pickup_and_no_quick_action_for_only_ch():
     script = Path("static/job-matrix.js").read_text(encoding="utf-8")
     css = Path("static/app.css").read_text(encoding="utf-8")
+    page = client_and_repo()[0].get("/jobs/7").text
 
     # Fremdwährung: Original, Umrechnung und Beleg - wie bei Lieferzeit-Texten.
     assert "waehrung_fremd" in script
     assert "preis_original_text" in script
     assert "waehrung_beleg" in script
     assert '<div class="fx">' in script and ".fx {" in css
+    assert 'id="currency-toggle"' in page
+    assert "currencyMode" in script
+    assert "versandOriginalText" in script
+    assert "versand_kurs" in script
+    assert "versand_unbekannt" in script
 
     # Abholung sichtbar am Shop und als eigene Zeile im Total.
     assert "Abholung: ${esc(shop.lieferziel_name)}" in script

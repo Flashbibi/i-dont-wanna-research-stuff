@@ -99,6 +99,12 @@ def test_mcp_exposes_exact_procurement_tools():
     assert "lager_text" in properties
     assert "lieferzeit_tage" not in properties
     assert "lager" not in properties
+    record_shop = next(tool for tool in tools if tool.name == "record_shop")
+    shop_properties = record_shop.inputSchema["properties"]
+    assert "waehrung" in shop_properties
+    assert {entry.get("type") for entry in shop_properties["versand_chf"]["anyOf"]} == {
+        "number", "null"
+    }
 
 
 def test_all_tool_descriptions_match_current_behavior():
@@ -140,13 +146,13 @@ def test_all_tool_descriptions_match_current_behavior():
             "eine Zeile gemeinsam laden (read-only)."
         ),
         "record_shop": (
-            "Shop mit angegebener HTTP(S)-Profilquelle, Versand-Originaltext und "
-            "validierten Profilwerten erfassen. Das Land wird auf eine konfigurierte "
-            "Lieferadresse abgebildet: gibt es für dieses Land keine, wird abgewiesen; "
-            "gibt es mehrere, ist lieferziel_id Pflicht. Die Adresse eröffnet den "
-            "Heimmarkt ihres Landes (eine DE-Adresse heisst innerdeutscher Versand "
-            "dorthin) - kein Cross-Border. Angebote dieses Shops müssen in der Währung "
-            "seines Ziels erfasst werden."
+            "Shop mit tatsächlichem Herkunftsland, explizitem Lieferziel, HTTP(S)-"
+            "Profilquelle und Versand-Originaltext erfassen. Shopland und Lieferziel "
+            "dürfen verschieden sein; ohne lieferziel_id wird nur bei genau einer Adresse "
+            "im Shopland abgeleitet. Bei waehrung != CHF tragen versand_chf, "
+            "gratis_ab_chf und mindestbestellwert_chf die Originalbeträge; der Server "
+            "rechnet sie mit belegtem Tageskurs um. Unbekannte Versandkosten werden als "
+            "null erfasst, niemals als kostenlos."
         ),
         "record_offer": (
             "Angebot einer bekannten Zeile bei einem nicht gesperrten Shop erfassen "
@@ -358,10 +364,11 @@ def test_the_descriptions_state_the_currency_and_target_rules():
     assert "niemals selbst umrechnen" in beschreibung["record_offer"]
     assert "Tageskurs" in beschreibung["record_offer"]
     assert "Verkäufer" in beschreibung["record_offer"]
-    # Ziele: Abbildung, Abweisung, Mehrdeutigkeit, kein Cross-Border.
-    assert "lieferziel_id ist Pflicht" in beschreibung["record_shop"] or \
-        "lieferziel_id Pflicht" in beschreibung["record_shop"]
-    assert "kein Cross-Border" in beschreibung["record_shop"]
+    # Shopherkunft, Lieferziel und Versandwährung sind getrennte Fakten.
+    assert "Shopland und Lieferziel dürfen verschieden sein" in beschreibung["record_shop"]
+    assert "ohne lieferziel_id" in beschreibung["record_shop"]
+    assert "Tageskurs" in beschreibung["record_shop"]
+    assert "null erfasst, niemals als kostenlos" in beschreibung["record_shop"]
     # Aufschlag und Indikator stehen im Vertrag, nicht nur im Code.
     assert "einmal pro Ziel und Plan" in beschreibung["plan_scenarios"]
     assert "keine Steuer berechnet" in beschreibung["plan_scenarios"]

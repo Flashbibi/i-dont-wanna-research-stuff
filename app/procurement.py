@@ -89,6 +89,8 @@ def _decimal(value: Any, field: str, *, positive: bool = False) -> Decimal:
         result = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError) as error:
         raise ValidationError(f"{field} muss eine Zahl sein") from error
+    if not result.is_finite():
+        raise ValidationError(f"{field} muss eine endliche Zahl sein")
     if positive and result <= 0:
         raise ValidationError(f"{field} muss groesser als 0 sein")
     if not positive and result < 0:
@@ -202,13 +204,14 @@ class ProcurementService:
         lieferzeit_default_tage: int | None,
         profil_quelle_url: str,
         versand_text: str,
+        waehrung: str = HOME_CURRENCY,
     ) -> dict[str, Any]:
         if not profil_quelle_url or not profil_quelle_url.strip():
             raise ValidationError("Profil-Quelle fehlt")
         _hostname(profil_quelle_url, "Profil-Quelle")
         if not versand_text or not versand_text.strip():
             raise ValidationError("Versand-Originaltext fehlt")
-        shipping = _decimal(versand_chf, "Versand")
+        shipping = None if versand_chf is None else _decimal(versand_chf, "Versand")
         free_from = None if gratis_ab_chf is None else _decimal(gratis_ab_chf, "Gratisgrenze")
         minimum = (
             None
@@ -219,10 +222,32 @@ class ProcurementService:
             not isinstance(lieferzeit_default_tage, int) or lieferzeit_default_tage <= 0
         ):
             raise ValidationError("Standard-Lieferzeit muss leer oder eine positive ganze Tageszahl sein")
+        code = (waehrung or HOME_CURRENCY).strip().upper()
+        originals = {
+            "versand": shipping,
+            "gratis_ab": free_from,
+            "mindestbestellwert": minimum,
+        }
+        converted: dict[str, Decimal | None] = {}
+        evidence: dict[str, Any] | None = None
+        for key, value in originals.items():
+            if value is None:
+                converted[key] = None
+                continue
+            result = self._umrechnung(code, value)
+            converted[key] = result["preis_chf"]
+            evidence = result["spalten"]
         return {
-            "versand_chf": shipping,
-            "gratis_ab_chf": free_from,
-            "mindestbestellwert_chf": minimum,
+            "versand_chf": converted["versand"],
+            "gratis_ab_chf": converted["gratis_ab"],
+            "mindestbestellwert_chf": converted["mindestbestellwert"],
+            "versand_original": shipping,
+            "gratis_ab_original": free_from,
+            "mindestbestellwert_original": minimum,
+            "versand_waehrung": code,
+            "versand_kurs": None if evidence is None else evidence["kurs"],
+            "versand_kurs_am": None if evidence is None else evidence["kurs_am"],
+            "versand_kurs_quelle": None if evidence is None else evidence["kurs_quelle"],
             "lieferzeit_default_tage": lieferzeit_default_tage,
             "profil_quelle_url": profil_quelle_url.strip(),
             "versand_text": versand_text.strip(),
@@ -301,16 +326,12 @@ class ProcurementService:
         )
 
     def _ziel_fuer_land(self, land: str, lieferziel_id: int | None = None) -> dict[str, Any]:
-        """Das Lieferziel eines Shops bestimmen - ohne Raten bei Mehrdeutigkeit."""
+        """Lieferziel bestimmen; Shopland und Ziel dürfen verschieden sein."""
         code = (land or "").strip().upper()
         if lieferziel_id is not None:
             ziel = self.repository.get_lieferziel(lieferziel_id)
             if ziel is None:
                 raise ValidationError(f"Lieferadresse {lieferziel_id} ist unbekannt")
-            if str(ziel["land"]).upper() != code:
-                raise ValidationError(
-                    f"Lieferadresse «{ziel['name']}» liegt in {ziel['land']}, nicht in {code}"
-                )
             return ziel
         kandidaten = self.repository.lieferziele_fuer_land(code)
         if not kandidaten:
@@ -337,10 +358,12 @@ class ProcurementService:
         profil_quelle_url: str,
         versand_text: str,
         lieferziel_id: int | None = None,
+        waehrung: str = HOME_CURRENCY,
     ) -> dict[str, Any]:
-        # Das Land wird auf das konfigurierte Lieferziel abgebildet. Kein Ziel
-        # fuer das Land -> Abweisung; mehrere -> explizite Angabe noetig.
-        ziel = self._ziel_fuer_land(land, lieferziel_id)
+        code = (land or "").strip().upper()
+        if len(code) != 2 or not code.isalpha():
+            raise ValidationError("Shop-Land muss ein zweibuchstabiger Ländercode sein")
+        ziel = self._ziel_fuer_land(code, lieferziel_id)
         if not name.strip():
             raise ValidationError("Shop-Name fehlt")
         domain = _hostname(url, "Shop-URL")
@@ -351,12 +374,13 @@ class ProcurementService:
             lieferzeit_default_tage=lieferzeit_default_tage,
             profil_quelle_url=profil_quelle_url,
             versand_text=versand_text,
+            waehrung=waehrung,
         )
         return self.repository.create_shop(
             name=name.strip(),
             url=url,
             domain=domain,
-            land=str(ziel["land"]).upper(),
+            land=code,
             lieferziel_id=int(ziel["id"]),
             **profile,
         )
@@ -371,6 +395,7 @@ class ProcurementService:
         lieferzeit_default_tage: int | None,
         profil_quelle_url: str,
         versand_text: str,
+        waehrung: str = HOME_CURRENCY,
     ) -> dict[str, Any]:
         if self.repository.get_shop(shop_id) is None:
             raise ValidationError(f"Shop {shop_id} ist unbekannt")
@@ -381,6 +406,7 @@ class ProcurementService:
             lieferzeit_default_tage=lieferzeit_default_tage,
             profil_quelle_url=profil_quelle_url,
             versand_text=versand_text,
+            waehrung=waehrung,
         )
         return self.repository.update_shop_profile(shop_id, **profile)
 
@@ -409,7 +435,6 @@ class ProcurementService:
         # Bei Fremdwährung ist der übergebene Betrag der Originalpreis; den
         # CHF-Wert rechnet der Server selbst aus, mit belegtem Tageskurs.
         original = _decimal(preis_chf, "Preis", positive=True)
-        self._pruefe_waehrung_passt_zum_shop(shop, waehrung)
         umrechnung = self._umrechnung(waehrung, original)
         price = umrechnung["preis_chf"]
         product_domain = _hostname(produkt_url, "Produkt-URL")
@@ -440,25 +465,6 @@ class ProcurementService:
             provenienz_text=(provenienz_text or "").strip() or None,
             **umrechnung["spalten"],
         )
-
-    def _pruefe_waehrung_passt_zum_shop(self, shop: Mapping[str, Any], waehrung: str) -> None:
-        """Ein CH-Shop rechnet nicht in EUR ab und umgekehrt.
-
-        Die Zielwaehrung steht am Lieferziel des Shops; ohne Ziel gilt die
-        Heimwaehrung. Das faengt vertauschte Betraege ab, bevor sie als
-        umgerechneter CHF-Wert in der Historie landen.
-        """
-        code = (waehrung or HOME_CURRENCY).strip().upper()
-        ziel_id = shop.get("lieferziel_id")
-        erwartet = HOME_CURRENCY
-        if ziel_id is not None:
-            ziel = self.repository.get_lieferziel(int(ziel_id))
-            if ziel is not None:
-                erwartet = str(ziel["waehrung"]).upper()
-        if code != erwartet:
-            raise ValidationError(
-                f"Shop liefert nach {erwartet}; ein Angebot in {code} passt nicht dazu"
-            )
 
     def _umrechnung(self, waehrung: str, preis_original: Decimal) -> dict[str, Any]:
         """Originalpreis in CHF überführen und die Umrechnung belegen.
@@ -897,6 +903,10 @@ class ProcurementService:
         if not matches:
             raise ValidationError("Variante ist unvollstaendig, veraendert oder nicht mehr gueltig")
         canonical_variant = matches[0]
+        if canonical_variant.get("contains_unknown_shipping"):
+            raise ValidationError(
+                "Bestellung kann nicht erfasst werden: Versandkosten sind unbekannt"
+            )
         shop_keys = {str(shop_id) for shop_id in canonical_variant["shop_ids"]}
         if set(zugesagt_liefertage_pro_shop) != shop_keys or any(
             not isinstance(days, int) or days <= 0
@@ -1190,8 +1200,41 @@ class ProcurementService:
                     if shop_rows[shop_id].get("gratis_ab_chf") is None
                     else str(shop_rows[shop_id]["gratis_ab_chf"])
                 ),
+                "versand_original": (
+                    None
+                    if shop_rows[shop_id].get("versand_original") is None
+                    else str(shop_rows[shop_id]["versand_original"])
+                ),
+                "gratis_ab_original": (
+                    None
+                    if shop_rows[shop_id].get("gratis_ab_original") is None
+                    else str(shop_rows[shop_id]["gratis_ab_original"])
+                ),
+                "mindestbestellwert_original": (
+                    None
+                    if shop_rows[shop_id].get("mindestbestellwert_original") is None
+                    else str(shop_rows[shop_id]["mindestbestellwert_original"])
+                ),
+                "versand_waehrung": str(
+                    shop_rows[shop_id].get("versand_waehrung") or HOME_CURRENCY
+                ).upper(),
+                "versand_kurs": (
+                    None
+                    if shop_rows[shop_id].get("versand_kurs") is None
+                    else str(shop_rows[shop_id]["versand_kurs"])
+                ),
+                "versand_kurs_am": (
+                    None
+                    if shop_rows[shop_id].get("versand_kurs_am") is None
+                    else str(shop_rows[shop_id]["versand_kurs_am"])
+                ),
+                "versand_kurs_quelle": shop_rows[shop_id].get("versand_kurs_quelle"),
                 "artikelanzahl": assignment_shop_counts.get(shop_id, 0),
-                "versand_gratis": Decimal(variant["shipping"][str(shop_id)]) == 0,
+                "versand_gratis": (
+                    variant["shipping"][str(shop_id)] is not None
+                    and Decimal(variant["shipping"][str(shop_id)]) == 0
+                ),
+                "versand_unbekannt": variant["shipping"][str(shop_id)] is None,
                 "lieferziel_name": shop_rows[shop_id].get("lieferziel_name"),
                 "lieferziel_land": str(shop_rows[shop_id].get("lieferziel_land") or "CH").upper(),
                 "abholung": str(shop_rows[shop_id].get("lieferziel_land") or "CH").upper() != "CH",
@@ -1333,7 +1376,11 @@ class ProcurementService:
             ShopProfile(
                 id=int(row["id"]),
                 name=row["name"],
-                versand_chf=Decimal(str(row["versand_chf"])),
+                versand_chf=(
+                    None
+                    if row.get("versand_chf") is None
+                    else Decimal(str(row["versand_chf"]))
+                ),
                 gratis_ab_chf=(
                     None
                     if row.get("gratis_ab_chf") is None
@@ -1369,12 +1416,16 @@ class ProcurementService:
             "shop_ids": list(variant.shop_ids),
             "assignments": {str(key): value for key, value in variant.assignments.items()},
             "subtotals": {str(key): str(value) for key, value in variant.subtotals.items()},
-            "shipping": {str(key): str(value) for key, value in variant.shipping.items()},
+            "shipping": {
+                str(key): (None if value is None else str(value))
+                for key, value in variant.shipping.items()
+            },
             "total_chf": str(variant.total_chf),
             "max_liefertage": variant.max_liefertage,
             "score": str(variant.score),
             "contains_estimates": variant.contains_estimates,
             "contains_unknown_delivery": variant.contains_unknown_delivery,
+            "contains_unknown_shipping": variant.contains_unknown_shipping,
             "missing_line_ids": list(variant.missing_line_ids),
             "aufschlaege": [
                 {"lieferziel_id": ziel_id, "name": name, "betrag_chf": str(betrag)}

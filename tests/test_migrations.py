@@ -186,6 +186,21 @@ def test_offer_provenance_migration_is_additive():
     assert "DROP TABLE" not in sql.upper()
 
 
+def test_shop_shipping_currency_migration_preserves_originals_and_allows_unknown_costs():
+    sql = Path("migrations/015_shop_shipping_currency.sql").read_text(encoding="utf-8")
+
+    for column in (
+        "versand_original", "gratis_ab_original", "mindestbestellwert_original",
+        "versand_waehrung", "versand_kurs", "versand_kurs_am", "versand_kurs_quelle",
+    ):
+        assert f"ADD COLUMN IF NOT EXISTS {column}" in sql
+    assert "ALTER COLUMN versand_chf DROP NOT NULL" in sql
+    assert "UPDATE shop" in sql
+    assert "shop_foreign_shipping_requires_evidence" in sql
+    assert "DELETE " not in sql.upper()
+    assert "DROP TABLE" not in sql.upper()
+
+
 def test_lieferziel_migration_derives_the_home_address_from_stock_data():
     sql = Path("migrations/012_lieferziel.sql").read_text(encoding="utf-8")
 
