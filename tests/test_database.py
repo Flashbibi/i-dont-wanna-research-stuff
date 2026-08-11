@@ -313,6 +313,10 @@ def test_create_offer_updates_same_day_but_inserts_new_daily_observation():
     assert "lieferzeit_text, lager_text" in insert_sql
     assert "provenienz_text" in insert_sql
     assert "provenienz_text = EXCLUDED.provenienz_text" in insert_sql
+    assert any(
+        "status = 'kandidaten', kommentar = NULL" in sql
+        for sql, _ in connection.statements
+    )
     # Die Preishistorie fuehrt den Originalbetrag mit.
     assert "preis_original" in insert_sql
     assert first["id"] == corrected["id"]
