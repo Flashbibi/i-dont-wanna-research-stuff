@@ -34,6 +34,27 @@ RATE_TIMEOUT = 15
 KURS_USER_AGENT = "beschaffung/1.0 (LAN-Beschaffungstool)"
 
 
+#: Währung folgt dem Land des Lieferziels, ist aber überschreibbar - deshalb
+#: eine Ableitung und keine Regel.
+LAND_WAEHRUNG = {
+    "CH": "CHF",
+    "LI": "CHF",
+    "DE": "EUR",
+    "AT": "EUR",
+    "FR": "EUR",
+    "IT": "EUR",
+    "NL": "EUR",
+    "BE": "EUR",
+    "ES": "EUR",
+    "GB": "GBP",
+    "US": "USD",
+}
+
+
+def waehrung_fuer_land(land: str) -> str | None:
+    return LAND_WAEHRUNG.get((land or "").strip().upper())
+
+
 class KursError(ValueError):
     """Kein Kurs beschaffbar und auch keiner bekannt."""
 

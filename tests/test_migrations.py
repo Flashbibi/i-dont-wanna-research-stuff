@@ -177,6 +177,19 @@ def test_currency_migration_backfills_stock_rows_and_demands_evidence():
     assert "DROP TABLE" not in sql.upper()
 
 
+def test_lieferziel_migration_derives_the_home_address_from_stock_data():
+    sql = Path("migrations/012_lieferziel.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS lieferziel" in sql
+    assert "ADD COLUMN IF NOT EXISTS lieferziel_id" in sql
+    # Kein fest verdrahtetes Ziel: die Heimadresse entsteht aus dem Bestand und
+    # nur, wenn es noch keine gibt.
+    assert "WHERE NOT EXISTS (SELECT 1 FROM lieferziel WHERE land = 'CH')" in sql
+    assert "aufschlag_chf" in sql and "zuschlag_tage" in sql
+    assert "DELETE " not in sql.upper()
+    assert "DROP TABLE" not in sql.upper()
+
+
 def test_shop_platform_migration_is_additive_and_enforces_evidence():
     sql = Path("migrations/009_shop_platform_and_product_ids.sql").read_text(encoding="utf-8")
 

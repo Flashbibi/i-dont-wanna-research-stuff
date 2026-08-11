@@ -167,7 +167,7 @@ def test_record_offer_converts_server_side_and_keeps_the_evidence():
     service, repository = euro_service()
 
     gespeichert = service.record_offer(
-        10, 1, "Servo", "https://shop.example.ch/servo", "7.99",
+        10, 2, "Servo", "https://www.reichelt.de/servo", "7.99",
         lieferzeit_text="2 Tage", waehrung="EUR",
     )
 
@@ -209,7 +209,7 @@ def test_a_foreign_price_without_any_rate_is_refused_without_writing():
     try:
         with pytest.raises(ValidationError):
             service.record_offer(
-                10, 1, "Servo", "https://shop.example.ch/servo", "7.99",
+                10, 2, "Servo", "https://www.reichelt.de/servo", "7.99",
                 lieferzeit_text="2 Tage", waehrung="EUR",
             )
     finally:

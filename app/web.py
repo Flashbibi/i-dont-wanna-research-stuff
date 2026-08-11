@@ -185,8 +185,59 @@ def create_app(
     @application.get("/shops", response_class=HTMLResponse)
     def shops(request: Request):
         return TEMPLATES.TemplateResponse(
-            request, "shops.html", {"shops": active_repository.list_shops()}
+            request,
+            "shops.html",
+            {
+                "shops": active_repository.list_shops(),
+                "lieferziele": procurement.list_lieferziele(),
+            },
         )
+
+    @application.post("/lieferziele")
+    def create_lieferziel_form(
+        name: str = Form(...),
+        adresse: str = Form(...),
+        land: str = Form(...),
+        waehrung: str = Form(""),
+        aufschlag_chf: str = Form("0"),
+        zuschlag_tage: str = Form("0"),
+    ):
+        try:
+            procurement.record_lieferziel(
+                name,
+                adresse,
+                land,
+                waehrung=waehrung or None,
+                aufschlag_chf=aufschlag_chf or 0,
+                zuschlag_tage=int(zuschlag_tage or 0),
+            )
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+        return RedirectResponse("/shops", status_code=303)
+
+    @application.post("/lieferziele/{lieferziel_id}")
+    def update_lieferziel_form(
+        lieferziel_id: int,
+        adresse: str = Form(...),
+        waehrung: str = Form(...),
+        aufschlag_chf: str = Form("0"),
+        zuschlag_tage: str = Form("0"),
+    ):
+        try:
+            procurement.update_lieferziel(
+                lieferziel_id,
+                adresse=adresse,
+                waehrung=waehrung,
+                aufschlag_chf=aufschlag_chf or 0,
+                zuschlag_tage=int(zuschlag_tage or 0),
+            )
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+        return RedirectResponse("/shops", status_code=303)
+
+    @application.get("/api/lieferziele")
+    def list_lieferziele() -> list[dict[str, Any]]:
+        return procurement.list_lieferziele()
 
     @application.post("/shops/{shop_id}/status")
     def update_shop(shop_id: int, status: str = Form(...)):

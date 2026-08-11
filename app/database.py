@@ -404,6 +404,67 @@ class PostgresRepository:
                     )
         return len(produkt_ids)
 
+    def list_lieferziele(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT z.id, z.name, z.adresse, z.land, z.waehrung,
+                       z.aufschlag_chf, z.zuschlag_tage,
+                       (SELECT count(*) FROM shop s WHERE s.lieferziel_id = z.id) AS shop_count
+                FROM lieferziel z ORDER BY z.land, z.name
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_lieferziel(self, lieferziel_id: int) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM lieferziel WHERE id = %s", (lieferziel_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def lieferziele_fuer_land(self, land: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM lieferziel WHERE land = %s ORDER BY id", (land,)
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def create_lieferziel(self, **values: Any) -> dict[str, Any]:
+        try:
+            with self._connect() as connection:
+                row = connection.execute(
+                    """
+                    INSERT INTO lieferziel(
+                        name, adresse, land, waehrung, aufschlag_chf, zuschlag_tage
+                    ) VALUES (%(name)s, %(adresse)s, %(land)s, %(waehrung)s,
+                              %(aufschlag_chf)s, %(zuschlag_tage)s)
+                    RETURNING *
+                    """,
+                    values,
+                ).fetchone()
+                return dict(row)
+        except UniqueViolation as error:
+            raise ValueError(f"Lieferadresse «{values['name']}» gibt es schon") from error
+
+    def update_lieferziel(self, lieferziel_id: int, **values: Any) -> dict[str, Any]:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                UPDATE lieferziel SET
+                    adresse = %(adresse)s,
+                    waehrung = %(waehrung)s,
+                    aufschlag_chf = %(aufschlag_chf)s,
+                    zuschlag_tage = %(zuschlag_tage)s
+                WHERE id = %(lieferziel_id)s
+                RETURNING *
+                """,
+                {"lieferziel_id": lieferziel_id, **values},
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Lieferadresse {lieferziel_id} ist unbekannt")
+            return dict(row)
+
     def get_kurs(self, waehrung: str) -> dict[str, Any] | None:
         """Neuesten bekannten Kurs einer Währung lesen."""
         with self._connect() as connection:
@@ -617,10 +678,16 @@ class PostgresRepository:
                 }
             shops = connection.execute(
                 """
-                SELECT id, name, url, versand_chf, gratis_ab_chf,
-                       mindestbestellwert_chf, lieferzeit_default_tage,
-                       plattform, plattform_beleg, plattform_geprueft_am
-                FROM shop WHERE id = ANY(%s)
+                SELECT s.id, s.name, s.url, s.versand_chf, s.gratis_ab_chf,
+                       s.mindestbestellwert_chf, s.lieferzeit_default_tage,
+                       s.plattform, s.plattform_beleg, s.plattform_geprueft_am,
+                       s.lieferziel_id,
+                       z.name AS lieferziel_name, z.land AS lieferziel_land,
+                       z.waehrung AS lieferziel_waehrung,
+                       z.aufschlag_chf AS lieferziel_aufschlag_chf,
+                       z.zuschlag_tage AS lieferziel_zuschlag_tage
+                FROM shop s LEFT JOIN lieferziel z ON z.id = s.lieferziel_id
+                WHERE s.id = ANY(%s)
                 """,
                 (shop_ids,),
             ).fetchall()

@@ -360,3 +360,16 @@ summary { cursor: pointer; }
 .oneclick:hover { background:var(--accent-dark); border-color:var(--accent-dark); }
 .extver { display:block; margin-top:5px; font-size:11px; color:var(--muted); text-align:center; }
 .extnote { margin-top:0; }
+
+/* Lieferadressen (Shops-Seite) */
+#lieferziele { margin-bottom:16px; }
+#lieferziele h2 { font-size:15px; margin:0; }
+table.ziele { width:100%; border-collapse:collapse; margin-top:10px; font-size:12.5px; }
+table.ziele th { text-align:left; font-weight:600; color:var(--muted); font-size:11px; padding:4px 6px; border-bottom:1px solid var(--line); }
+table.ziele td { padding:5px 6px; border-bottom:1px solid var(--line-soft); vertical-align:middle; }
+table.ziele input { border:1px solid var(--line); border-radius:6px; padding:3px 6px; font-size:12px; }
+.ziel-neu { margin-top:10px; font-size:12.5px; }
+.ziel-neu > summary { cursor:pointer; color:var(--accent-dark); font-weight:600; }
+.zielform { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin-top:10px; }
+.zielform label { display:flex; flex-direction:column; gap:3px; font-size:11px; color:var(--muted); }
+.zielform input { border:1px solid var(--line); border-radius:6px; padding:5px 7px; font-size:12.5px; }

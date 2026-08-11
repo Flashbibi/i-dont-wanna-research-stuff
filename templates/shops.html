@@ -2,6 +2,46 @@
 {% block title %}Shops{% endblock %}
 {% block content %}
 <div class="section-head"><div><p class="eyebrow">Profile</p><h1>Shops</h1></div></div>
+
+<section class="panel" id="lieferziele">
+  <h2>Lieferadressen</h2>
+  <p class="note">Eine Adresse eröffnet den Heimmarkt ihres Landes — eine deutsche
+    Adresse heisst innerdeutscher Versand dorthin. Den Grenzübertritt machst du
+    selbst; Abholaufwand und Wartezeit trägst du hier ein, damit sie im
+    Plan-Total sichtbar werden.</p>
+  <table class="data ziele">
+    <thead><tr><th>Ziel</th><th>Adresse</th><th>Währung</th><th>Aufschlag</th><th>Wartezeit</th><th>Shops</th><th></th></tr></thead>
+    <tbody>
+    {% for ziel in lieferziele %}
+      <tr>
+        <td><b>{{ ziel.name }}</b>{% if ziel.ist_heimat %} <span class="bdg">Zuhause</span>{% endif %}<div class="note">{{ ziel.land }}</div></td>
+        <form method="post" action="/lieferziele/{{ ziel.id }}">
+          <td><input type="text" name="adresse" value="{{ ziel.adresse }}" size="24"></td>
+          <td><input type="text" name="waehrung" value="{{ ziel.waehrung }}" size="4"></td>
+          <td>CHF <input type="text" name="aufschlag_chf" value="{{ ziel.aufschlag_chf }}" size="5"></td>
+          <td><input type="text" name="zuschlag_tage" value="{{ ziel.zuschlag_tage }}" size="3"> Tage</td>
+          <td>{{ ziel.shop_count if ziel.shop_count is defined else '–' }}</td>
+          <td><button>Speichern</button></td>
+        </form>
+      </tr>
+    {% else %}<tr><td colspan="7" class="muted">Noch keine Lieferadresse.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+
+  <details class="ziel-neu">
+    <summary>Lieferadresse hinzufügen</summary>
+    <form method="post" action="/lieferziele" class="zielform">
+      <label>Name <input type="text" name="name" placeholder="Postfach (DE)" required></label>
+      <label>Adresse <input type="text" name="adresse" placeholder="Strasse, PLZ Ort" required></label>
+      <label>Land <input type="text" name="land" placeholder="DE" size="3" maxlength="2" required></label>
+      <label>Währung <input type="text" name="waehrung" placeholder="folgt dem Land" size="6"></label>
+      <label>Abhol-Aufschlag CHF <input type="text" name="aufschlag_chf" value="0" size="5"></label>
+      <label>Wartezeit Tage <input type="text" name="zuschlag_tage" value="0" size="3"></label>
+      <button class="primary">Anlegen</button>
+    </form>
+  </details>
+</section>
+
 <div class="list">
 {% for shop in shops %}
 <section class="panel shop-row">
