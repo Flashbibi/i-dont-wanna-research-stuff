@@ -310,11 +310,11 @@ class PostgresRepository:
                     INSERT INTO shop(
                         name, url, domain, land, versand_chf, gratis_ab_chf,
                         mindestbestellwert_chf, lieferzeit_default_tage,
-                        profil_quelle_url, versand_text
+                        profil_quelle_url, versand_text, lieferziel_id
                     ) VALUES (%(name)s, %(url)s, %(domain)s, %(land)s,
                               %(versand_chf)s, %(gratis_ab_chf)s,
                               %(mindestbestellwert_chf)s, %(lieferzeit_default_tage)s,
-                              %(profil_quelle_url)s, %(versand_text)s)
+                              %(profil_quelle_url)s, %(versand_text)s, %(lieferziel_id)s)
                     RETURNING *
                     """,
                     values,

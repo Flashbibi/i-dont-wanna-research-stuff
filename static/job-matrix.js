@@ -54,6 +54,13 @@
     if (plan.max_liefertage == null) return "Lieferzeit unbekannt";
     return `max. ${plan.max_liefertage} ${plan.max_liefertage === 1 ? "Tag" : "Tage"}${plan.max_delivery_only_estimated ? " (geschätzt)" : ""}`;
   };
+  const waehrungZeile = (row) => {
+    if (!row || !row.waehrung_fremd) return "";
+    const beleg = row.waehrung_beleg ? ` · ${esc(row.waehrung_beleg)}` : "";
+    return `<div class="fx">${esc(row.preis_original_text)} → CHF ${chf(row.einzelpreis_chf ?? row.preis_chf)}${beleg}</div>`;
+  };
+  const abholZeile = (row) => row && row.abholung
+    ? `<span class="chip pickup">Abholung: ${esc(row.lieferziel_name)}</span>` : "";
   const chip = (line) => {
     if (!line || line.lieferzeit_tage == null) return '<span class="chip unk">Lieferzeit unbekannt</span>';
     const kind = line.lieferzeit_geschaetzt || line.lieferzeit_bedingt ? "est" : "ok";
@@ -135,7 +142,12 @@
       if (column.incomplete) {
         const missing = state.data.lines.filter((line) => column.missing_line_ids.includes(line.line_id)).map((line) => line.suchtext).join(", ");
         const extra = full ? Number(full.total_chf) - Number(column.total_chf) : 0;
-        warning = `<div class="warn">deckt ${esc(missing)} nicht ab${full ? ` — <a href="#" data-fix="${esc(full.key)}">Vollplan wählen (+CHF ${chf(extra)})</a>` : ""}</div>`;
+        // «Nur Schweiz» zeigt die offenen Zeilen, aber ohne Quick-Action: der
+        // Sprung auf den Vollplan IST hier die Auslandsentscheidung und gehört
+        // nicht als Nebenbei-Link daneben.
+        const nurCh = (column.keys || []).includes("only_ch");
+        const fix = full && !nurCh ? ` — <a href="#" data-fix="${esc(full.key)}">Vollplan wählen (+CHF ${chf(extra)})</a>` : "";
+        warning = `<div class="warn">deckt ${esc(missing)} nicht ab${fix}</div>`;
       }
       return `<div class="mc chead${classFor(column, index)}">
         <div class="labels">${column.labels.map(esc).join(" · ")}</div>
@@ -179,7 +191,7 @@
         : `<button class="btn small" type="submit" name="status" value="pin" data-decision="pin" data-offer="${candidate.offer_id}">Pinnen</button>`;
       return `<div class="cand" id="candidate-${candidate.offer_id}">
         <div class="l1">${inPlan ? '<span class="chip ok">im Plan</span>' : ""}${candidate.pinned ? '<span class="chip pin">gepinnt</span>' : ""}<span class="prod">${esc(candidate.produktname)}</span><span class="shop">· ${esc(candidate.shop_name)}</span><span class="price">CHF ${chf(candidate.preis_chf)}</span>${chip(candidate)}</div>
-        <div class="src">${provenance} · <a href="${esc(candidate.quelle_url)}" target="_blank" rel="noopener">Seite öffnen ↗</a></div>
+        <div class="src">${provenance} · <a href="${esc(candidate.quelle_url)}" target="_blank" rel="noopener">Seite öffnen ↗</a></div>${waehrungZeile(candidate)}
         <form class="l3" method="post" action="/offers/${candidate.offer_id}/decision"><input type="hidden" name="job_id" value="${jobId}">${action}<button class="btn small" type="submit" name="status" value="exclude" data-decision="exclude" data-offer="${candidate.offer_id}" ${candidate.last_candidate ? 'disabled title="letzter Kandidat dieser Zeile"' : ""}>Ausschliessen</button><span class="deltatx" data-delta="${candidate.offer_id}">${inPlan ? "im gewählten Plan enthalten" : "wird berechnet …"}</span></form>
       </div>`;
     }).join("");
@@ -285,6 +297,8 @@
       <div class="rrow"><span class="k">Plan</span><span>${selected.labels.map(esc).join(" · ")}</span></div>
       <div class="rrow"><span class="k">Lieferzeit</span><span>${daysText(selected)}</span></div>
       <div class="rrow"><span class="k">Shops</span><span>${selected.shop_count}</span></div>
+      ${(selected.aufschlaege || []).map((a) => `<div class="rrow pickup-row"><span class="k">Abholung ${esc(a.name)}</span><span>CHF ${chf(a.betrag_chf)}</span></div>`).join("")}
+      ${(selected.einfuhr || []).map((e) => `<div class="note ${e.ueber_freigrenze ? "warn" : ""}">${esc(e.text)}</div>`).join("")}
       ${selected.contains_estimates ? '<div class="note">Geschätzte Zeiten stammen aus Shop-Standards — echte Zeiten lernt das Tool, sobald du Lieferungen mit «Angekommen» bestätigst.</div>' : ""}`;
 
     if (state.ordered) {
@@ -303,7 +317,7 @@
       })();
       const items = selected.lines.filter((line) => Number(line.shop_id) === Number(shop.id));
       const links = `<details><summary>Produktlinks öffnen ↗</summary><ul class="shop-links">${items.map((line) => `<li><a href="${esc(line.quelle_url)}" target="_blank" rel="noopener">${esc(line.produktname)} ↗</a></li>`).join("")}</ul></details>`;
-      return `<div class="shoprow"><div class="top"><span class="nm">${esc(shop.name)}</span><span class="amt">CHF ${chf(Number(shop.subtotal_chf) + Number(shop.versand_chf))}</span></div><div class="sub">${shop.artikelanzahl} Artikel · Versand ${Number(shop.versand_chf) === 0 ? "gratis" : `CHF ${chf(shop.versand_chf)}`}</div>${links}${threshold}${cartBlock(shop)}<label><input type="checkbox" data-shop="${shop.id}" ${checked ? "checked" : ""}> bei ${esc(shop.name.split(" ")[0])} bestellt</label></div>`;
+      return `<div class="shoprow"><div class="top"><span class="nm">${esc(shop.name)}</span><span class="amt">CHF ${chf(Number(shop.subtotal_chf) + Number(shop.versand_chf))}</span></div><div class="sub">${shop.artikelanzahl} Artikel · Versand ${Number(shop.versand_chf) === 0 ? "gratis" : `CHF ${chf(shop.versand_chf)}`}${shop.abholung ? ` · <b>Abholung: ${esc(shop.lieferziel_name)}</b>` : ""}</div>${links}${threshold}${cartBlock(shop)}<label><input type="checkbox" data-shop="${shop.id}" ${checked ? "checked" : ""}> bei ${esc(shop.name.split(" ")[0])} bestellt</label></div>`;
     }).join("");
     const allChecked = selected.shops.every((shop) => state.checks.has(String(shop.id)));
     order.innerHTML = `<h2>Bestellen</h2>${shopRows}<button class="cta" id="record-purchase" ${allChecked && !selected.incomplete ? "" : "disabled"}>Bestellung erfassen</button>${selected.incomplete ? '<div class="note">Unvollständige Pläne können nicht erfasst werden.</div>' : '<div class="note">Links öffnen, in jedem Shop bestellen, abhaken. Zahlung bleibt bei dir.</div>'}`;

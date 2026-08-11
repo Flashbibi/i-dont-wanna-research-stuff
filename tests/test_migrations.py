@@ -190,6 +190,17 @@ def test_lieferziel_migration_derives_the_home_address_from_stock_data():
     assert "DROP TABLE" not in sql.upper()
 
 
+def test_shop_country_check_widens_instead_of_dropping_validation():
+    sql = Path("migrations/013_shop_land_beyond_ch.sql").read_text(encoding="utf-8")
+
+    # Die alte CH-Fessel faellt, aber es bleibt eine Pruefung stehen.
+    assert "DROP CONSTRAINT IF EXISTS shop_land_check" in sql
+    assert "shop_land_is_a_country_code" in sql
+    assert "^[A-Z]{2}$" in sql
+    assert "DELETE " not in sql.upper()
+    assert "DROP TABLE" not in sql.upper()
+
+
 def test_shop_platform_migration_is_additive_and_enforces_evidence():
     sql = Path("migrations/009_shop_platform_and_product_ids.sql").read_text(encoding="utf-8")
 

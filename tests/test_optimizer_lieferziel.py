@@ -170,7 +170,13 @@ def test_only_ch_becomes_its_own_plan_once_a_foreign_offer_is_cheaper():
     assert presets["only_ch"].aufschlaege == ()
 
 
-def test_only_ch_is_absent_when_the_home_market_cannot_cover_every_line():
+def test_only_ch_appears_incomplete_and_names_the_lines_it_cannot_cover():
+    """Nicht verschwinden, sondern zeigen - wie «Ein Shop».
+
+    Die Liste der offenen Zeilen ist genau die Auskunft, welche Positionen ins
+    Ausland zwingen. Ein stillschweigend entfallendes Preset würde sie
+    unterschlagen.
+    """
     shops = [heimat(), deutsch(2, "Reichelt")]
     offers = [
         angebot(1, 10, 1, "10.00", tage=2),
@@ -178,6 +184,21 @@ def test_only_ch_is_absent_when_the_home_market_cannot_cover_every_line():
     ]
 
     presets = plan_scenarios(offers, shops, required_line_ids=[10, 11])
+
+    assert "only_ch" in presets
+    nur_ch = presets["only_ch"]
+    assert nur_ch.missing_line_ids == (11,)
+    # Der abgedeckte Teil ist echt gerechnet, nicht leer.
+    assert nur_ch.assignments == {10: 1}
+    assert nur_ch.total_chf == Decimal("10.00")
+    assert nur_ch.aufschlaege == ()
+
+
+def test_only_ch_stays_away_only_when_the_home_market_has_nothing_at_all():
+    shops = [heimat(), deutsch(2, "Reichelt")]
+    offers = [angebot(2, 11, 2, "20.00", tage=2)]
+
+    presets = plan_scenarios(offers, shops, required_line_ids=[11])
 
     assert "only_ch" not in presets
 

@@ -757,3 +757,44 @@ def test_history_repeat_arrival_and_shop_moderation_are_available():
     assert "Servo Shop" in shops.text
     assert updated.status_code == 303
     assert repository.shop_status == (1, "bestaetigt")
+
+
+def test_the_browser_shows_currency_evidence_pickup_and_no_quick_action_for_only_ch():
+    script = Path("static/job-matrix.js").read_text(encoding="utf-8")
+    css = Path("static/app.css").read_text(encoding="utf-8")
+
+    # Fremdwährung: Original, Umrechnung und Beleg - wie bei Lieferzeit-Texten.
+    assert "waehrung_fremd" in script
+    assert "preis_original_text" in script
+    assert "waehrung_beleg" in script
+    assert '<div class="fx">' in script and ".fx {" in css
+
+    # Abholung sichtbar am Shop und als eigene Zeile im Total.
+    assert "Abholung: ${esc(shop.lieferziel_name)}" in script
+    assert "pickup-row" in script and "aufschlaege" in script
+    assert "chip.pickup" in css
+
+    # Wertfreigrenzen-Indikator wird angezeigt, nicht gerechnet.
+    assert "einfuhr" in script
+    assert "ueber_freigrenze" in script
+
+    # «Nur Schweiz» zeigt die offenen Zeilen, aber ohne Quick-Action.
+    assert 'includes("only_ch")' in script
+    assert "deckt ${esc(missing)} nicht ab" in script
+
+
+def test_the_scenario_payload_carries_the_pickup_and_import_fields():
+    client, _ = client_and_repo()
+
+    matrix = client.post("/api/jobs/7/scenarios", json={"tempo": 0.5}).json()
+    plan = matrix["scenarios"][0]
+
+    # Rein schweizerischer Testbestand: Felder da, aber leer.
+    assert plan["aufschlaege"] == []
+    assert plan["aufschlag_chf"] == "0.00"
+    assert plan["einfuhr"] == []
+    assert plan["enthaelt_abholung"] is False
+    assert plan["deckt_nicht_ab"] is None
+    assert plan["lines"][0]["waehrung"] == "CHF"
+    assert plan["lines"][0]["waehrung_fremd"] is False
+    assert plan["lines"][0]["abholung"] is False
