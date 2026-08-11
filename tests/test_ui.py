@@ -458,7 +458,7 @@ def test_variants_page_and_server_side_tempo_api_include_links_and_totals():
     assert scenarios.status_code == 200
     grouped = scenarios.json()["scenarios"]
     assert len(grouped) == 1
-    assert grouped[0]["keys"] == ["cheapest", "fastest", "one_shop", "balanced"]
+    assert grouped[0]["keys"] == ["cheapest", "fastest", "one_shop", "balanced", "only_ch"]
     assert grouped[0]["same_result_note"]
 
 

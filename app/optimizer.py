@@ -27,6 +27,13 @@ class ShopProfile:
     gratis_ab_chf: Decimal | None
     mindestbestellwert_chf: Decimal | None
     lieferzeit_default_tage: int | None
+    #: Lieferziel des Shops. Die Heimadresse kostet nichts extra; ein fremdes
+    #: Ziel kostet Linus eine Abholfahrt und Wartezeit.
+    lieferziel_id: int | None = None
+    lieferziel_name: str | None = None
+    aufschlag_chf: Decimal = Decimal("0.00")
+    zuschlag_tage: int = 0
+    ist_heimat: bool = True
 
 
 @dataclass(frozen=True)
@@ -56,6 +63,13 @@ class OrderVariant:
     contains_estimates: bool = False
     contains_unknown_delivery: bool = False
     missing_line_ids: tuple[int, ...] = ()
+    #: (lieferziel_id, name, betrag) je beteiligtem Nicht-Heim-Ziel, einmal pro
+    #: Ziel und Plan - eine Abholfahrt, egal wie viele Shops dort liegen.
+    aufschlaege: tuple[tuple[int, str, Decimal], ...] = ()
+
+    @property
+    def aufschlag_chf(self) -> Decimal:
+        return sum((betrag for _, _, betrag in self.aufschlaege), Decimal("0.00"))
 
 
 def _validated_inputs(
@@ -131,13 +145,45 @@ def _build_variant(
             if free_from is not None and subtotals[shop_id] >= free_from
             else shop.versand_chf
         )
-    total = sum(subtotals.values(), Decimal("0.00")) + sum(
-        shipping.values(), Decimal("0.00")
+    # Abhol-Aufschlag: einmal pro beteiligtem Nicht-Heim-Ziel, nicht pro Shop.
+    # Zwei deutsche Shops im selben Plan sind eine Fahrt, nicht zwei.
+    aufschlaege_nach_ziel: dict[int, tuple[str, Decimal]] = {}
+    for shop_id in shop_ids:
+        shop = shops_by_id[shop_id]
+        if shop.ist_heimat or shop.lieferziel_id is None:
+            continue
+        aufschlaege_nach_ziel[shop.lieferziel_id] = (
+            shop.lieferziel_name or f"Ziel {shop.lieferziel_id}",
+            shop.aufschlag_chf,
+        )
+    aufschlaege = tuple(
+        (ziel_id, name, betrag)
+        for ziel_id, (name, betrag) in sorted(aufschlaege_nach_ziel.items())
     )
+
+    total = (
+        sum(subtotals.values(), Decimal("0.00"))
+        + sum(shipping.values(), Decimal("0.00"))
+        + sum((betrag for _, _, betrag in aufschlaege), Decimal("0.00"))
+    )
+    # Wartezeit bis zur Abholung liegt oben auf der Lieferzeit jedes Shops
+    # dieses Ziels.
     effective_days = [
-        offer.lieferzeit_tage
-        if offer.lieferzeit_tage is not None
-        else shops_by_id[offer.shop_id].lieferzeit_default_tage
+        None
+        if (
+            offer.lieferzeit_tage
+            if offer.lieferzeit_tage is not None
+            else shops_by_id[offer.shop_id].lieferzeit_default_tage
+        )
+        is None
+        else (
+            (
+                offer.lieferzeit_tage
+                if offer.lieferzeit_tage is not None
+                else shops_by_id[offer.shop_id].lieferzeit_default_tage
+            )
+            + shops_by_id[offer.shop_id].zuschlag_tage
+        )
         for offer in chosen.values()
     ]
     known_days = [value for value in effective_days if value is not None]
@@ -159,6 +205,7 @@ def _build_variant(
         ),
         contains_unknown_delivery=max_days is None,
         missing_line_ids=missing_line_ids,
+        aufschlaege=aufschlaege,
     )
 
 
@@ -283,6 +330,31 @@ def plan_scenarios(
         )
         scenarios["balanced"] = min(
             complete,
+            key=lambda item: (
+                item.score,
+                item.total_chf,
+                _delivery_rank(item.max_liefertage),
+                item.shop_ids,
+            ),
+        )
+
+    # «Nur Schweiz»: identische Rechnung, eingeschränkt auf Shops mit
+    # Heim-Lieferziel. Deckt sich das Ergebnis mit dem Gesamtoptimum - solange
+    # es keine Auslandsangebote gibt, ist das der Normalfall - verschmelzen die
+    # Labels weiter oben über die gemeinsame Identität.
+    heimat_shops = {
+        shop_id for shop_id, shop in shops_by_id.items() if shop.ist_heimat
+    }
+    nur_heimat = {
+        line_id: [offer for offer in offers if offer.shop_id in heimat_shops]
+        for line_id, offers in filtered.items()
+    }
+    heimat_komplett = _complete_variants(
+        nur_heimat, shops_by_id, required_line_ids, tempo=0.5
+    )
+    if heimat_komplett:
+        scenarios["only_ch"] = min(
+            heimat_komplett,
             key=lambda item: (
                 item.score,
                 item.total_chf,
