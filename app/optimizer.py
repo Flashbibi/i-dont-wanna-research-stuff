@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from decimal import Decimal
-from itertools import product
+from itertools import combinations, product
 
 
 TEMPO_COST_PER_DAY_CHF = Decimal("15.00")
@@ -210,20 +210,332 @@ def _build_variant(
     )
 
 
+def _effektive_tage(offer: Offer, shops_by_id: dict[int, ShopProfile]) -> int | None:
+    """Lieferzeit inklusive Wartezeit des Lieferziels; None heisst unbekannt."""
+    shop = shops_by_id[offer.shop_id]
+    tage = offer.lieferzeit_tage
+    if tage is None:
+        tage = shop.lieferzeit_default_tage
+    return None if tage is None else tage + shop.zuschlag_tage
+
+
+def _guenstigste_zuordnung(
+    ordered_lines: list[int],
+    kandidaten: dict[int, list[Offer]],
+    shops_by_id: dict[int, ShopProfile],
+    obergrenze_tage: int | None,
+) -> dict[int, Offer] | None:
+    """Pro Zeile das billigste Angebot innerhalb der Lieferzeit-Obergrenze.
+
+    ``obergrenze_tage=None`` heisst «keine Schranke» und lässt damit auch
+    Angebote mit unbekannter Lieferzeit zu.
+    """
+    chosen: dict[int, Offer] = {}
+    for line_id in ordered_lines:
+        pool = kandidaten[line_id]
+        if obergrenze_tage is not None:
+            pool = [
+                offer
+                for offer in pool
+                if (tage := _effektive_tage(offer, shops_by_id)) is not None
+                and tage <= obergrenze_tage
+            ]
+        if not pool:
+            return None
+        chosen[line_id] = min(
+            pool,
+            key=lambda offer: (
+                offer.positionspreis,
+                _delivery_rank(_effektive_tage(offer, shops_by_id)),
+                offer.id,
+            ),
+        )
+    return chosen
+
+
+def _subtotals(zuordnung: dict[int, Offer]) -> dict[int, Decimal]:
+    summen: dict[int, Decimal] = {}
+    for offer in zuordnung.values():
+        summen[offer.shop_id] = summen.get(offer.shop_id, Decimal("0.00")) + offer.positionspreis
+    return summen
+
+
+def _aufstocken(
+    zuordnung: dict[int, Offer],
+    kandidaten: dict[int, list[Offer]],
+    shops_by_id: dict[int, ShopProfile],
+    shop_id: int,
+    ziel: Decimal,
+    obergrenze_tage: int | None,
+) -> dict[int, Offer] | None:
+    """Bei einem Shop teurer einkaufen, bis seine Zwischensumme ``ziel`` erreicht.
+
+    Aufgestockt wird in der Reihenfolge der kleinsten Aufpreise, damit das Ziel
+    möglichst günstig erreicht wird. Reicht das Sortiment nicht aus, gibt es
+    ``None``.
+    """
+    aufgestockt = dict(zuordnung)
+    fehlt = ziel - _subtotals(zuordnung).get(shop_id, Decimal("0.00"))
+    if fehlt <= 0:
+        return aufgestockt
+
+    def erlaubt(offer: Offer) -> bool:
+        if obergrenze_tage is None:
+            return True
+        tage = _effektive_tage(offer, shops_by_id)
+        return tage is not None and tage <= obergrenze_tage
+
+    # Mögliche Schritte, je Zeile. Zwei Arten, die Zwischensumme zu heben:
+    #   * teurere Variante innerhalb des Shops -> bringt die Preisdifferenz
+    #   * eine Zeile aus einem anderen Shop herholen -> bringt den vollen
+    #     Positionspreis und spart nebenbei womöglich einen zweiten Versand
+    # Sortiert wird nach Mehrkosten, damit das Ziel so günstig wie möglich
+    # erreicht wird.
+    schritte: list[tuple[Decimal, Decimal, int, Offer]] = []
+    for line_id, aktuell in zuordnung.items():
+        for offer in kandidaten[line_id]:
+            if offer.shop_id != shop_id or not erlaubt(offer):
+                continue
+            mehrkosten = offer.positionspreis - aktuell.positionspreis
+            beitrag = (
+                offer.positionspreis - aktuell.positionspreis
+                if aktuell.shop_id == shop_id
+                else offer.positionspreis
+            )
+            if beitrag > 0:
+                schritte.append((mehrkosten, beitrag, line_id, offer))
+    schritte.sort(key=lambda eintrag: (eintrag[0], -eintrag[1], eintrag[3].id))
+
+    gewonnen = Decimal("0.00")
+    benutzt: set[int] = set()
+    for _mehrkosten, beitrag, line_id, offer in schritte:
+        if gewonnen >= fehlt:
+            break
+        if line_id in benutzt:
+            continue
+        benutzt.add(line_id)
+        gewonnen += beitrag
+        aufgestockt[line_id] = offer
+    return aufgestockt if gewonnen >= fehlt else None
+
+
+def _konzentriert_auf(
+    zuordnung: dict[int, Offer],
+    kandidaten: dict[int, list[Offer]],
+    shops_by_id: dict[int, ShopProfile],
+    shop_id: int,
+    obergrenze_tage: int | None,
+) -> dict[int, Offer] | None:
+    """Möglichst viel bei einem Shop bündeln, den Rest wie gehabt.
+
+    Jede Zeile, die dieser Shop überhaupt führt, wandert zu ihm - dort zum
+    billigsten Angebot. Das spart einen zweiten Versand und hebt die
+    Zwischensumme, was schrittweises Aufstocken nicht immer erreicht.
+    """
+    gebuendelt = dict(zuordnung)
+    for line_id in zuordnung:
+        pool = [
+            offer
+            for offer in kandidaten[line_id]
+            if offer.shop_id == shop_id
+            and (
+                obergrenze_tage is None
+                or (
+                    (tage := _effektive_tage(offer, shops_by_id)) is not None
+                    and tage <= obergrenze_tage
+                )
+            )
+        ]
+        if pool:
+            gebuendelt[line_id] = min(pool, key=lambda offer: (offer.positionspreis, offer.id))
+    return gebuendelt
+
+
+def _schwellen_varianten(
+    zuordnung: dict[int, Offer],
+    kandidaten: dict[int, list[Offer]],
+    shops_by_id: dict[int, ShopProfile],
+    obergrenze_tage: int | None,
+) -> list[dict[int, Offer]]:
+    """Kandidaten rund um die beiden Untergrenzen je Shop.
+
+    Die billigste Zuordnung minimiert den Warenwert - aber nicht zwingend das
+    Total, und sie ist nicht immer überhaupt zulässig:
+
+    * **Mindestbestellwert** ist eine harte Grenze. Wird sie unterschritten,
+      verwirft ``_build_variant`` den Plan; erst teurer einkaufen macht ihn
+      gültig. Ohne diese Reparatur verschwänden Pläne, die es gibt.
+    * **Gratisgrenze** ist eine lohnende Grenze: ein paar Franken mehr Ware
+      können den Versand komplett sparen.
+
+    Die Rückgabe *ergänzt* nur; ausgewählt wird am Ende weiterhin nach Total.
+    """
+    varianten: list[dict[int, Offer]] = []
+
+    # 1. Harte Grenze: fehlende Mindestbestellwerte reparieren.
+    repariert: dict[int, Offer] | None = dict(zuordnung)
+    for shop_id, subtotal in _subtotals(zuordnung).items():
+        minimum = shops_by_id[shop_id].mindestbestellwert_chf
+        if minimum is None or subtotal >= minimum or repariert is None:
+            continue
+        repariert = _aufstocken(
+            repariert, kandidaten, shops_by_id, shop_id, minimum, obergrenze_tage
+        )
+    if repariert is not None and repariert != zuordnung:
+        varianten.append(repariert)
+
+    # 2. Lohnende Grenze: Gratisversand, ausgehend von beiden Ständen.
+    for basis in [zuordnung, *( [repariert] if repariert is not None and repariert != zuordnung else [] )]:
+        for shop_id, subtotal in _subtotals(basis).items():
+            shop = shops_by_id[shop_id]
+            grenze = shop.gratis_ab_chf
+            if grenze is None or subtotal >= grenze:
+                continue
+            versand = shop.versand_chf
+            # Aufstocken über den Versandpreis hinaus lohnt nie. Bei unbekanntem
+            # Versand gibt es diese Schranke nicht: dort beseitigt die
+            # Gratisgrenze zugleich die Unbekannte im Total.
+            if versand is not None and grenze - subtotal > versand:
+                continue
+            gratis = _aufstocken(
+                basis, kandidaten, shops_by_id, shop_id, grenze, obergrenze_tage
+            )
+            if gratis is not None and gratis != basis:
+                varianten.append(gratis)
+    return varianten
+
+
+#: Ab so vielen beteiligten Shops werden nicht mehr alle Teilmengen aufgezählt,
+#: sondern nur kleine plus die Gesamtmenge. 2^n wächst sonst über den Nutzen
+#: hinaus; realistische Jobs bleiben weit darunter.
+MAX_SHOPS_FUER_ALLE_TEILMENGEN = 14
+KLEINE_TEILMENGE = 4
+
+#: Bis hierhin wird vollständig aufgezählt - das ist exakt und bleibt unter
+#: einer halben Sekunde. Darüber übernimmt die Aufzählung über Shop-Mengen.
+#: Ein Seitenaufruf löst drei Aufzählungen aus, deshalb ist die Grenze eng
+#: gewählt; ein Alltagsjob mit sechs Positionen bleibt darunter und damit exakt.
+KOMBINATIONS_BUDGET = 5_000
+
+
+def _shop_teilmengen(shop_ids: list[int], max_shops: int) -> list[frozenset[int]]:
+    grenze = min(len(shop_ids), max_shops)
+    if len(shop_ids) <= MAX_SHOPS_FUER_ALLE_TEILMENGEN:
+        groessen = range(1, grenze + 1)
+    else:
+        # Zu viele Shops für 2^n: kleine Mengen vollständig, dazu die
+        # Gesamtmenge, damit das globale Optimum in jedem Fall dabei ist.
+        groessen = range(1, min(KLEINE_TEILMENGE, grenze) + 1)
+    mengen = [
+        frozenset(kombination)
+        for groesse in groessen
+        for kombination in combinations(shop_ids, groesse)
+    ]
+    voll = frozenset(shop_ids[:max_shops]) if len(shop_ids) > max_shops else frozenset(shop_ids)
+    if voll and voll not in mengen:
+        mengen.append(voll)
+    return mengen
+
+
 def _complete_variants(
     offers_by_line: dict[int, list[Offer]],
     shops_by_id: dict[int, ShopProfile],
     required_line_ids: list[int],
     tempo: float,
 ) -> list[OrderVariant]:
+    """Kandidatenpläne aufzählen - über Shop-Mengen, nicht über Zeilen.
+
+    Früher lief hier das vollständige kartesische Produkt aller Kandidaten über
+    alle Zeilen, also K^N Kombinationen. Bei 13 Positionen mit je drei
+    Kandidaten sind das 1,6 Millionen Pläne, die alle gebaut und im Speicher
+    gehalten wurden - und das dreimal pro Seitenaufruf. Genau daran ist CT 104
+    erstickt.
+
+    Gebraucht wird das nie: die Aufrufer reduzieren anschliessend ohnehin auf
+    das beste Ergebnis *pro Shop-Menge* und auf wenige Minima. Also wird direkt
+    über Shop-Mengen aufgezählt und pro Menge die beste Zuordnung bestimmt.
+
+    Für eine feste Shop-Menge ist die beste Zuordnung exakt bestimmbar: pro
+    Lieferzeit-Obergrenze das billigste Angebot je Zeile. Über alle
+    vorkommenden Obergrenzen ergibt das die vollständige Pareto-Front aus Preis
+    und Lieferzeit - damit stimmen «am günstigsten», «am schnellsten» und
+    «ausgewogen» weiterhin. Ergänzt werden Varianten, die für Gratisversand
+    aufstocken.
+    """
     ordered_lines = sorted(set(required_line_ids))
     if not ordered_lines or any(not offers_by_line.get(line_id) for line_id in ordered_lines):
         return []
+
+    # Solange die vollständige Aufzählung bezahlbar ist, wird sie genommen -
+    # sie ist exakt. Nur darüber greift die Aufzählung über Shop-Mengen.
+    kombinationen = 1
+    for line_id in ordered_lines:
+        kombinationen *= len(offers_by_line[line_id])
+        if kombinationen > KOMBINATIONS_BUDGET:
+            break
+    if kombinationen <= KOMBINATIONS_BUDGET:
+        return [
+            variant
+            for belegung in product(*(offers_by_line[line_id] for line_id in ordered_lines))
+            if (variant := _build_variant(dict(zip(ordered_lines, belegung)), shops_by_id, tempo))
+            is not None
+        ]
+
+    beteiligte_shops = sorted(
+        {offer.shop_id for line_id in ordered_lines for offer in offers_by_line[line_id]}
+    )
+    if not beteiligte_shops:
+        return []
+
     variants: list[OrderVariant] = []
-    for assignment in product(*(offers_by_line[line_id] for line_id in ordered_lines)):
-        variant = _build_variant(dict(zip(ordered_lines, assignment)), shops_by_id, tempo)
-        if variant is not None:
-            variants.append(variant)
+    gesehen: set[tuple[tuple[int, int], ...]] = set()
+    for menge in _shop_teilmengen(beteiligte_shops, len(ordered_lines)):
+        kandidaten = {
+            line_id: [offer for offer in offers_by_line[line_id] if offer.shop_id in menge]
+            for line_id in ordered_lines
+        }
+        if any(not pool for pool in kandidaten.values()):
+            continue
+
+        obergrenzen: list[int | None] = sorted(
+            {
+                tage
+                for pool in kandidaten.values()
+                for offer in pool
+                if (tage := _effektive_tage(offer, shops_by_id)) is not None
+            }
+        )
+        obergrenzen.append(None)
+
+        for grenze in obergrenzen:
+            zuordnung = _guenstigste_zuordnung(ordered_lines, kandidaten, shops_by_id, grenze)
+            if zuordnung is None:
+                continue
+            # Neben der billigsten Zuordnung auch je Shop eine, die möglichst
+            # viel dort bündelt. Konzentrieren spart einen zweiten Versand und
+            # erreicht Gratisgrenzen, was Stück für Stück nicht immer gelingt.
+            basen = [zuordnung]
+            for shop_id in sorted(menge):
+                gebuendelt = _konzentriert_auf(
+                    zuordnung, kandidaten, shops_by_id, shop_id, grenze
+                )
+                if gebuendelt is not None and gebuendelt != zuordnung:
+                    basen.append(gebuendelt)
+
+            erweitert: list[dict[int, Offer]] = []
+            for basis in basen:
+                erweitert.append(basis)
+                erweitert.extend(
+                    _schwellen_varianten(basis, kandidaten, shops_by_id, grenze)
+                )
+            for kandidat in erweitert:
+                schluessel = tuple(sorted((line_id, offer.id) for line_id, offer in kandidat.items()))
+                if schluessel in gesehen:
+                    continue
+                gesehen.add(schluessel)
+                variant = _build_variant(kandidat, shops_by_id, tempo)
+                if variant is not None:
+                    variants.append(variant)
     return variants
 
 
