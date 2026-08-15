@@ -30,6 +30,16 @@ class StubService:
     def get_stock(self):
         return [{"bezeichnung": "Servo", "menge": 3}]
 
+    def get_shops(self):
+        return [
+            {
+                "shop_id": 8,
+                "name": "Reichelt",
+                "url": "https://www.reichelt.de/",
+                "lieferziel_id": 2,
+            }
+        ]
+
     def plan_scenarios(self, job_id, pins=None, excludes=None, tempo=0.5):
         return {
             "job_id": job_id,
@@ -87,6 +97,7 @@ def test_mcp_exposes_exact_procurement_tools():
         "get_job",
         "search_history",
         "get_stock",
+        "get_shops",
         "plan_scenarios",
         "next_job",
         "check_line",
@@ -134,6 +145,10 @@ def test_all_tool_descriptions_match_current_behavior():
             "Liefertage und Ankunft lesen (read-only)."
         ),
         "get_stock": "Aktuell positiven Bestand lesen (read-only).",
+        "get_shops": (
+            "Alle bekannten Shops mit shop_id, Name, URL, Status und vorhandenen "
+            "Versandprofildaten deterministisch sortiert lesen (read-only)."
+        ),
         "plan_scenarios": (
             "Die vollständige Szenariomatrix mit optionalem Tempo, Pins und Excludes "
             "über exakt dieselbe Serverfunktion wie die Job-UI berechnen (read-only). "
@@ -253,6 +268,22 @@ def test_get_stock_tool_returns_current_stock():
     assert result[1] == {"result": [{"bezeichnung": "Servo", "menge": 3}]}
 
 
+def test_get_shops_tool_returns_ids_for_offer_recording():
+    result = asyncio.run(build_mcp(StubService()).call_tool("get_shops", {}))
+
+    assert isinstance(result, tuple)
+    assert result[1] == {
+        "result": [
+            {
+                "shop_id": 8,
+                "name": "Reichelt",
+                "url": "https://www.reichelt.de/",
+                "lieferziel_id": 2,
+            }
+        ]
+    }
+
+
 def test_plan_scenarios_tool_forwards_all_optional_overrides():
     result = asyncio.run(
         build_mcp(StubService()).call_tool(
@@ -312,6 +343,13 @@ def test_mcp_e2e_invokes_create_job_only_with_non_writing_invalid_input():
     assert '"zeilen": ["' not in source
 
 
+def test_mcp_e2e_calls_get_shops_and_checks_the_public_shop_id():
+    source = Path("tests/e2e/mcp_tools_call.py").read_text(encoding="utf-8")
+
+    assert 'call(7, "get_shops", {})' in source
+    assert '"shop_id"' in source
+
+
 def test_streamable_http_endpoint_initializes_and_lists_tools():
     class Repository:
         def create_job(self, *_):
@@ -351,6 +389,7 @@ def test_streamable_http_endpoint_initializes_and_lists_tools():
         "get_job",
         "search_history",
         "get_stock",
+        "get_shops",
         "plan_scenarios",
         "next_job",
         "check_line",

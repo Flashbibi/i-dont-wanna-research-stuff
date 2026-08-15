@@ -74,6 +74,9 @@ class FakeProcurementRepository:
     def get_stock(self):
         return [{"id": 4, "bezeichnung": "Servo", "menge": 3, "einheit": "Stk"}]
 
+    def list_shops(self):
+        return [dict(shop) for shop in reversed(self.shops.values())]
+
     def create_job(self, source_text, lines):
         self.created_jobs.append((source_text, lines))
         return 91
@@ -186,6 +189,29 @@ class FakeProcurementRepository:
 
 def service():
     return ProcurementService(FakeProcurementRepository())
+
+
+def test_get_shops_exposes_shop_ids_and_sorts_deterministically():
+    shops = service().get_shops()
+
+    assert shops == [
+        {
+            "shop_id": 2,
+            "name": "Reichelt",
+            "url": "https://www.reichelt.de",
+            "domain": "reichelt.de",
+            "status": "bestaetigt",
+            "lieferziel_id": 2,
+        },
+        {
+            "shop_id": 1,
+            "name": "Servo Shop",
+            "url": "https://shop.example.ch",
+            "domain": "shop.example.ch",
+            "status": "bestaetigt",
+            "lieferziel_id": 1,
+        },
+    ]
 
 
 def test_create_job_uses_shared_bom_parser_and_returns_confirmation_lines():

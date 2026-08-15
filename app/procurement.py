@@ -50,6 +50,7 @@ class ProcurementRepository(Protocol):
     def get_job(self, job_id: int) -> dict[str, Any] | None: ...
     def search_history(self, text: str) -> list[dict[str, Any]]: ...
     def get_stock(self) -> list[dict[str, Any]]: ...
+    def list_shops(self) -> list[dict[str, Any]]: ...
     def next_job(self) -> dict[str, Any] | None: ...
     def check_line(self, line_id: int) -> dict[str, Any] | None: ...
     def create_shop(self, **values: Any) -> dict[str, Any]: ...
@@ -191,6 +192,16 @@ class ProcurementService:
 
     def get_stock(self) -> list[dict[str, Any]]:
         return self.repository.get_stock()
+
+    def get_shops(self) -> list[dict[str, Any]]:
+        shops = [
+            {"shop_id": shop["id"], **{key: value for key, value in shop.items() if key != "id"}}
+            for shop in self.repository.list_shops()
+        ]
+        return sorted(
+            shops,
+            key=lambda shop: (str(shop["name"]).casefold(), int(shop["shop_id"])),
+        )
 
     def next_job(self) -> dict[str, Any] | None:
         return self.repository.next_job()

@@ -62,6 +62,11 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         return service.get_stock()
 
     @mcp.tool()
+    def get_shops() -> list[dict[str, Any]]:
+        """Alle bekannten Shops mit shop_id, Name, URL, Status und vorhandenen Versandprofildaten deterministisch sortiert lesen (read-only)."""
+        return service.get_shops()
+
+    @mcp.tool()
     def plan_scenarios(
         job_id: int,
         tempo: float = 0.5,

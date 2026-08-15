@@ -68,6 +68,29 @@ def test_job_list_excludes_marked_e2e_jobs():
     assert "WHERE NOT j.is_test" in connection.sql
 
 
+def test_shop_list_includes_delivery_target_and_shipping_provenance():
+    repository = PostgresRepository("unused")
+    connection = JobListConnection()
+    repository._connect = lambda: connection
+
+    repository.list_shops()
+
+    for field in (
+        "s.lieferziel_id",
+        "lieferziel_name",
+        "lieferziel_land",
+        "lieferziel_waehrung",
+        "versand_original",
+        "versand_waehrung",
+        "versand_kurs",
+        "versand_kurs_am",
+        "versand_kurs_quelle",
+    ):
+        assert field in connection.sql
+    assert "LEFT JOIN lieferziel" in connection.sql
+    assert "ORDER BY lower(s.name), s.id" in connection.sql
+
+
 class JobDeletionConnection(Connection):
     def __init__(self, job):
         self.job = job
