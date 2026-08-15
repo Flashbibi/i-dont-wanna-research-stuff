@@ -1047,10 +1047,20 @@ class PostgresRepository:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, name, url, domain, land, versand_chf, gratis_ab_chf,
-                       mindestbestellwert_chf, lieferzeit_default_tage, status,
-                       profil_quelle_url, versand_text
-                FROM shop ORDER BY name
+                SELECT s.id, s.name, s.url, s.domain, s.land,
+                       s.versand_chf, s.gratis_ab_chf,
+                       s.mindestbestellwert_chf, s.lieferzeit_default_tage,
+                       s.status, s.profil_quelle_url, s.versand_text,
+                       s.versand_original, s.gratis_ab_original,
+                       s.mindestbestellwert_original, s.versand_waehrung,
+                       s.versand_kurs, s.versand_kurs_am,
+                       s.versand_kurs_quelle, s.lieferziel_id,
+                       z.name AS lieferziel_name,
+                       z.land AS lieferziel_land,
+                       z.waehrung AS lieferziel_waehrung
+                FROM shop s
+                LEFT JOIN lieferziel z ON z.id = s.lieferziel_id
+                ORDER BY lower(s.name), s.id
                 """
             ).fetchall()
             return [dict(row) for row in rows]

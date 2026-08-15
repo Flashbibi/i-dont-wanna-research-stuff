@@ -27,6 +27,7 @@ EXPECTED_TOOLS = {
     "get_job",
     "search_history",
     "get_stock",
+    "get_shops",
     "plan_scenarios",
     "next_job",
     "check_line",
@@ -95,8 +96,14 @@ def main() -> None:
     stock = call(6, "get_stock", {})
     assert stock["isError"] is False
 
+    shops = call(7, "get_shops", {})
+    assert shops["isError"] is False
+    shop_rows = shops["structuredContent"]["result"]
+    assert shop_rows
+    assert all("shop_id" in shop and "name" in shop for shop in shop_rows)
+
     scenarios = call(
-        7,
+        8,
         "plan_scenarios",
         {"job_id": 1, "tempo": 0.5, "pins": {}, "excludes": []},
     )
@@ -113,6 +120,7 @@ def main() -> None:
             {
                 "ok": True,
                 "tool_count": len(tools),
+                "shop_count": len(shop_rows),
                 "job_id": job["structuredContent"]["id"],
                 "scenario_count": len(matrix["scenarios"]),
                 "create_job_write": False,
