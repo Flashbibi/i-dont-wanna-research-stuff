@@ -42,6 +42,11 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         return service.create_job_from_lines(zeilen)
 
     @mcp.tool()
+    def delete_job(job_id: int, confirm_job_id: int) -> dict[str, Any]:
+        """Exakt bestätigten, unberührten echten Job löschen. Erlaubt nur bei Status offen, ausschließlich offenen Zeilen und ohne Angebote oder Kauf; job_id und confirm_job_id müssen identisch sein."""
+        return service.delete_job(job_id, confirm_job_id)
+
+    @mcp.tool()
     def get_job(job_id: int) -> dict[str, Any]:
         """Jobstatus und Zeilenstatus samt Kandidatenzahl lesen sowie mit der UI-Szenariologik prüfen, ob Szenarien verfügbar sind (read-only)."""
         return service.get_job(job_id)

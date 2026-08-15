@@ -38,6 +38,7 @@ class FakeProcurementRepository:
         self.purchases = []
         self.selected_assignments = None
         self.created_jobs = []
+        self.deleted_jobs = []
         self.kurse = {}
         self.saved_kurse = []
 
@@ -76,6 +77,10 @@ class FakeProcurementRepository:
     def create_job(self, source_text, lines):
         self.created_jobs.append((source_text, lines))
         return 91
+
+    def delete_unstarted_job(self, job_id):
+        self.deleted_jobs.append(job_id)
+        return {"job_id": job_id, "deleted": True}
 
     def next_job(self):
         return {"id": 5, "status": "offen", "lines": [self.lines[10]]}
@@ -242,6 +247,25 @@ def test_get_job_rejects_unknown_job():
 
     with pytest.raises(ValidationError, match="Job 999 ist unbekannt"):
         ProcurementService(repository).get_job(999)
+
+
+def test_delete_job_requires_matching_confirmation_before_repository_write():
+    repository = FakeProcurementRepository()
+    procurement = ProcurementService(repository)
+
+    with pytest.raises(ValidationError, match="Bestätigung stimmt nicht"):
+        procurement.delete_job(13, confirm_job_id=12)
+
+    assert repository.deleted_jobs == []
+
+
+def test_delete_job_forwards_exact_confirmed_id_to_guarded_repository_method():
+    repository = FakeProcurementRepository()
+
+    result = ProcurementService(repository).delete_job(13, confirm_job_id=13)
+
+    assert result == {"job_id": 13, "deleted": True}
+    assert repository.deleted_jobs == [13]
 
 
 def test_search_history_and_get_stock_are_read_only_repository_views():
