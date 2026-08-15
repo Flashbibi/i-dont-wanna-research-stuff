@@ -1,8 +1,10 @@
 import io
 import json
+import re
 import zipfile
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.web import create_app
@@ -23,11 +25,26 @@ class UIRepository:
         self.artikelnummer_writes = []
         self.lieferziel_writes = []
         self.shop_profile_writes = []
+        self.deleted_jobs = []
 
     def create_job(self, source_text, lines):
         return 7
 
     def get_job(self, job_id):
+        if job_id == 13 and job_id not in self.deleted_jobs:
+            return {
+                "id": 13,
+                "status": "offen",
+                "quelltext": "Versehentlich angelegt",
+                "lines": [{
+                    "id": 46,
+                    "position": 1,
+                    "suchtext": "Unberührte Position",
+                    "menge": 1,
+                    "status": "offen",
+                    "kommentar": None,
+                }],
+            }
         if job_id != 7:
             return None
         return {
@@ -51,6 +68,12 @@ class UIRepository:
         if job_id not in self.test_jobs:
             raise ValueError("Nur markierte Test-Jobs dürfen gelöscht werden")
         del self.test_jobs[job_id]
+        return {"job_id": job_id, "deleted": True}
+
+    def delete_unstarted_job(self, job_id):
+        if job_id != 13 or job_id in self.deleted_jobs:
+            raise ValueError("Job ist nicht mehr unberührt und darf nicht gelöscht werden")
+        self.deleted_jobs.append(job_id)
         return {"job_id": job_id, "deleted": True}
 
     def get_job_detail(self, job_id):
@@ -85,6 +108,9 @@ class UIRepository:
         job = self.get_job(job_id)
         if not job:
             return None
+        if job_id == 13:
+            job["lines"][0]["offers"] = []
+            return job
         job["lines"][0]["offers"] = [
             {
                 "id": 31,
@@ -231,6 +257,12 @@ def client_and_repo():
     return TestClient(create_app(repository, lambda: 1)), repository
 
 
+def csrf_token_from(page: str) -> str:
+    match = re.search(r'name="csrf_token" value="([^"]+)"', page)
+    assert match is not None
+    return match.group(1)
+
+
 def test_home_has_job_form_and_recent_jobs():
     client, _ = client_and_repo()
 
@@ -284,6 +316,116 @@ def test_job_page_uses_prototype_c_matrix_and_removes_old_card_sections():
     assert "Bestellszenarien" not in page
     assert "Angebote und Overrides" not in page
     assert "Szenarien separat öffnen" not in page
+
+
+def test_untouched_job_page_shows_guarded_delete_button_only_for_that_job():
+    client, _ = client_and_repo()
+
+    untouched = client.get("/jobs/13").text
+    touched = client.get("/jobs/7").text
+
+    assert 'action="/jobs/13/delete"' in untouched
+    assert 'name="confirm_job_id" value="13"' in untouched
+    assert 'name="csrf_token"' in untouched
+    assert "Job #13 wirklich löschen?" in untouched
+    assert "Job löschen" in untouched
+    assert "/jobs/7/delete" not in touched
+
+
+def test_delete_button_styles_use_a_fresh_stylesheet_cache_version():
+    base = Path("templates/base.html").read_text(encoding="utf-8")
+
+    assert '/static/app.css?v=10' in base
+
+
+def test_delete_job_form_uses_guarded_service_and_redirects_home():
+    client, repository = client_and_repo()
+    csrf_token = csrf_token_from(client.get("/jobs/13").text)
+
+    deleted = client.post(
+        "/jobs/13/delete",
+        data={"confirm_job_id": "13", "csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert deleted.status_code == 303
+    assert deleted.headers["location"] == "/"
+    assert repository.deleted_jobs == [13]
+    assert client.get("/jobs/13").status_code == 404
+
+
+def test_delete_job_form_rejects_mismatched_confirmation_without_deleting():
+    client, repository = client_and_repo()
+    csrf_token = csrf_token_from(client.get("/jobs/13").text)
+
+    rejected = client.post(
+        "/jobs/13/delete",
+        data={"confirm_job_id": "12", "csrf_token": csrf_token},
+        follow_redirects=False,
+    )
+
+    assert rejected.status_code == 422
+    assert repository.deleted_jobs == []
+
+
+def test_delete_job_form_rejects_cross_site_submission_without_csrf_token():
+    client, repository = client_and_repo()
+
+    forged = client.post(
+        "/jobs/13/delete",
+        data={"confirm_job_id": "13"},
+        follow_redirects=False,
+    )
+
+    assert forged.status_code == 403
+    assert repository.deleted_jobs == []
+
+
+def test_delete_job_form_rejects_an_attacker_injected_cookie_value():
+    client, repository = client_and_repo()
+    known_value = "a" * 43
+    client.cookies.set(
+        "beschaffung_csrf", known_value, domain="testserver.local", path="/"
+    )
+
+    forged = client.post(
+        "/jobs/13/delete",
+        data={"confirm_job_id": "13", "csrf_token": known_value},
+        follow_redirects=False,
+    )
+
+    assert forged.status_code == 403
+    assert repository.deleted_jobs == []
+
+
+@pytest.mark.parametrize("malformed_token", ["é", "a" * 63, "g" * 64])
+def test_delete_job_form_rejects_malformed_form_tokens(malformed_token):
+    client, repository = client_and_repo()
+    client.get("/jobs/13")
+
+    rejected = client.post(
+        "/jobs/13/delete",
+        data={"confirm_job_id": "13", "csrf_token": malformed_token},
+        follow_redirects=False,
+    )
+
+    assert rejected.status_code == 403
+    assert repository.deleted_jobs == []
+
+
+def test_job_page_replaces_malformed_csrf_cookie_with_a_fresh_token():
+    client, _ = client_and_repo()
+    client.cookies.set(
+        "beschaffung_csrf", '""', domain="testserver.local", path="/"
+    )
+
+    page = client.get("/jobs/13")
+    token = client.cookies.get(
+        "beschaffung_csrf", domain="testserver.local", path="/"
+    )
+
+    assert page.status_code == 200
+    assert token and len(token) >= 32
 
 
 def test_job_matrix_browser_uses_only_server_planning_and_reference_wording():

@@ -119,6 +119,9 @@ button, .button {
 button:hover, .button:hover { border-color: #aebfb3; }
 button:disabled { cursor: wait; opacity: .6; }
 .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.danger-button { background: var(--danger-soft); border-color: #dfb4a8; color: var(--danger); }
+.danger-button:hover { background: #f6ddd6; border-color: var(--danger); }
+.delete-job-form { margin-left: auto; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 textarea {
   width: 100%;
