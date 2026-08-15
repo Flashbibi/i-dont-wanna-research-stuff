@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hmac
 import io
 import json
 import os
+import secrets
 import zipfile
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -116,6 +118,7 @@ def create_app(
 ) -> FastAPI:
     active_repository = repository or _LazyRepository()
     procurement = ProcurementService(active_repository)
+    csrf_secret = secrets.token_bytes(32)
     mcp = build_mcp(procurement)
     mcp_http_app = mcp.streamable_http_app()
 
@@ -133,6 +136,21 @@ def create_app(
         if schema_version_provider is not None:
             return schema_version_provider()
         return current_schema_version(_database_url())
+
+    def valid_csrf_token(token: str | None) -> bool:
+        return bool(
+            token
+            and 32 <= len(token) <= 128
+            and all(character.isalnum() or character in "-_" for character in token)
+        )
+
+    def csrf_form_token(cookie_token: str) -> str:
+        return hmac.digest(csrf_secret, cookie_token.encode(), "sha256").hex()
+
+    def valid_csrf_form_token(token: str) -> bool:
+        return len(token) == 64 and all(
+            character in "0123456789abcdef" for character in token
+        )
 
     @application.get("/health")
     def health() -> dict[str, int | str]:
@@ -157,7 +175,46 @@ def create_app(
         job = active_repository.get_job_detail(job_id)
         if job is None:
             raise HTTPException(404, "Job nicht gefunden")
-        return TEMPLATES.TemplateResponse(request, "job.html", {"job": job})
+        cookie_token = request.cookies.get("beschaffung_csrf")
+        set_csrf_cookie = not valid_csrf_token(cookie_token)
+        if set_csrf_cookie:
+            cookie_token = secrets.token_urlsafe(32)
+        assert cookie_token is not None
+        response = TEMPLATES.TemplateResponse(
+            request,
+            "job.html",
+            {"job": job, "csrf_token": csrf_form_token(cookie_token)},
+        )
+        if set_csrf_cookie:
+            response.set_cookie(
+                "beschaffung_csrf",
+                cookie_token,
+                httponly=True,
+                samesite="strict",
+                secure=request.url.scheme == "https",
+                max_age=8 * 60 * 60,
+            )
+        return response
+
+    @application.post("/jobs/{job_id}/delete")
+    def delete_job_form(
+        request: Request,
+        job_id: int,
+        confirm_job_id: int = Form(...),
+        csrf_token: str = Form(""),
+    ):
+        cookie_token = request.cookies.get("beschaffung_csrf", "")
+        if (
+            not valid_csrf_token(cookie_token)
+            or not valid_csrf_form_token(csrf_token)
+            or not hmac.compare_digest(csrf_form_token(cookie_token), csrf_token)
+        ):
+            raise HTTPException(403, "Ungültige Formularbestätigung")
+        try:
+            procurement.delete_job(job_id, confirm_job_id)
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+        return RedirectResponse("/", status_code=303)
 
     @application.get("/jobs/{job_id}/variants", response_class=HTMLResponse)
     def variants_page(request: Request, job_id: int):
