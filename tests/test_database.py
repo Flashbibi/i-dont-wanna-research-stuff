@@ -1,5 +1,7 @@
 from datetime import date, timedelta
 
+import pytest
+
 from app.database import PostgresRepository, decode_database_value
 
 
@@ -64,6 +66,89 @@ def test_job_list_excludes_marked_e2e_jobs():
     repository.list_jobs()
 
     assert "WHERE NOT j.is_test" in connection.sql
+
+
+class JobDeletionConnection(Connection):
+    def __init__(self, job):
+        self.job = job
+        self.statements = []
+
+    def transaction(self):
+        return self
+
+    def execute(self, sql, params=None):
+        normalized = " ".join(sql.split())
+        self.statements.append((normalized, params))
+        if "FROM job j" in normalized and "FOR UPDATE" in normalized:
+            return Result(one={
+                "id": self.job["id"],
+                "status": self.job["status"],
+                "is_test": self.job["is_test"],
+            })
+        if "FROM bom_line" in normalized and "FOR UPDATE" in normalized:
+            status = "in_arbeit" if self.job["has_progress"] else "offen"
+            return Result(many=[{"id": 46, "status": status}])
+        if "AS has_offers" in normalized:
+            return Result(one={
+                "has_offers": self.job["has_offers"],
+                "has_purchase": self.job["has_purchase"],
+            })
+        return Result()
+
+
+def test_delete_unstarted_job_deletes_only_lines_and_exact_guarded_job():
+    repository = PostgresRepository("unused")
+    connection = JobDeletionConnection({
+        "id": 13,
+        "status": "offen",
+        "is_test": False,
+        "has_offers": False,
+        "has_purchase": False,
+        "has_progress": False,
+    })
+    repository._connect = lambda: connection
+
+    result = repository.delete_unstarted_job(13)
+
+    assert result == {"job_id": 13, "deleted": True}
+    job_lock = next(i for i, (sql, _) in enumerate(connection.statements) if "FROM job j" in sql)
+    line_lock = next(i for i, (sql, _) in enumerate(connection.statements) if "FROM bom_line" in sql and "FOR UPDATE" in sql)
+    state_check = next(i for i, (sql, _) in enumerate(connection.statements) if "AS has_offers" in sql)
+    assert job_lock < line_lock < state_check
+    assert connection.statements[-2:] == [
+        ("DELETE FROM bom_line WHERE job_id = %s", (13,)),
+        ("DELETE FROM job WHERE id = %s AND status = 'offen' AND NOT is_test", (13,)),
+    ]
+
+
+@pytest.mark.parametrize(
+    "changed, message",
+    [
+        ({"status": "in_arbeit"}, "nicht mehr unberührt"),
+        ({"has_offers": True}, "nicht mehr unberührt"),
+        ({"has_purchase": True}, "nicht mehr unberührt"),
+        ({"has_progress": True}, "nicht mehr unberührt"),
+        ({"is_test": True}, "Test-Job"),
+    ],
+)
+def test_delete_unstarted_job_rejects_any_touched_or_test_job(changed, message):
+    job = {
+        "id": 13,
+        "status": "offen",
+        "is_test": False,
+        "has_offers": False,
+        "has_purchase": False,
+        "has_progress": False,
+        **changed,
+    }
+    repository = PostgresRepository("unused")
+    connection = JobDeletionConnection(job)
+    repository._connect = lambda: connection
+
+    with pytest.raises(ValueError, match=message):
+        repository.delete_unstarted_job(13)
+
+    assert not any(sql.startswith("DELETE") for sql, _ in connection.statements)
 
 
 def test_job_selection_is_saved_as_jsonb():

@@ -60,6 +60,62 @@ class PostgresRepository:
                     )
         return job_id
 
+    def delete_unstarted_job(self, job_id: int) -> dict[str, Any]:
+        """Delete exactly one untouched real job, failing closed after any work."""
+        with self._connect() as connection:
+            with connection.transaction():
+                job = connection.execute(
+                    """
+                    SELECT j.id, j.status, j.is_test
+                    FROM job j
+                    WHERE j.id = %s
+                    FOR UPDATE
+                    """,
+                    (job_id,),
+                ).fetchone()
+                if job is None:
+                    raise ValueError(f"Job {job_id} ist unbekannt")
+                if job["is_test"]:
+                    raise ValueError("Test-Jobs müssen über den E2E-Cleanup gelöscht werden")
+
+                lines = connection.execute(
+                    """
+                    SELECT id, status
+                    FROM bom_line
+                    WHERE job_id = %s
+                    ORDER BY id
+                    FOR UPDATE
+                    """,
+                    (job_id,),
+                ).fetchall()
+                state = connection.execute(
+                    """
+                    SELECT
+                        EXISTS (
+                            SELECT 1 FROM offer o
+                            JOIN bom_line bl ON bl.id = o.line_id
+                            WHERE bl.job_id = %s
+                        ) AS has_offers,
+                        EXISTS (
+                            SELECT 1 FROM purchase p WHERE p.job_id = %s
+                        ) AS has_purchase
+                    """,
+                    (job_id, job_id),
+                ).fetchone()
+                if (
+                    job["status"] != "offen"
+                    or any(line["status"] != "offen" for line in lines)
+                    or state["has_offers"]
+                    or state["has_purchase"]
+                ):
+                    raise ValueError("Job ist nicht mehr unberührt und darf nicht gelöscht werden")
+                connection.execute("DELETE FROM bom_line WHERE job_id = %s", (job_id,))
+                connection.execute(
+                    "DELETE FROM job WHERE id = %s AND status = 'offen' AND NOT is_test",
+                    (job_id,),
+                )
+                return {"job_id": job_id, "deleted": True}
+
     def create_e2e_test_job(self) -> dict[str, Any]:
         """Create one isolated matrix/browser-test graph with no real-job writes."""
         with self._connect() as connection:

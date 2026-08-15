@@ -46,6 +46,7 @@ AUSLAND_MWST = Decimal("1.19")
 
 class ProcurementRepository(Protocol):
     def create_job(self, source_text: str, lines: list[BomInputLine]) -> int: ...
+    def delete_unstarted_job(self, job_id: int) -> dict[str, Any]: ...
     def get_job(self, job_id: int) -> dict[str, Any] | None: ...
     def search_history(self, text: str) -> list[dict[str, Any]]: ...
     def get_stock(self) -> list[dict[str, Any]]: ...
@@ -155,6 +156,11 @@ class ProcurementService:
         if len(lines) > self.MAX_JOB_LINES:
             raise ValidationError("Ein Job darf höchstens 200 Positionen enthalten")
         return self.create_job("\n".join(lines))
+
+    def delete_job(self, job_id: int, confirm_job_id: int) -> dict[str, Any]:
+        if job_id != confirm_job_id:
+            raise ValidationError("Bestätigung stimmt nicht mit der Job-ID überein")
+        return self.repository.delete_unstarted_job(job_id)
 
     def get_job(self, job_id: int) -> dict[str, Any]:
         job = self.repository.get_job(job_id)

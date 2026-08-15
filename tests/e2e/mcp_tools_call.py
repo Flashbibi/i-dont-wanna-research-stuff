@@ -23,6 +23,7 @@ HEADERS = {
 }
 EXPECTED_TOOLS = {
     "create_job",
+    "delete_job",
     "get_job",
     "search_history",
     "get_stock",

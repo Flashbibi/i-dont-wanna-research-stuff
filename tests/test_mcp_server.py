@@ -21,6 +21,9 @@ class StubService:
     def get_job(self, job_id):
         return {"id": job_id, "status": "in_arbeit", "lines": [], "scenarios_available": False}
 
+    def delete_job(self, job_id, confirm_job_id):
+        return {"job_id": job_id, "confirm_job_id": confirm_job_id, "deleted": True}
+
     def search_history(self, text):
         return [{"produktname": text, "shop_name": "Swiss Shop"}]
 
@@ -80,6 +83,7 @@ def test_mcp_exposes_exact_procurement_tools():
 
     assert {tool.name for tool in tools} == {
         "create_job",
+        "delete_job",
         "get_job",
         "search_history",
         "get_stock",
@@ -115,6 +119,11 @@ def test_all_tool_descriptions_match_current_behavior():
         "create_job": (
             "Echten UI-Job aus einer Zeilenliste anlegen; Mengenpräfixe wie «2x …» "
             "werden über denselben Parser wie die Textarea verarbeitet."
+        ),
+        "delete_job": (
+            "Exakt bestätigten, unberührten echten Job löschen. Erlaubt nur bei Status "
+            "offen, ausschließlich offenen Zeilen und ohne Angebote oder Kauf; job_id "
+            "und confirm_job_id müssen identisch sein."
         ),
         "get_job": (
             "Jobstatus und Zeilenstatus samt Kandidatenzahl lesen sowie mit der "
@@ -217,6 +226,17 @@ def test_get_job_tool_returns_job_overview():
     assert result[1]["scenarios_available"] is False
 
 
+def test_delete_job_tool_requires_and_forwards_both_exact_ids():
+    result = asyncio.run(
+        build_mcp(StubService()).call_tool(
+            "delete_job", {"job_id": 13, "confirm_job_id": 13}
+        )
+    )
+
+    assert isinstance(result, tuple)
+    assert result[1] == {"job_id": 13, "confirm_job_id": 13, "deleted": True}
+
+
 def test_search_history_tool_returns_matching_purchases():
     result = asyncio.run(
         build_mcp(StubService()).call_tool("search_history", {"text": "Servo"})
@@ -276,6 +296,14 @@ def test_mcp_e2e_lists_the_cart_tool_but_never_calls_it():
     assert re.search(r'call\(\s*\d+\s*,\s*"get_cart_session"', source) is None
 
 
+def test_mcp_e2e_lists_delete_job_but_never_calls_it():
+    """Der Produktions-Smoketest darf niemals einen echten Job löschen."""
+    source = Path("tests/e2e/mcp_tools_call.py").read_text(encoding="utf-8")
+
+    assert '"delete_job",' in source
+    assert re.search(r'call\(\s*\d+\s*,\s*"delete_job"', source) is None
+
+
 def test_mcp_e2e_invokes_create_job_only_with_non_writing_invalid_input():
     source = Path("tests/e2e/mcp_tools_call.py").read_text(encoding="utf-8")
 
@@ -319,6 +347,7 @@ def test_streamable_http_endpoint_initializes_and_lists_tools():
     assert names == {
         "get_cart_session",
         "create_job",
+        "delete_job",
         "get_job",
         "search_history",
         "get_stock",
