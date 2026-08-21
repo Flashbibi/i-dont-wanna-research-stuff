@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -347,6 +347,110 @@ def test_mark_purchase_arrived_writes_one_access_ledger_entry_and_is_idempotent(
         "INSERT INTO stock_bewegung(stock_id, line_id, delta, grund) VALUES (%s, %s, %s, 'zugang_lieferung')",
         (4, 12, 3),
     )]
+
+
+class MarkStockConnection(Connection):
+    def __init__(self, *, status="offen", is_test=False, stock=None):
+        self.status = status
+        self.is_test = is_test
+        self.stock = stock if stock is not None else [{"id": 4, "menge": 5}]
+        self.statements = []
+
+    def transaction(self):
+        return self
+
+    def execute(self, sql, params=None):
+        normalized = " ".join(sql.split())
+        self.statements.append((normalized, params))
+        if "FROM bom_line bl JOIN job" in normalized:
+            return Result(one={"suchtext": "Servo MG90S", "menge": 3,
+                               "status": self.status, "is_test": self.is_test})
+        if normalized.startswith("SELECT s.id") or normalized.startswith("SELECT id, menge FROM stock"):
+            return Result(many=self.stock)
+        if normalized.startswith("UPDATE bom_line"):
+            return Result(one={"id": 12, "status": "bestand", "kommentar": None})
+        return Result()
+
+
+def test_mark_line_uses_article_and_trimmed_text_matching_and_writes_negative_ledger():
+    repository = PostgresRepository("unused")
+    connection = MarkStockConnection()
+    repository._connect = lambda: connection
+
+    repository.mark_line(12, "bestand", None)
+
+    match_sql = next(sql for sql, _ in connection.statements if sql.startswith("SELECT s.id"))
+    assert "quelle.artikelnummer IS NOT NULL" in match_sql
+    assert "quelle.shop_id = ziel.shop_id" in match_sql
+    assert "lower(btrim(s.bezeichnung)) = lower(btrim(CAST(%s AS TEXT)))" in match_sql
+    assert "ORDER BY s.aktualisiert_am, s.id FOR UPDATE OF s" in match_sql
+    assert any(
+        sql.startswith("INSERT INTO stock_bewegung") and params == (4, 12, -3)
+        for sql, params in connection.statements
+    )
+
+
+def test_mark_line_explicit_selection_and_guards_reject_without_stock_write():
+    repository = PostgresRepository("unused")
+    selected = MarkStockConnection(stock=[{"id": 7, "menge": 3}])
+    repository._connect = lambda: selected
+    repository.mark_line(12, "bestand", None, [7])
+    assert any("id = ANY(%s)" in sql for sql, _ in selected.statements)
+
+    for connection, message in [
+        (MarkStockConnection(status="bestand"), "bereits"),
+        (MarkStockConnection(is_test=True), "Testjobs"),
+        (MarkStockConnection(stock=[]), "deckt"),
+    ]:
+        repository._connect = lambda connection=connection: connection
+        with pytest.raises(ValueError, match=message):
+            repository.mark_line(12, "bestand", None)
+        assert not any(sql.startswith("UPDATE stock") for sql, _ in connection.statements)
+
+    unknown = MarkStockConnection(stock=[])
+    repository._connect = lambda: unknown
+    with pytest.raises(ValueError, match="unbekannt oder leer"):
+        repository.mark_line(12, "bestand", None, [999])
+
+
+class CheckStockConnection(Connection):
+    def __init__(self):
+        self.calls = 0
+
+    def execute(self, sql, params=None):
+        self.calls += 1
+        normalized = " ".join(sql.split())
+        if normalized.startswith("SELECT id, suchtext"):
+            return Result(one={"id": 12, "suchtext": "Servo MG90S", "menge": 8})
+        if "CASE WHEN EXISTS" in normalized:
+            return Result(many=[{
+                "stock_id": 4, "bezeichnung": "MG90S Motor", "menge": 5,
+                "aktualisiert_am": datetime(2026, 8, 1), "match": "artikelnummer",
+            }])
+        return Result(many=[
+            {"stock_id": 4, "bezeichnung": "MG90S Motor", "menge": 5,
+             "aktualisiert_am": datetime(2026, 8, 1)},
+            *[
+                {"stock_id": index, "bezeichnung": f"Servo MG90S {index}", "menge": 1,
+                 "aktualisiert_am": datetime(2026, 8, index)}
+                for index in range(5, 12)
+            ],
+            {"stock_id": 20, "bezeichnung": "Netzteil", "menge": 9,
+             "aktualisiert_am": datetime(2026, 8, 20)},
+        ])
+
+
+def test_check_stock_separates_matches_candidates_limits_and_calculates_shortage():
+    repository = PostgresRepository("unused")
+    repository._connect = lambda: CheckStockConnection()
+
+    result = repository.check_stock(12)
+
+    assert result["gedeckt"] is False
+    assert result["fehlmenge"] == 3
+    assert result["treffer"][0]["match"] == "artikelnummer"
+    assert len(result["kandidaten"]) == 5
+    assert all("Servo" in row["bezeichnung"] for row in result["kandidaten"])
 
 
 def test_shop_writes_original_shipping_currency_and_rate_evidence():

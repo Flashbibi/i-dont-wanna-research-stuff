@@ -144,9 +144,21 @@ class FakeProcurementRepository:
         self.offers.append(result)
         return result
 
-    def mark_line(self, line_id, status, kommentar):
-        self.marked.append((line_id, status, kommentar))
+    def mark_line(self, line_id, status, kommentar, stock_ids=None):
+        self.marked.append((line_id, status, kommentar, stock_ids))
         return {"id": line_id, "status": status, "kommentar": kommentar}
+
+    def check_stock(self, line_id):
+        if line_id not in self.lines:
+            return None
+        return {
+            "line_id": line_id,
+            "benoetigt": self.lines[line_id]["menge"],
+            "gedeckt": True,
+            "fehlmenge": 0,
+            "treffer": [],
+            "kandidaten": [],
+        }
 
     def optimization_input(self, job_id):
         return {
@@ -479,6 +491,25 @@ def test_mark_line_rejects_unknown_status():
     with pytest.raises(ValidationError, match="Status"):
         procurement.mark_line(10, "irgendwas")
     assert procurement.mark_line(10, "nichts_gefunden", "Keine CH-Quelle")["status"] == "nichts_gefunden"
+
+
+def test_mark_line_validates_and_forwards_explicit_stock_selection():
+    procurement = service()
+
+    result = procurement.mark_line(10, "bestand", stock_ids=[4, 7])
+
+    assert result["status"] == "bestand"
+    assert procurement.repository.marked[-1] == (10, "bestand", None, [4, 7])
+    with pytest.raises(ValidationError, match="nur.*Bestand"):
+        procurement.mark_line(10, "erledigt", stock_ids=[4])
+
+
+def test_check_stock_returns_repository_result_and_rejects_unknown_line():
+    procurement = service()
+
+    assert procurement.check_stock(10)["line_id"] == 10
+    with pytest.raises(ValidationError, match="Zeile 999 ist unbekannt"):
+        procurement.check_stock(999)
 
 
 def test_plan_order_calls_pure_optimizer_and_serializes_variant():

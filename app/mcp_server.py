@@ -89,6 +89,11 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         return service.check_line(line_id)
 
     @mcp.tool()
+    def check_stock(line_id: int) -> dict[str, Any]:
+        """Passende Bestände und ähnliche Kandidaten für eine Zeile prüfen (read-only)."""
+        return service.check_stock(line_id)
+
+    @mcp.tool()
     def record_shop(
         name: str,
         url: str,
@@ -146,10 +151,13 @@ def build_mcp(service: ProcurementService) -> FastMCP:
 
     @mcp.tool()
     def mark_line(
-        line_id: int, status: str, kommentar: str | None = None
+        line_id: int,
+        status: str,
+        kommentar: str | None = None,
+        stock_ids: list[int] | None = None,
     ) -> dict[str, Any]:
         """Zeile als Bestand, nichts gefunden oder erledigt markieren; bei Bestand wird die benötigte Menge aus dem Lager abgebucht."""
-        return service.mark_line(line_id, status, kommentar)
+        return service.mark_line(line_id, status, kommentar, stock_ids)
 
     @mcp.tool()
     def plan_order(job_id: int, tempo: float) -> list[dict[str, Any]]:

@@ -53,12 +53,19 @@ class ProcurementRepository(Protocol):
     def list_shops(self) -> list[dict[str, Any]]: ...
     def next_job(self) -> dict[str, Any] | None: ...
     def check_line(self, line_id: int) -> dict[str, Any] | None: ...
+    def check_stock(self, line_id: int) -> dict[str, Any] | None: ...
     def create_shop(self, **values: Any) -> dict[str, Any]: ...
     def get_shop(self, shop_id: int) -> dict[str, Any] | None: ...
     def update_shop_profile(self, shop_id: int, **values: Any) -> dict[str, Any]: ...
     def get_line(self, line_id: int) -> dict[str, Any] | None: ...
     def create_offer(self, **values: Any) -> dict[str, Any]: ...
-    def mark_line(self, line_id: int, status: str, kommentar: str | None) -> dict[str, Any]: ...
+    def mark_line(
+        self,
+        line_id: int,
+        status: str,
+        kommentar: str | None,
+        stock_ids: list[int] | None = None,
+    ) -> dict[str, Any]: ...
     def optimization_input(self, job_id: int) -> dict[str, Any]: ...
     def save_job_selection(
         self, job_id: int, assignments: dict[str, int]
@@ -208,6 +215,12 @@ class ProcurementService:
 
     def check_line(self, line_id: int) -> dict[str, Any]:
         result = self.repository.check_line(line_id)
+        if result is None:
+            raise ValidationError(f"Zeile {line_id} ist unbekannt")
+        return result
+
+    def check_stock(self, line_id: int) -> dict[str, Any]:
+        result = self.repository.check_stock(line_id)
         if result is None:
             raise ValidationError(f"Zeile {line_id} ist unbekannt")
         return result
@@ -524,14 +537,23 @@ class ProcurementService:
         return datetime.now(timezone.utc).date()
 
     def mark_line(
-        self, line_id: int, status: str, kommentar: str | None = None
+        self,
+        line_id: int,
+        status: str,
+        kommentar: str | None = None,
+        stock_ids: list[int] | None = None,
     ) -> dict[str, Any]:
         if self.repository.get_line(line_id) is None:
             raise ValidationError(f"Zeile {line_id} ist unbekannt")
         allowed = {"bestand", "nichts_gefunden", "erledigt"}
         if status not in allowed:
             raise ValidationError(f"Status muss einer von {sorted(allowed)} sein")
-        return self.repository.mark_line(line_id, status, kommentar)
+        if stock_ids is not None and status != "bestand":
+            raise ValidationError("stock_ids ist nur mit Status Bestand zulässig")
+        try:
+            return self.repository.mark_line(line_id, status, kommentar, stock_ids)
+        except ValueError as error:
+            raise ValidationError(str(error)) from error
 
     def plan_order(self, job_id: int, tempo: float) -> list[dict[str, Any]]:
         if not isinstance(tempo, (int, float)) or isinstance(tempo, bool) or not 0 <= tempo <= 1:

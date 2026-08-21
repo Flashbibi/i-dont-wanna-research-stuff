@@ -358,6 +358,80 @@ class PostgresRepository:
                 "cached_offers": [dict(row) for row in cached],
             }
 
+    def check_stock(self, line_id: int) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            line = connection.execute(
+                "SELECT id, suchtext, menge FROM bom_line WHERE id = %s",
+                (line_id,),
+            ).fetchone()
+            if line is None:
+                return None
+            matches = connection.execute(
+                """
+                SELECT s.id AS stock_id, s.bezeichnung, s.menge, s.aktualisiert_am,
+                       CASE WHEN EXISTS (
+                           SELECT 1
+                           FROM purchase_item pi
+                           JOIN offer quelle ON quelle.id = pi.offer_id
+                           JOIN offer ziel ON ziel.line_id = %s
+                           WHERE pi.id = s.purchase_item_id
+                             AND quelle.artikelnummer IS NOT NULL
+                             AND ziel.artikelnummer IS NOT NULL
+                             AND lower(btrim(quelle.artikelnummer)) = lower(btrim(ziel.artikelnummer))
+                             AND quelle.shop_id = ziel.shop_id
+                       ) THEN 'artikelnummer' ELSE 'text' END AS match
+                FROM stock s
+                WHERE s.menge > 0 AND (
+                    EXISTS (
+                        SELECT 1
+                        FROM purchase_item pi
+                        JOIN offer quelle ON quelle.id = pi.offer_id
+                        JOIN offer ziel ON ziel.line_id = %s
+                        WHERE pi.id = s.purchase_item_id
+                          AND quelle.artikelnummer IS NOT NULL
+                          AND ziel.artikelnummer IS NOT NULL
+                          AND lower(btrim(quelle.artikelnummer)) = lower(btrim(ziel.artikelnummer))
+                          AND quelle.shop_id = ziel.shop_id
+                    )
+                    OR lower(btrim(s.bezeichnung)) = lower(btrim(CAST(%s AS TEXT)))
+                )
+                ORDER BY s.aktualisiert_am, s.id
+                """,
+                (line_id, line_id, line["suchtext"]),
+            ).fetchall()
+            all_stock = connection.execute(
+                """
+                SELECT id AS stock_id, bezeichnung, menge, aktualisiert_am
+                FROM stock WHERE menge > 0
+                """
+            ).fetchall()
+
+        match_ids = {row["stock_id"] for row in matches}
+        line_tokens = self._stock_tokens(line["suchtext"])
+        candidates = []
+        for source in all_stock:
+            if source["stock_id"] in match_ids:
+                continue
+            common = line_tokens & self._stock_tokens(source["bezeichnung"])
+            common = {token for token in common if len(token) >= 3}
+            if common:
+                candidates.append((len(common), source["aktualisiert_am"], source["stock_id"], dict(source)))
+        candidates.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+        total = sum(row["menge"] for row in matches)
+        needed = line["menge"]
+        return {
+            "line_id": line_id,
+            "benoetigt": needed,
+            "gedeckt": total >= needed,
+            "fehlmenge": max(needed - total, 0),
+            "treffer": [dict(row) for row in matches],
+            "kandidaten": [item[3] for item in candidates[:5]],
+        }
+
+    @staticmethod
+    def _stock_tokens(text: str) -> set[str]:
+        return set(" ".join(text.casefold().split()).split(" "))
+
     def create_shop(self, **values: Any) -> dict[str, Any]:
         try:
             with self._connect() as connection:
@@ -644,30 +718,81 @@ class PostgresRepository:
         except UniqueViolation as error:
             raise ValueError("Dieses Angebot ist fuer die Zeile bereits erfasst") from error
 
-    def mark_line(self, line_id: int, status: str, kommentar: str | None) -> dict[str, Any]:
+    def mark_line(
+        self,
+        line_id: int,
+        status: str,
+        kommentar: str | None,
+        stock_ids: list[int] | None = None,
+    ) -> dict[str, Any]:
         with self._connect() as connection:
             with connection.transaction():
+                line = connection.execute(
+                    """
+                    SELECT bl.suchtext, bl.menge, bl.status, j.is_test
+                    FROM bom_line bl JOIN job j ON j.id = bl.job_id
+                    WHERE bl.id = %s FOR UPDATE OF bl
+                    """,
+                    (line_id,),
+                ).fetchone()
+                if line is None:
+                    raise ValueError(f"Zeile {line_id} ist unbekannt")
+                if stock_ids is not None and status != "bestand":
+                    raise ValueError("stock_ids ist nur mit Status Bestand zulässig")
                 if status == "bestand":
-                    line = connection.execute(
-                        "SELECT suchtext, menge FROM bom_line WHERE id = %s FOR UPDATE",
-                        (line_id,),
-                    ).fetchone()
-                    stock_rows = connection.execute(
-                        """
-                        SELECT id, menge FROM stock
-                        WHERE lower(bezeichnung) = lower(CAST(%s AS TEXT)) AND menge > 0
-                        ORDER BY aktualisiert_am, id FOR UPDATE
-                        """,
-                        (line["suchtext"],),
-                    ).fetchall()
+                    if line["status"] == "bestand":
+                        raise ValueError("Zeile ist bereits als Bestand markiert")
+                    if line["is_test"]:
+                        raise ValueError("Testjobs dürfen echten Bestand nicht verändern")
+                    if stock_ids is not None:
+                        requested = {int(stock_id) for stock_id in stock_ids}
+                        stock_rows = connection.execute(
+                            """
+                            SELECT id, menge FROM stock
+                            WHERE id = ANY(%s) AND menge > 0
+                            ORDER BY aktualisiert_am, id FOR UPDATE
+                            """,
+                            (list(requested),),
+                        ).fetchall()
+                        if {row["id"] for row in stock_rows} != requested:
+                            raise ValueError("Ausgewählte Bestands-ID ist unbekannt oder leer")
+                    else:
+                        stock_rows = connection.execute(
+                            """
+                            SELECT s.id, s.menge FROM stock s
+                            WHERE s.menge > 0 AND (
+                                EXISTS (
+                                    SELECT 1
+                                    FROM purchase_item pi
+                                    JOIN offer quelle ON quelle.id = pi.offer_id
+                                    JOIN offer ziel ON ziel.line_id = %s
+                                    WHERE pi.id = s.purchase_item_id
+                                      AND quelle.artikelnummer IS NOT NULL
+                                      AND ziel.artikelnummer IS NOT NULL
+                                      AND lower(btrim(quelle.artikelnummer)) = lower(btrim(ziel.artikelnummer))
+                                      AND quelle.shop_id = ziel.shop_id
+                                )
+                                OR lower(btrim(s.bezeichnung)) = lower(btrim(CAST(%s AS TEXT)))
+                            )
+                            ORDER BY s.aktualisiert_am, s.id FOR UPDATE OF s
+                            """,
+                            (line_id, line["suchtext"]),
+                        ).fetchall()
                     if sum(row["menge"] for row in stock_rows) < line["menge"]:
-                        raise ValueError("Bestand deckt die benoetigte Menge nicht")
+                        raise ValueError("Bestand deckt die benötigte Menge nicht")
                     remaining = line["menge"]
                     for stock_row in stock_rows:
                         taken = min(remaining, stock_row["menge"])
                         connection.execute(
                             "UPDATE stock SET menge = menge - %s, aktualisiert_am = NOW() WHERE id = %s",
                             (taken, stock_row["id"]),
+                        )
+                        connection.execute(
+                            """
+                            INSERT INTO stock_bewegung(stock_id, line_id, delta, grund)
+                            VALUES (%s, %s, %s, 'abgang_bestand')
+                            """,
+                            (stock_row["id"], line_id, -taken),
                         )
                         remaining -= taken
                         if remaining == 0:
