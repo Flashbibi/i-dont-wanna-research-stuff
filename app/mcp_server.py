@@ -94,6 +94,11 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         return service.check_stock(line_id)
 
     @mcp.tool()
+    def adjust_stock(stock_id: int, delta: int, kommentar: str) -> dict[str, Any]:
+        """Bestandsmenge mit begründeter Korrekturbuchung anpassen."""
+        return service.korrigiere_bestand(stock_id, delta, kommentar)
+
+    @mcp.tool()
     def record_shop(
         name: str,
         url: str,

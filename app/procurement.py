@@ -54,6 +54,9 @@ class ProcurementRepository(Protocol):
     def next_job(self) -> dict[str, Any] | None: ...
     def check_line(self, line_id: int) -> dict[str, Any] | None: ...
     def check_stock(self, line_id: int) -> dict[str, Any] | None: ...
+    def korrigiere_bestand(
+        self, stock_id: int, delta: int, kommentar: str
+    ) -> dict[str, Any]: ...
     def create_shop(self, **values: Any) -> dict[str, Any]: ...
     def get_shop(self, shop_id: int) -> dict[str, Any] | None: ...
     def update_shop_profile(self, shop_id: int, **values: Any) -> dict[str, Any]: ...
@@ -224,6 +227,21 @@ class ProcurementService:
         if result is None:
             raise ValidationError(f"Zeile {line_id} ist unbekannt")
         return result
+
+    def korrigiere_bestand(
+        self, stock_id: int, delta: int, kommentar: str
+    ) -> dict[str, Any]:
+        if not isinstance(delta, int) or isinstance(delta, bool):
+            raise ValidationError("delta muss ganzzahlig sein")
+        if delta == 0:
+            raise ValidationError("delta muss ungleich 0 sein")
+        normalized_comment = (kommentar or "").strip()
+        if not normalized_comment:
+            raise ValidationError("Kommentar ist erforderlich")
+        try:
+            return self.repository.korrigiere_bestand(stock_id, delta, normalized_comment)
+        except ValueError as error:
+            raise ValidationError(str(error)) from error
 
     def _validated_shop_profile(
         self,

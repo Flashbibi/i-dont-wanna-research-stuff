@@ -432,6 +432,35 @@ class PostgresRepository:
     def _stock_tokens(text: str) -> set[str]:
         return set(" ".join(text.casefold().split()).split(" "))
 
+    def korrigiere_bestand(
+        self, stock_id: int, delta: int, kommentar: str
+    ) -> dict[str, Any]:
+        with self._connect() as connection:
+            with connection.transaction():
+                stock = connection.execute(
+                    "SELECT id, menge FROM stock WHERE id = %s FOR UPDATE",
+                    (stock_id,),
+                ).fetchone()
+                if stock is None:
+                    raise ValueError(f"Bestand {stock_id} ist unbekannt")
+                if stock["menge"] + delta < 0:
+                    raise ValueError("Korrektur würde Bestand negativ machen")
+                updated = connection.execute(
+                    """
+                    UPDATE stock SET menge = menge + %s, aktualisiert_am = NOW()
+                    WHERE id = %s RETURNING id, bezeichnung, menge, einheit, aktualisiert_am
+                    """,
+                    (delta, stock_id),
+                ).fetchone()
+                connection.execute(
+                    """
+                    INSERT INTO stock_bewegung(stock_id, delta, grund, kommentar)
+                    VALUES (%s, %s, 'korrektur', %s)
+                    """,
+                    (stock_id, delta, kommentar),
+                )
+                return dict(updated)
+
     def create_shop(self, **values: Any) -> dict[str, Any]:
         try:
             with self._connect() as connection:

@@ -240,6 +240,24 @@ def create_app(
         active_repository.mark_purchase_arrived(purchase_id)
         return RedirectResponse("/history", status_code=303)
 
+    @application.post("/bestand/korrektur")
+    def correct_stock_form(
+        request: Request,
+        stock_id: int = Form(...),
+        delta: int = Form(...),
+        kommentar: str = Form(...),
+    ):
+        try:
+            procurement.korrigiere_bestand(stock_id, delta, kommentar)
+        except ValidationError as error:
+            return TEMPLATES.TemplateResponse(
+                request,
+                "bestand.html",
+                {"stock": procurement.get_stock(), "bewegungen": [], "error": str(error)},
+                status_code=422,
+            )
+        return RedirectResponse("/bestand", status_code=303)
+
     @application.get("/shops", response_class=HTMLResponse)
     def shops(request: Request):
         return TEMPLATES.TemplateResponse(
