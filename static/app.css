@@ -65,6 +65,19 @@ a { color: inherit; }
 }
 .sidebar nav a:hover,
 .sidebar nav a:focus-visible { background: #24332a; color: #fff; }
+.sidebar footer .update {
+  display: block;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: #24332a;
+  color: #E4F0E9;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.sidebar footer .update:hover,
+.sidebar footer .update:focus-visible { background: var(--accent); color: #fff; }
 main {
   width: calc(100% - var(--sidebar));
   max-width: 1400px;

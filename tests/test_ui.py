@@ -349,7 +349,7 @@ def test_footer_names_the_running_version_before_the_source_link():
 def test_stylesheet_changes_use_a_fresh_cache_version():
     base = Path("templates/base.html").read_text(encoding="utf-8")
 
-    assert '/static/app.css?v=11' in base
+    assert '/static/app.css?v=12' in base
 
 
 def test_delete_job_form_uses_guarded_service_and_redirects_home():
