@@ -1,6 +1,31 @@
 # Beschaffung
 
+[![CI](https://github.com/Flashbibi/i-dont-wanna-research-stuff/actions/workflows/ci.yml/badge.svg)](https://github.com/Flashbibi/i-dont-wanna-research-stuff/actions/workflows/ci.yml)
+
 LAN-Beschaffungstool für Linus.
+
+## Quick start (Docker)
+
+Für eine eigene Instanz genügt Docker, ein Clone ist nicht nötig:
+
+```sh
+curl -O https://raw.githubusercontent.com/Flashbibi/i-dont-wanna-research-stuff/main/docker-compose.yml
+export POSTGRES_PASSWORD="ein-eigenes-passwort"
+docker compose up -d
+```
+
+Danach läuft die Anwendung auf `http://localhost:8000`; die Migrationen hat der
+Start bereits eingespielt.
+
+Das Image `ghcr.io/flashbibi/i-dont-wanna-research-stuff` existiert erst ab dem
+ersten Release `v0.1.0`. Wer vorher oder auf einem eigenen Stand starten will,
+ersetzt im Clone die `image:`-Zeile durch `build: .`.
+
+Beim Seitenaufbau prüft die Anwendung, ob auf GitHub ein neueres Release liegt,
+und blendet dann ein Banner ein. Der Check ist ein unauthentifizierter GET auf
+die GitHub-API ohne jegliche Nutzdaten, höchstens einmal täglich;
+`BESCHAFFUNG_UPDATE_CHECK=off` schaltet ihn vollständig ab, dann findet gar kein
+Netzwerkzugriff statt.
 
 ## Deployment
 
