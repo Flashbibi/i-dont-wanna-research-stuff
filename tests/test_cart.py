@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
 """Adapter-Tests gegen gemockte HTTP-Antworten.
 
 Kein Test in dieser Datei spricht mit einem echten Shop. Die Fixtures bilden

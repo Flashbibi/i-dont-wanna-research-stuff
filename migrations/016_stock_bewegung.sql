@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: AGPL-3.0-only
+-- Copyright (C) 2026 Flashbibi
 CREATE TABLE IF NOT EXISTS stock_bewegung (
     id BIGSERIAL PRIMARY KEY,
     stock_id BIGINT NOT NULL REFERENCES stock(id),

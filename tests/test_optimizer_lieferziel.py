@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
 """Optimierer mit Lieferzielen.
 
 Die Leitidee: verglichen wird nie der Artikelpreis, sondern der ehrliche

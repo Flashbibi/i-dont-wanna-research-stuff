@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
 """Fremdwährung mit Provenienz.
 
 Kein Test ruft eine echte Kurs-API auf; der Abruf wird durchgehend gestubbt.

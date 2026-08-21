@@ -254,3 +254,9 @@ Pflicht:**
 Sie fahren die Migrationen auf einer leeren Wegwerf-Datenbank und lesen danach
 echte Rows zurück. Genau dort fällt auf, wenn eine Migration auf grüner Wiese
 scheitert oder eine Spalte nie geschrieben wird — beides ist schon passiert.
+
+## Lizenz
+
+Dieses Projekt steht unter der Lizenz AGPL-3.0-only; siehe `LICENSE`.
+
+Forks und fremde Instanzen bitte nicht unter dem Namen dieses Projekts betreiben.
