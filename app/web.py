@@ -25,10 +25,12 @@ from .database import PostgresRepository
 from .mcp_server import build_mcp
 from .migrations import current_schema_version
 from .procurement import ProcurementService, ValidationError
+from .version import __version__
 
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = Jinja2Templates(directory=ROOT / "templates")
+TEMPLATES.env.globals["app_version"] = __version__
 EXTENSION_DIR = ROOT / "extension"
 
 
@@ -145,7 +147,7 @@ def create_app(
         async with mcp.session_manager.run():
             yield
 
-    application = FastAPI(title="Beschaffung", version="0.1.0", lifespan=lifespan)
+    application = FastAPI(title="Beschaffung", version=__version__, lifespan=lifespan)
     application.state.procurement = procurement
     application.state.mcp = mcp
     application.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
@@ -172,7 +174,11 @@ def create_app(
 
     @application.get("/health")
     def health() -> dict[str, int | str]:
-        return {"status": "ok", "schema_version": get_schema_version()}
+        return {
+            "status": "ok",
+            "schema_version": get_schema_version(),
+            "app_version": __version__,
+        }
 
     @application.get("/", response_class=HTMLResponse)
     def home(request: Request):

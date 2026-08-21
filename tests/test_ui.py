@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.version import __version__
 from app.web import create_app
 
 
@@ -332,6 +333,17 @@ def test_untouched_job_page_shows_guarded_delete_button_only_for_that_job():
     assert "Job #13 wirklich löschen?" in untouched
     assert "Job löschen" in untouched
     assert "/jobs/7/delete" not in touched
+
+
+def test_footer_names_the_running_version_before_the_source_link():
+    client, _ = client_and_repo()
+
+    footer = re.search(r"<footer>(.*?)</footer>", client.get("/").text, re.S)
+
+    assert footer is not None
+    text = " ".join(re.sub(r"<[^>]+>", " ", footer.group(1)).split())
+    assert text == f"v{__version__} · Source (AGPL-3.0)"
+    assert text == "v0.1.0 · Source (AGPL-3.0)"
 
 
 def test_stylesheet_changes_use_a_fresh_cache_version():
