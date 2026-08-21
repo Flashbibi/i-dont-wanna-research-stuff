@@ -11,12 +11,16 @@ RUN useradd --create-home --uid 10001 beschaffung
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Nur was der Dienst zur Laufzeit liest. Tests, Extension und Historie bleiben
-# draussen; was fehlt, kann auch nicht ungeprüft mitlaufen.
+# Nur was der Dienst zur Laufzeit liest. Tests und Historie bleiben draussen.
+# extension/ gehört dazu: /extension.zip zippt dieses Verzeichnis im Moment
+# des Abrufs, und ohne es fällt die Job-Seite auf den Kopierflow zurück.
+# LICENSE reist mit, weil die AGPL das Bereitstellen des Angebots verlangt.
 COPY app/ ./app/
 COPY migrations/ ./migrations/
 COPY static/ ./static/
 COPY templates/ ./templates/
+COPY extension/ ./extension/
+COPY LICENSE ./
 
 USER beschaffung
 

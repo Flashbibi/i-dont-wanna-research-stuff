@@ -5,5 +5,4 @@ tests
 __pycache__
 *.md
 auftrag-bericht.md
-extension
 .githooks
