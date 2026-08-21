@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+services:
+  db:
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=beschaffung
+      - POSTGRES_DB=beschaffung
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-beschaffung}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U beschaffung -d beschaffung"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    # Statt des Releases den lokalen Stand bauen: build: .
+    image: ghcr.io/flashbibi/i-dont-wanna-research-stuff:v0.1.0
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://beschaffung:${POSTGRES_PASSWORD:-beschaffung}@db:5432/beschaffung
+      - BESCHAFFUNG_UPDATE_CHECK=${BESCHAFFUNG_UPDATE_CHECK:-on}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
