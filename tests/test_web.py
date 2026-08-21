@@ -3,6 +3,7 @@
 from fastapi.testclient import TestClient
 
 from app.jobs import parse_bom
+from app.version import __version__
 from app.web import create_app
 
 
@@ -66,13 +67,17 @@ def test_parse_bom_accepts_optional_quantity_prefix_and_skips_blank_lines():
     ]
 
 
-def test_health_reports_migration_state():
+def test_health_reports_migration_state_and_running_version():
     client = TestClient(create_app(FakeRepository(), lambda: 1))
 
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "schema_version": 1}
+    assert response.json() == {
+        "status": "ok",
+        "schema_version": 1,
+        "app_version": __version__,
+    }
 
 
 def test_create_job_persists_lines_without_calculating_live():
