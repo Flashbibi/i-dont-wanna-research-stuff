@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
 """Read-only production MCP smoke test.
 
 create_job is invoked only with invalid empty input, so this E2E never creates a real job.

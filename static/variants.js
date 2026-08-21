@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Flashbibi
 const slider = document.querySelector('#tempo');
 const scenariosTarget = document.querySelector('#scenarios');
 const tunedTarget = document.querySelector('#variants');

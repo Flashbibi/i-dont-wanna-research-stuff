@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
 from fastapi.testclient import TestClient
 
 from app.jobs import parse_bom

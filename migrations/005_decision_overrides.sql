@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: AGPL-3.0-only
+-- Copyright (C) 2026 Flashbibi
 ALTER TABLE decision
     ADD COLUMN IF NOT EXISTS override_status TEXT
     CHECK (override_status IS NULL OR override_status IN ('pin', 'exclude'));
