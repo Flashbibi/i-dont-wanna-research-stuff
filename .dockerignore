@@ -1,0 +1,8 @@
+.git
+.github
+tests
+.venv
+__pycache__
+*.md
+auftrag-bericht.md
+extension
