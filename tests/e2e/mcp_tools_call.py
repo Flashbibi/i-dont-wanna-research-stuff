@@ -8,6 +8,10 @@ create_job is invoked only with invalid empty input, so this E2E never creates a
 get_cart_session is listed but never called: it opens a guest session at a real
 shop and writes the platform finding plus the product-id cache. Keep it out of
 tools/call here.
+
+adjust_stock is listed but never called: it writes stock. Keep it
+out of tools/call here. check_stock is read-only but covered by
+the unit suite; the smoke test only asserts its presence.
 """
 
 from __future__ import annotations
@@ -33,6 +37,8 @@ EXPECTED_TOOLS = {
     "plan_scenarios",
     "next_job",
     "check_line",
+    "check_stock",
+    "adjust_stock",
     "record_shop",
     "record_offer",
     "mark_line",
