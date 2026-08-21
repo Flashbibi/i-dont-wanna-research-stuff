@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: beschaffung
+          POSTGRES_PASSWORD: beschaffung
+          POSTGRES_DB: beschaffung
+        ports:
+          # Trifft den DEV_URL-Default der Integrationstests. Deshalb braucht
+          # der Lauf kein BESCHAFFUNG_TEST_DATABASE_URL.
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U beschaffung -d beschaffung"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+
+      - name: Integrationstests gegen Postgres
+        run: |
+          set -o pipefail
+          pytest tests/test_repository_integration.py -v | tee integration.log
+
+      - name: Guard - die Datenbankverifikation muss gelaufen sein
+        run: |
+          if ! grep -q "12 passed" integration.log; then
+            echo "Erwartet waren 12 bestandene Integrationstests."
+            exit 1
+          fi
+          if grep -qE "SKIPPED| skipped" integration.log; then
+            echo "Ohne erreichbares Postgres überspringen sich diese Tests still."
+            echo "Ein Skip zählt hier nicht als grün:"
+            grep -nE "SKIPPED| skipped" integration.log
+            exit 1
+          fi
+
+      - name: Gesamte Testsuite
+        run: |
+          set -o pipefail
+          pytest -ra | tee suite.log
+
+      - name: Guard - kein stiller Skip in der Suite
+        run: |
+          if grep -q " skipped" suite.log; then
+            echo "Die Suite hat Tests übersprungen:"
+            grep -n " skipped" suite.log
+            exit 1
+          fi
+
+  release:
+    needs: tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard - Tag und app/version.py müssen übereinstimmen
+        run: |
+          version="$(python3 -c 'from app.version import __version__; print(__version__)')"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "Tag $GITHUB_REF_NAME und app/version.py ($version) laufen auseinander."
+            echo "Erst __version__ auf ${GITHUB_REF_NAME#v} setzen und committen, dann neu taggen."
+            exit 1
+          fi
+          echo "Tag $GITHUB_REF_NAME passt zu app/version.py."
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/flashbibi/i-dont-wanna-research-stuff:${{ github.ref_name }}
+            ghcr.io/flashbibi/i-dont-wanna-research-stuff:latest
+
+      - name: Changelog-Abschnitt zum Tag herausschneiden
+        run: python3 .github/changelog_section.py "$GITHUB_REF_NAME" > release-notes.md
+
+      - name: GitHub-Release anlegen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            docker-compose.yml
