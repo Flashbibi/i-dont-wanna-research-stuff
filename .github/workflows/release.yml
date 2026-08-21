@@ -47,7 +47,7 @@ jobs:
       - name: Integrationstests gegen Postgres
         run: |
           set -o pipefail
-          pytest tests/test_repository_integration.py -v | tee integration.log
+          python -m pytest tests/test_repository_integration.py -v | tee integration.log
 
       - name: Guard - die Datenbankverifikation muss gelaufen sein
         run: |
@@ -65,7 +65,7 @@ jobs:
       - name: Gesamte Testsuite
         run: |
           set -o pipefail
-          pytest -ra | tee suite.log
+          python -m pytest -ra | tee suite.log
 
       - name: Guard - kein stiller Skip in der Suite
         run: |

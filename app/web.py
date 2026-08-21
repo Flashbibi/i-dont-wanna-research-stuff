@@ -25,12 +25,14 @@ from .database import PostgresRepository
 from .mcp_server import build_mcp
 from .migrations import current_schema_version
 from .procurement import ProcurementService, ValidationError
+from .updates import update_available
 from .version import __version__
 
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = Jinja2Templates(directory=ROOT / "templates")
 TEMPLATES.env.globals["app_version"] = __version__
+TEMPLATES.env.globals["update_release"] = update_available
 EXTENSION_DIR = ROOT / "extension"
 
 
