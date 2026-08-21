@@ -56,14 +56,18 @@ class StubService:
     def check_line(self, line_id):
         return {"line": {"id": line_id}}
 
+    def check_stock(self, line_id):
+        return {"line_id": line_id, "benoetigt": 2, "gedeckt": False, "fehlmenge": 2,
+                "treffer": [], "kandidaten": []}
+
     def record_shop(self, *args):
         return {"id": 1}
 
     def record_offer(self, *args):
         return {"id": 2}
 
-    def mark_line(self, *args):
-        return {"id": args[0]}
+    def mark_line(self, *args, **kwargs):
+        return {"id": args[0], "stock_ids": kwargs.get("stock_ids")}
 
     def plan_order(self, *args):
         return []
@@ -101,6 +105,7 @@ def test_mcp_exposes_exact_procurement_tools():
         "plan_scenarios",
         "next_job",
         "check_line",
+        "check_stock",
         "record_shop",
         "record_offer",
         "mark_line",
@@ -168,6 +173,9 @@ def test_all_tool_descriptions_match_current_behavior():
         "check_line": (
             "Exakten Bestand, frühere Käufe und höchstens 14 Tage alte Angebote für "
             "eine Zeile gemeinsam laden (read-only)."
+        ),
+        "check_stock": (
+            "Passende Bestände und ähnliche Kandidaten für eine Zeile prüfen (read-only)."
         ),
         "record_shop": (
             "Shop mit tatsächlichem Herkunftsland, explizitem Lieferziel, HTTP(S)-"
@@ -393,6 +401,7 @@ def test_streamable_http_endpoint_initializes_and_lists_tools():
         "plan_scenarios",
         "next_job",
         "check_line",
+        "check_stock",
         "record_shop",
         "record_offer",
         "mark_line",

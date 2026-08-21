@@ -24,7 +24,7 @@ import pytest
 
 from app.database import PostgresRepository
 from app.migrations import apply_migrations, discover_migrations, run_migrations
-from app.procurement import ProcurementService
+from app.procurement import ProcurementService, ValidationError
 
 psycopg = pytest.importorskip("psycopg")
 
@@ -247,3 +247,155 @@ def test_the_platform_finding_needs_evidence_at_the_database(repository):
     gespeichert = repository.save_shop_platform(shop["id"], "opencart", "Cookie OCSESSID")
     assert gespeichert["plattform"] == "opencart"
     assert repository.get_shop(shop["id"])["plattform_geprueft_am"] is not None
+
+
+def _create_line(service, repository, text):
+    job_id = service.create_job(text)["job_id"]
+    line_id = repository.get_job(job_id)["lines"][0]["id"]
+    return job_id, line_id
+
+
+def _create_shop(service, slug):
+    return service.record_shop(
+        f"Integration {slug}", f"https://{slug}.example.ch/", "CH", 5, None, None, 2,
+        f"https://{slug}.example.ch/versand", "Versand CHF 5",
+    )
+
+
+def _create_offer(service, line_id, shop, slug, article):
+    return service.record_offer(
+        line_id, shop["id"], slug, f"{shop['url'].rstrip('/')}/{slug}", "1.00",
+        lieferzeit_text="2 Tage", artikelnummer=article,
+    )
+
+
+def _create_stock_from_offer(repository, job_id, line_id, offer_id, name, amount):
+    with psycopg.connect(_test_url()) as connection:
+        purchase_id = connection.execute(
+            """
+            INSERT INTO purchase(job_id, variante, total_chf, bestellt_am, zugesagt_liefertage)
+            VALUES (%s, '{}'::jsonb, 1, NOW(), '{}'::jsonb) RETURNING id
+            """,
+            (job_id,),
+        ).fetchone()[0]
+        item_id = connection.execute(
+            """
+            INSERT INTO purchase_item(purchase_id, line_id, offer_id, menge, einzelpreis_chf)
+            VALUES (%s, %s, %s, %s, 1) RETURNING id
+            """,
+            (purchase_id, line_id, offer_id, amount),
+        ).fetchone()[0]
+        stock_id = connection.execute(
+            """
+            INSERT INTO stock(bezeichnung, menge, purchase_item_id)
+            VALUES (%s, %s, %s) RETURNING id
+            """,
+            (name, amount, item_id),
+        ).fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO stock_bewegung(stock_id, delta, grund, kommentar)
+            VALUES (%s, %s, 'uebernahme_migration', 'Integrationstest')
+            """,
+            (stock_id, amount),
+        )
+        return stock_id
+
+
+def _create_plain_stock(name, amount, updated_at="2026-01-01T00:00:00Z"):
+    with psycopg.connect(_test_url()) as connection:
+        stock_id = connection.execute(
+            """
+            INSERT INTO stock(bezeichnung, menge, aktualisiert_am)
+            VALUES (%s, %s, %s) RETURNING id
+            """,
+            (name, amount, updated_at),
+        ).fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO stock_bewegung(stock_id, delta, grund, kommentar)
+            VALUES (%s, %s, 'uebernahme_migration', 'Integrationstest')
+            """,
+            (stock_id, amount),
+        )
+        return stock_id
+
+
+def test_article_number_match_works_with_different_text(service, repository):
+    shop = _create_shop(service, "article-match")
+    source_job, source_line = _create_line(service, repository, "4x Ursprungsprodukt")
+    source_offer = _create_offer(service, source_line, shop, "source-article", "ART-MATCH-1")
+    stock_id = _create_stock_from_offer(
+        repository, source_job, source_line, source_offer["id"], "Völlig andere Bezeichnung", 4
+    )
+    _, target_line = _create_line(service, repository, "3x Zielprodukt ohne Texttreffer")
+    _create_offer(service, target_line, shop, "target-article", "ART-MATCH-1")
+
+    service.mark_line(target_line, "bestand")
+
+    with psycopg.connect(_test_url()) as connection:
+        assert connection.execute(
+            "SELECT menge FROM stock WHERE id = %s", (stock_id,)
+        ).fetchone()[0] == 1
+
+
+def test_article_number_match_refuses_a_different_shop(service, repository):
+    source_shop = _create_shop(service, "article-shop-a")
+    target_shop = _create_shop(service, "article-shop-b")
+    source_job, source_line = _create_line(service, repository, "2x Fremder Ursprung")
+    source_offer = _create_offer(
+        service, source_line, source_shop, "source-shop-a", "ART-SHOP-1"
+    )
+    stock_id = _create_stock_from_offer(
+        repository, source_job, source_line, source_offer["id"], "Kein Texttreffer", 2
+    )
+    _, target_line = _create_line(service, repository, "2x Anderes Ziel")
+    _create_offer(service, target_line, target_shop, "target-shop-b", "ART-SHOP-1")
+
+    with pytest.raises(ValidationError, match="deckt"):
+        service.mark_line(target_line, "bestand")
+
+    with psycopg.connect(_test_url()) as connection:
+        assert connection.execute(
+            "SELECT menge FROM stock WHERE id = %s", (stock_id,)
+        ).fetchone()[0] == 2
+        assert connection.execute(
+            "SELECT count(*) FROM stock_bewegung WHERE line_id = %s", (target_line,)
+        ).fetchone()[0] == 0
+
+
+def test_explicit_stock_ids_refuse_insufficient_coverage(service, repository):
+    _, line_id = _create_line(service, repository, "3x Expliziter Auswahltest")
+    stock_id = _create_plain_stock("Bewusst andere Bezeichnung", 2)
+
+    with pytest.raises(ValidationError, match="deckt"):
+        service.mark_line(line_id, "bestand", stock_ids=[stock_id])
+
+    with psycopg.connect(_test_url()) as connection:
+        assert connection.execute(
+            "SELECT menge FROM stock WHERE id = %s", (stock_id,)
+        ).fetchone()[0] == 2
+
+
+def test_stock_candidates_rank_by_common_tokens_then_recency(service, repository):
+    _, line_id = _create_line(service, repository, "1x rangservo rangmotor ranghalter")
+    entries = [
+        ("rangservo rangmotor alt", "2026-01-01T00:00:00Z"),
+        ("rangservo rangmotor neu", "2026-01-02T00:00:00Z"),
+        ("rangservo kandidat-a", "2026-01-03T00:00:00Z"),
+        ("rangmotor kandidat-b", "2026-01-04T00:00:00Z"),
+        ("ranghalter kandidat-c", "2026-01-05T00:00:00Z"),
+        ("rangservo kandidat-d", "2026-01-06T00:00:00Z"),
+    ]
+    for name, updated_at in entries:
+        _create_plain_stock(name, 1, updated_at)
+
+    result = service.check_stock(line_id)
+
+    assert [row["bezeichnung"] for row in result["kandidaten"]] == [
+        "rangservo rangmotor neu",
+        "rangservo rangmotor alt",
+        "rangservo kandidat-d",
+        "ranghalter kandidat-c",
+        "rangmotor kandidat-b",
+    ]
