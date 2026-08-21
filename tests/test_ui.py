@@ -332,10 +332,10 @@ def test_untouched_job_page_shows_guarded_delete_button_only_for_that_job():
     assert "/jobs/7/delete" not in touched
 
 
-def test_delete_button_styles_use_a_fresh_stylesheet_cache_version():
+def test_stylesheet_changes_use_a_fresh_cache_version():
     base = Path("templates/base.html").read_text(encoding="utf-8")
 
-    assert '/static/app.css?v=10' in base
+    assert '/static/app.css?v=11' in base
 
 
 def test_delete_job_form_uses_guarded_service_and_redirects_home():

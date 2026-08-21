@@ -381,3 +381,21 @@ table.ziele input { border:1px solid var(--line); border-radius:6px; padding:3px
 .fx { font-size:11.5px; color:var(--muted); margin-top:3px; }
 .chip.pickup { background:var(--warning-soft); color:var(--warning); }
 .rrow.pickup-row .k { color:var(--warning); }
+
+/* Bestand */
+.stock-head { margin-bottom:20px; }
+.stock-panel { padding:0; overflow:hidden; }
+.stock-movements { margin-top:30px; }
+.table-wrap { overflow-x:auto; }
+.stock-table { width:100%; border-collapse:collapse; }
+.stock-table th { padding:10px 12px; border-bottom:1px solid var(--line); color:var(--muted); font-size:11px; text-align:left; white-space:nowrap; }
+.stock-table td { padding:12px; border-bottom:1px solid var(--line-soft); vertical-align:top; }
+.stock-table tbody tr:last-child td { border-bottom:0; }
+.stock-table .relative { display:block; color:var(--muted); font-size:11px; }
+.stock-correction { display:flex; gap:6px; min-width:360px; }
+.stock-correction input { min-width:0; padding:7px 8px; border:1px solid var(--line); border-radius:7px; font:inherit; }
+.stock-correction input[type="number"] { width:90px; }
+.stock-correction input[name="kommentar"] { flex:1; }
+.stock-delta { font:700 13px var(--mono); }
+.stock-delta.positive { color:var(--accent); }
+.stock-delta.negative { color:var(--danger); }

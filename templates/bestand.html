@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Bestand · Beschaffung{% endblock %}
+{% block content %}
+<section class="stock-head">
+  <p class="eyebrow">Bestand</p>
+  <h1>Vorhandene Teile</h1>
+  <p class="muted">Aktueller Lagerbestand mit Herkunft und nachvollziehbarer Bewegungshistorie.</p>
+</section>
+{% if error %}<p class="panel error" role="alert">{{ error }}</p>{% endif %}
+<section class="panel stock-panel">
+  <div class="table-wrap">
+    <table class="stock-table">
+      <thead><tr><th>Bezeichnung</th><th>Artikelnummer</th><th>Shop</th><th>Menge</th><th>Zuletzt bewegt</th><th>Korrektur</th></tr></thead>
+      <tbody>
+      {% for row in stock %}
+        <tr>
+          <td>{% if row.produkt_url %}<a href="{{ row.produkt_url }}">{{ row.bezeichnung }}</a>{% else %}{{ row.bezeichnung }}{% endif %}</td>
+          <td>{{ row.artikelnummer or '–' }}</td>
+          <td>{{ row.shop_name or '–' }}</td>
+          <td><strong>{{ row.menge }} {{ row.einheit }}</strong></td>
+          <td><time datetime="{{ row.aktualisiert_am }}">{{ row.aktualisiert_am.strftime('%d.%m.%Y') if row.aktualisiert_am.strftime is defined else row.aktualisiert_am[:10] }}</time><span class="relative">{{ row.relative_time }}</span></td>
+          <td>
+            <form class="stock-correction" method="post" action="/bestand/korrektur">
+              <input type="hidden" name="stock_id" value="{{ row.id }}">
+              <input name="delta" type="number" required placeholder="± Menge" aria-label="Korrekturmenge für {{ row.bezeichnung }}">
+              <input name="kommentar" required placeholder="Grund der Korrektur" aria-label="Korrekturgrund für {{ row.bezeichnung }}">
+              <button type="submit">Buchen</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">Kein positiver Bestand vorhanden.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+<section class="stock-movements">
+  <div class="section-head"><h2>Letzte Bewegungen</h2><span>{{ bewegungen|length }}</span></div>
+  <div class="panel table-wrap">
+    <table class="stock-table movements-table">
+      <thead><tr><th>Datum</th><th>Bezeichnung</th><th>Delta</th><th>Grund</th><th>Kommentar</th></tr></thead>
+      <tbody>
+      {% for row in bewegungen %}
+        <tr>
+          <td><time datetime="{{ row.erstellt_am }}">{{ row.erstellt_am.strftime('%d.%m.%Y') if row.erstellt_am.strftime is defined else row.erstellt_am[:10] }}</time><span class="relative">{{ row.relative_time }}</span></td>
+          <td>{{ row.bezeichnung }}</td>
+          <td class="stock-delta {{ 'positive' if row.delta > 0 else 'negative' }}">{{ '+' if row.delta > 0 else '' }}{{ row.delta }}</td>
+          <td>{{ row.grund|replace('_', ' ') }}</td>
+          <td>{{ row.kommentar or '–' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="muted">Noch keine Bewegungen.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

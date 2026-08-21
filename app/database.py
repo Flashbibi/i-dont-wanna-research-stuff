@@ -104,11 +104,42 @@ class PostgresRepository:
                 ).fetchone()
                 if (
                     job["status"] != "offen"
-                    or any(line["status"] != "offen" for line in lines)
+                    or any(line["status"] not in {"offen", "bestand"} for line in lines)
                     or state["has_offers"]
                     or state["has_purchase"]
                 ):
                     raise ValueError("Job ist nicht mehr unberührt und darf nicht gelöscht werden")
+                refunds = connection.execute(
+                    """
+                    SELECT b.stock_id, SUM(b.delta)::int AS delta_sum
+                    FROM stock_bewegung b
+                    WHERE b.grund = 'abgang_bestand'
+                      AND b.line_id = ANY(%s)
+                    GROUP BY b.stock_id
+                    """,
+                    ([line["id"] for line in lines],),
+                ).fetchall()
+                for refund in refunds:
+                    connection.execute(
+                        "SELECT id FROM stock WHERE id = %s FOR UPDATE",
+                        (refund["stock_id"],),
+                    ).fetchone()
+                    amount = -refund["delta_sum"]
+                    connection.execute(
+                        """
+                        UPDATE stock SET menge = menge + %s, aktualisiert_am = NOW()
+                        WHERE id = %s
+                        """,
+                        (amount, refund["stock_id"]),
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO stock_bewegung(
+                            stock_id, delta, grund, kommentar
+                        ) VALUES (%s, %s, 'rueckbuchung_job_geloescht', %s)
+                        """,
+                        (refund["stock_id"], amount, f"Rückbuchung: Job {job_id} gelöscht"),
+                    )
                 connection.execute("DELETE FROM bom_line WHERE job_id = %s", (job_id,))
                 connection.execute(
                     "DELETE FROM job WHERE id = %s AND status = 'offen' AND NOT is_test",
@@ -1101,11 +1132,27 @@ class PostgresRepository:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, bezeichnung, menge, einheit, aktualisiert_am
-                FROM stock
-                WHERE menge > 0
-                ORDER BY lower(bezeichnung), id
+                SELECT s.id, s.bezeichnung, s.menge, s.einheit, s.aktualisiert_am,
+                       o.artikelnummer, sh.name AS shop_name, o.produkt_url
+                FROM stock s
+                LEFT JOIN purchase_item pi ON pi.id = s.purchase_item_id
+                LEFT JOIN offer o ON o.id = pi.offer_id
+                LEFT JOIN shop sh ON sh.id = o.shop_id
+                WHERE s.menge > 0
+                ORDER BY lower(s.bezeichnung), s.id
                 """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_stock_bewegungen(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT s.bezeichnung, b.delta, b.grund, b.kommentar, b.erstellt_am
+                FROM stock_bewegung b JOIN stock s ON s.id = b.stock_id
+                ORDER BY b.erstellt_am DESC, b.id DESC LIMIT %s
+                """,
+                (limit,),
             ).fetchall()
             return [dict(row) for row in rows]
 

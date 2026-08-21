@@ -17,6 +17,15 @@ class Result:
         return self.many
 
 
+def assert_stock_invariant(stock_rows, movements):
+    totals = {}
+    for movement in movements:
+        totals[movement["stock_id"]] = totals.get(movement["stock_id"], 0) + movement["delta"]
+    for stock in stock_rows:
+        if stock["id"] in totals:
+            assert stock["menge"] == totals[stock["id"]]
+
+
 class Connection:
     def __enter__(self):
         return self
@@ -174,6 +183,64 @@ def test_delete_unstarted_job_rejects_any_touched_or_test_job(changed, message):
     assert not any(sql.startswith("DELETE") for sql, _ in connection.statements)
 
 
+class StockJobDeletionConnection(JobDeletionConnection):
+    def execute(self, sql, params=None):
+        normalized = " ".join(sql.split())
+        if "FROM bom_line" in normalized and "FOR UPDATE" in normalized:
+            self.statements.append((normalized, params))
+            return Result(many=[{"id": 46, "status": "bestand"}])
+        if "FROM stock_bewegung" in normalized and "GROUP BY b.stock_id" in normalized:
+            self.statements.append((normalized, params))
+            return Result(many=[{"stock_id": 4, "delta_sum": -3}])
+        if normalized.startswith("SELECT id FROM stock"):
+            self.statements.append((normalized, params))
+            return Result(one={"id": 4})
+        return super().execute(sql, params)
+
+
+def test_delete_open_job_refunds_stock_movements_before_deleting_lines():
+    repository = PostgresRepository("unused")
+    connection = StockJobDeletionConnection({
+        "id": 13, "status": "offen", "is_test": False,
+        "has_offers": False, "has_purchase": False, "has_progress": False,
+    })
+    repository._connect = lambda: connection
+
+    repository.delete_unstarted_job(13)
+
+    refund = next(
+        (sql, params) for sql, params in connection.statements
+        if sql.startswith("INSERT INTO stock_bewegung")
+    )
+    assert refund[1] == (4, 3, "Rückbuchung: Job 13 gelöscht")
+    assert_stock_invariant(
+        [{"id": 4, "menge": 5}],
+        [
+            {"stock_id": 4, "delta": 5},
+            {"stock_id": 4, "delta": -3},
+            {"stock_id": 4, "delta": 3},
+        ],
+    )
+    refund_index = connection.statements.index(refund)
+    delete_index = next(
+        index for index, (sql, _) in enumerate(connection.statements)
+        if sql == "DELETE FROM bom_line WHERE job_id = %s"
+    )
+    assert refund_index < delete_index
+
+
+def test_delete_job_with_stock_line_is_still_rejected_when_job_is_not_open():
+    repository = PostgresRepository("unused")
+    connection = StockJobDeletionConnection({
+        "id": 13, "status": "in_arbeit", "is_test": False,
+        "has_offers": False, "has_purchase": False, "has_progress": False,
+    })
+    repository._connect = lambda: connection
+
+    with pytest.raises(ValueError, match="nicht mehr unberührt"):
+        repository.delete_unstarted_job(13)
+
+
 def test_job_selection_is_saved_as_jsonb():
     class SelectionConnection(Connection):
         def __init__(self):
@@ -306,9 +373,23 @@ def test_get_stock_returns_only_positive_stock_in_stable_order():
 
     rows = repository.get_stock()
 
-    assert "WHERE menge > 0" in connection.sql
-    assert "ORDER BY lower(bezeichnung), id" in connection.sql
+    assert "WHERE s.menge > 0" in connection.sql
+    assert "ORDER BY lower(s.bezeichnung), s.id" in connection.sql
+    for field in ("o.artikelnummer", "shop_name", "o.produkt_url"):
+        assert field in connection.sql
+    assert "LEFT JOIN purchase_item" in connection.sql
     assert rows[0]["bezeichnung"] == "Servo"
+
+
+def test_get_stock_movements_returns_latest_entries_with_stock_name():
+    repository = PostgresRepository("unused")
+    connection = JobListConnection()
+    repository._connect = lambda: connection
+
+    repository.get_stock_bewegungen(20)
+
+    assert "FROM stock_bewegung b JOIN stock s" in connection.sql
+    assert "ORDER BY b.erstellt_am DESC, b.id DESC LIMIT %s" in connection.sql
 
 
 class ArrivalConnection(Connection):
@@ -347,6 +428,9 @@ def test_mark_purchase_arrived_writes_one_access_ledger_entry_and_is_idempotent(
         "INSERT INTO stock_bewegung(stock_id, line_id, delta, grund) VALUES (%s, %s, %s, 'zugang_lieferung')",
         (4, 12, 3),
     )]
+    assert_stock_invariant(
+        [{"id": 4, "menge": 3}], [{"stock_id": 4, "delta": 3}]
+    )
 
 
 class MarkStockConnection(Connection):
@@ -387,6 +471,10 @@ def test_mark_line_uses_article_and_trimmed_text_matching_and_writes_negative_le
     assert any(
         sql.startswith("INSERT INTO stock_bewegung") and params == (4, 12, -3)
         for sql, params in connection.statements
+    )
+    assert_stock_invariant(
+        [{"id": 4, "menge": 2}],
+        [{"stock_id": 4, "delta": 5}, {"stock_id": 4, "delta": -3}],
     )
 
 
@@ -486,6 +574,10 @@ def test_correct_stock_locks_updates_and_writes_correction_ledger_atomically():
     assert any(
         sql.startswith("INSERT INTO stock_bewegung") and params == (4, -2, "Inventur")
         for sql, params in connection.statements
+    )
+    assert_stock_invariant(
+        [{"id": 4, "menge": 3}],
+        [{"stock_id": 4, "delta": 5}, {"stock_id": 4, "delta": -2}],
     )
 
 
