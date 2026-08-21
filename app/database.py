@@ -1019,7 +1019,7 @@ class PostgresRepository:
                     ).fetchone()
                     items = connection.execute(
                         """
-                        SELECT pi.id, pi.menge, bl.suchtext
+                        SELECT pi.id, pi.line_id, pi.menge, bl.suchtext
                         FROM purchase_item pi
                         JOIN bom_line bl ON bl.id = pi.line_id
                         WHERE pi.purchase_id = %s
@@ -1027,12 +1027,20 @@ class PostgresRepository:
                         (purchase_id,),
                     ).fetchall()
                     for item in items:
-                        connection.execute(
+                        stock = connection.execute(
                             """
                             INSERT INTO stock(bezeichnung, menge, purchase_item_id)
                             VALUES (%s, %s, %s)
+                            RETURNING id
                             """,
                             (item["suchtext"], item["menge"], item["id"]),
+                        ).fetchone()
+                        connection.execute(
+                            """
+                            INSERT INTO stock_bewegung(stock_id, line_id, delta, grund)
+                            VALUES (%s, %s, %s, 'zugang_lieferung')
+                            """,
+                            (stock["id"], item["line_id"], item["menge"]),
                         )
                     connection.execute(
                         """

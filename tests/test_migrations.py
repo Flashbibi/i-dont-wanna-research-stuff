@@ -235,3 +235,18 @@ def test_shop_platform_migration_is_additive_and_enforces_evidence():
     assert "'opencart', 'woocommerce', 'shopify'" in sql
     assert "DELETE " not in sql.upper()
     assert "DROP TABLE" not in sql.upper()
+
+
+def test_stock_ledger_migration_creates_checked_foundation_and_backfill():
+    sql = Path("migrations/016_stock_bewegung.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS stock_bewegung" in sql
+    assert "stock_id BIGINT NOT NULL REFERENCES stock(id)" in sql
+    assert "line_id BIGINT REFERENCES bom_line(id) ON DELETE SET NULL" in sql
+    assert "delta INTEGER NOT NULL CHECK (delta <> 0)" in sql
+    assert "grund <> 'korrektur' OR (kommentar IS NOT NULL AND btrim(kommentar) <> '')" in sql
+    assert "idx_stock_bewegung_stock" in sql
+    assert "idx_stock_bewegung_line" in sql
+    assert "'uebernahme_migration', 'Backfill Migration 016'" in sql
+    assert "s.menge > 0" in sql
+    assert "NOT EXISTS (SELECT 1 FROM stock_bewegung b WHERE b.stock_id = s.id)" in sql
