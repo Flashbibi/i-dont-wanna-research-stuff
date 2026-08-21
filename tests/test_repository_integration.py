@@ -18,11 +18,12 @@ from __future__ import annotations
 
 import os
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
 from app.database import PostgresRepository
-from app.migrations import run_migrations
+from app.migrations import apply_migrations, discover_migrations, run_migrations
 from app.procurement import ProcurementService
 
 psycopg = pytest.importorskip("psycopg")
@@ -32,6 +33,7 @@ DEV_URL = os.environ.get(
     "postgresql://beschaffung:beschaffung@127.0.0.1:5433/beschaffung",
 )
 TEST_DB = "beschaffung_integration"
+MIGRATION_TEST_DB = "beschaffung_migration_016"
 
 
 def _admin_url() -> str:
@@ -40,6 +42,88 @@ def _admin_url() -> str:
 
 def _test_url() -> str:
     return DEV_URL.rsplit("/", 1)[0] + "/" + TEST_DB
+
+
+def _database_url(name: str) -> str:
+    return DEV_URL.rsplit("/", 1)[0] + "/" + name
+
+
+def test_migration_016_runs_backfills_once_and_is_idempotent(tmp_path):
+    migrations_dir = Path(__file__).resolve().parent.parent / "migrations"
+    try:
+        with psycopg.connect(_admin_url(), connect_timeout=3, autocommit=True) as admin:
+            admin.execute(f'DROP DATABASE IF EXISTS "{MIGRATION_TEST_DB}"')
+            admin.execute(f'CREATE DATABASE "{MIGRATION_TEST_DB}"')
+    except Exception as error:  # noqa: BLE001 - ohne DB wird uebersprungen
+        pytest.skip(f"Kein erreichbares Postgres für Integrationstests: {error}")
+
+    try:
+        for migration in discover_migrations(migrations_dir):
+            if migration.version < 16:
+                (tmp_path / migration.path.name).write_text(
+                    migration.path.read_text(encoding="utf-8"), encoding="utf-8"
+                )
+        with psycopg.connect(_database_url(MIGRATION_TEST_DB)) as connection:
+            apply_migrations(connection, tmp_path)
+            stock_ids = [
+                connection.execute(
+                    "INSERT INTO stock(bezeichnung, menge) VALUES (%s, %s) RETURNING id",
+                    (name, amount),
+                ).fetchone()[0]
+                for name, amount in (("Altbestand A", 3), ("Altbestand B", 7), ("Leer", 0))
+            ]
+            connection.commit()
+
+            migration_016 = migrations_dir / "016_stock_bewegung.sql"
+            (tmp_path / migration_016.name).write_text(
+                migration_016.read_text(encoding="utf-8"), encoding="utf-8"
+            )
+            assert apply_migrations(connection, tmp_path) == [16]
+
+            assert connection.execute(
+                "SELECT to_regclass('public.stock_bewegung')"
+            ).fetchone()[0] == "stock_bewegung"
+            constraint_defs = [
+                row[0]
+                for row in connection.execute(
+                    """
+                    SELECT pg_get_constraintdef(oid)
+                    FROM pg_constraint
+                    WHERE conrelid = 'stock_bewegung'::regclass
+                    """
+                ).fetchall()
+            ]
+            assert any("FOREIGN KEY (stock_id) REFERENCES stock(id)" in value for value in constraint_defs)
+            assert any("FOREIGN KEY (line_id) REFERENCES bom_line(id) ON DELETE SET NULL" in value for value in constraint_defs)
+            assert any("delta <> 0" in value for value in constraint_defs)
+            assert any("grund" in value and "uebernahme_migration" in value for value in constraint_defs)
+            assert any("kommentar" in value and "korrektur" in value for value in constraint_defs)
+            indexes = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT indexname FROM pg_indexes WHERE tablename = 'stock_bewegung'"
+                ).fetchall()
+            }
+            assert {"idx_stock_bewegung_stock", "idx_stock_bewegung_line"} <= indexes
+
+            movements = connection.execute(
+                """
+                SELECT stock_id, delta, grund, kommentar
+                FROM stock_bewegung ORDER BY stock_id
+                """
+            ).fetchall()
+            assert movements == [
+                (stock_ids[0], 3, "uebernahme_migration", "Backfill Migration 016"),
+                (stock_ids[1], 7, "uebernahme_migration", "Backfill Migration 016"),
+            ]
+
+            connection.execute(migration_016.read_text(encoding="utf-8"))
+            connection.commit()
+            assert connection.execute("SELECT count(*) FROM stock_bewegung").fetchone()[0] == 2
+            assert apply_migrations(connection, tmp_path) == []
+    finally:
+        with psycopg.connect(_admin_url(), connect_timeout=5, autocommit=True) as admin:
+            admin.execute(f'DROP DATABASE IF EXISTS "{MIGRATION_TEST_DB}"')
 
 
 @pytest.fixture(scope="module")

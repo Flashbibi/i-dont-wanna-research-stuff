@@ -311,6 +311,44 @@ def test_get_stock_returns_only_positive_stock_in_stable_order():
     assert rows[0]["bezeichnung"] == "Servo"
 
 
+class ArrivalConnection(Connection):
+    def __init__(self, arrived=False):
+        self.arrived = arrived
+        self.statements = []
+
+    def transaction(self):
+        return self
+
+    def execute(self, sql, params=None):
+        normalized = " ".join(sql.split())
+        self.statements.append((normalized, params))
+        if "FROM purchase WHERE id" in normalized:
+            return Result(one={"id": 7, "angekommen_am": "now" if self.arrived else None})
+        if normalized.startswith("UPDATE purchase SET angekommen_am"):
+            self.arrived = True
+            return Result(one={"id": 7, "angekommen_am": "now"})
+        if "FROM purchase_item pi" in normalized:
+            return Result(many=[{"id": 9, "line_id": 12, "menge": 3, "suchtext": "Servo"}])
+        if normalized.startswith("INSERT INTO stock("):
+            return Result(one={"id": 4})
+        return Result()
+
+
+def test_mark_purchase_arrived_writes_one_access_ledger_entry_and_is_idempotent():
+    repository = PostgresRepository("unused")
+    connection = ArrivalConnection()
+    repository._connect = lambda: connection
+
+    repository.mark_purchase_arrived(7)
+    repository.mark_purchase_arrived(7)
+
+    ledger = [entry for entry in connection.statements if entry[0].startswith("INSERT INTO stock_bewegung")]
+    assert ledger == [(
+        "INSERT INTO stock_bewegung(stock_id, line_id, delta, grund) VALUES (%s, %s, %s, 'zugang_lieferung')",
+        (4, 12, 3),
+    )]
+
+
 def test_shop_writes_original_shipping_currency_and_rate_evidence():
     class ShopConnection(Connection):
         def __init__(self):
