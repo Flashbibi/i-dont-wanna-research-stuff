@@ -30,6 +30,22 @@ TEMPLATES = Jinja2Templates(directory=ROOT / "templates")
 EXTENSION_DIR = ROOT / "extension"
 
 
+def relative_time(value: datetime | str) -> str:
+    moment = datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    days = max((datetime.now(timezone.utc) - moment).days, 0)
+    if days >= 365:
+        years = days // 365
+        return f"vor {years} {'Jahr' if years == 1 else 'Jahren'}"
+    if days >= 30:
+        months = days // 30
+        return f"vor {months} {'Monat' if months == 1 else 'Monaten'}"
+    if days >= 1:
+        return f"vor {days} {'Tag' if days == 1 else 'Tagen'}"
+    return "heute"
+
+
 def extension_files() -> list[Path]:
     """Dateien der Extension in stabiler Reihenfolge."""
     return sorted(path for path in EXTENSION_DIR.rglob("*") if path.is_file())
@@ -240,6 +256,21 @@ def create_app(
         active_repository.mark_purchase_arrived(purchase_id)
         return RedirectResponse("/history", status_code=303)
 
+    def stock_context(error: str | None = None) -> dict[str, Any]:
+        stock = [
+            {**row, "relative_time": relative_time(row["aktualisiert_am"])}
+            for row in procurement.get_stock()
+        ]
+        movements = [
+            {**row, "relative_time": relative_time(row["erstellt_am"])}
+            for row in active_repository.get_stock_bewegungen(20)
+        ]
+        return {"stock": stock, "bewegungen": movements, "error": error}
+
+    @application.get("/bestand", response_class=HTMLResponse)
+    def stock_page(request: Request):
+        return TEMPLATES.TemplateResponse(request, "bestand.html", stock_context())
+
     @application.post("/bestand/korrektur")
     def correct_stock_form(
         request: Request,
@@ -253,7 +284,7 @@ def create_app(
             return TEMPLATES.TemplateResponse(
                 request,
                 "bestand.html",
-                {"stock": procurement.get_stock(), "bewegungen": [], "error": str(error)},
+                stock_context(str(error)),
                 status_code=422,
             )
         return RedirectResponse("/bestand", status_code=303)

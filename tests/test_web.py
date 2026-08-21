@@ -39,6 +39,20 @@ class FakeRepository:
         self.corrections.append((stock_id, delta, kommentar))
         return {"id": stock_id, "menge": delta}
 
+    def get_stock(self):
+        return [{
+            "id": 4, "bezeichnung": "Servo", "menge": 3, "einheit": "Stk",
+            "artikelnummer": "MG90S", "shop_name": "Servo Shop",
+            "produkt_url": "https://shop.example/servo",
+            "aktualisiert_am": "2026-08-20T10:00:00+00:00",
+        }]
+
+    def get_stock_bewegungen(self, limit=20):
+        return [{
+            "bezeichnung": "Servo", "delta": 3, "grund": "zugang_lieferung",
+            "kommentar": None, "erstellt_am": "2026-08-20T10:00:00+00:00",
+        }]
+
 
 def test_parse_bom_accepts_optional_quantity_prefix_and_skips_blank_lines():
     lines = parse_bom("2x MG996R Servo\n\n M3 Schrauben\n10 X Kabelbinder")
@@ -115,3 +129,29 @@ def test_stock_correction_form_redirects_after_success():
     assert response.status_code == 303
     assert response.headers["location"] == "/bestand"
     assert repository.corrections == [(4, -1, "Inventur")]
+
+
+def test_stock_page_renders_origin_amount_relative_time_and_movements():
+    client = TestClient(create_app(FakeRepository(), lambda: 16))
+
+    response = client.get("/bestand")
+
+    assert response.status_code == 200
+    for text in ("Servo", "MG90S", "Servo Shop", "3 Stk", "Letzte Bewegungen", "+3", "vor"):
+        assert text in response.text
+    assert 'href="https://shop.example/servo"' in response.text
+
+
+def test_stock_correction_validation_error_is_rendered_on_stock_page():
+    class InvalidCorrectionRepository(FakeRepository):
+        def korrigiere_bestand(self, stock_id, delta, kommentar):
+            raise ValueError("Korrektur würde Bestand negativ machen")
+
+    client = TestClient(create_app(InvalidCorrectionRepository(), lambda: 16))
+    response = client.post(
+        "/bestand/korrektur",
+        data={"stock_id": "4", "delta": "-99", "kommentar": "Inventur"},
+    )
+
+    assert response.status_code == 422
+    assert "Korrektur würde Bestand negativ machen" in response.text

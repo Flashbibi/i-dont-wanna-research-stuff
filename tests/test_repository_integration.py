@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
 """Dünner Integrationstest-Layer der Repository-Schicht gegen echtes Postgres.
 
 Warum es diese Datei gibt: die Fake-Repositories der übrigen Tests liefern
@@ -249,6 +251,18 @@ def test_the_platform_finding_needs_evidence_at_the_database(repository):
     assert repository.get_shop(shop["id"])["plattform_geprueft_am"] is not None
 
 
+def _assert_stock_invariant(connection):
+    rows = connection.execute(
+        """
+        SELECT s.id, s.menge, SUM(b.delta)::int AS bewegungssumme
+        FROM stock s JOIN stock_bewegung b ON b.stock_id = s.id
+        GROUP BY s.id, s.menge ORDER BY s.id
+        """
+    ).fetchall()
+    assert rows
+    assert all(row[1] == row[2] for row in rows)
+
+
 def _create_line(service, repository, text):
     job_id = service.create_job(text)["job_id"]
     line_id = repository.get_job(job_id)["lines"][0]["id"]
@@ -399,3 +413,40 @@ def test_stock_candidates_rank_by_common_tokens_then_recency(service, repository
         "ranghalter kandidat-c",
         "rangmotor kandidat-b",
     ]
+
+
+def test_deleting_a_stock_fulfilled_job_refunds_stock_and_preserves_history(service, repository):
+    job = service.create_job("3x Servo")
+    line_id = repository.get_job(job["job_id"])["lines"][0]["id"]
+    with psycopg.connect(_test_url()) as connection:
+        stock_id = connection.execute(
+            "INSERT INTO stock(bezeichnung, menge) VALUES ('Servo', 5) RETURNING id"
+        ).fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO stock_bewegung(stock_id, delta, grund, kommentar)
+            VALUES (%s, 5, 'uebernahme_migration', 'Testbestand')
+            """,
+            (stock_id,),
+        )
+
+    service.mark_line(line_id, "bestand")
+    service.delete_job(job["job_id"], job["job_id"])
+
+    with psycopg.connect(_test_url()) as connection:
+        assert connection.execute(
+            "SELECT menge FROM stock WHERE id = %s", (stock_id,)
+        ).fetchone()[0] == 5
+        movements = connection.execute(
+            """
+            SELECT delta, grund, line_id, kommentar
+            FROM stock_bewegung WHERE stock_id = %s ORDER BY id
+            """,
+            (stock_id,),
+        ).fetchall()
+        assert movements == [
+            (5, "uebernahme_migration", None, "Testbestand"),
+            (-3, "abgang_bestand", None, None),
+            (3, "rueckbuchung_job_geloescht", None, f"Rückbuchung: Job {job['job_id']} gelöscht"),
+        ]
+        _assert_stock_invariant(connection)
