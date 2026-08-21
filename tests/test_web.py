@@ -8,6 +8,7 @@ class FakeRepository:
     def __init__(self):
         self.jobs = {}
         self.next_id = 1
+        self.corrections = []
 
     def create_job(self, source_text, lines):
         job_id = self.next_id
@@ -33,6 +34,10 @@ class FakeRepository:
 
     def get_job(self, job_id):
         return self.jobs.get(job_id)
+
+    def korrigiere_bestand(self, stock_id, delta, kommentar):
+        self.corrections.append((stock_id, delta, kommentar))
+        return {"id": stock_id, "menge": delta}
 
 
 def test_parse_bom_accepts_optional_quantity_prefix_and_skips_blank_lines():
@@ -95,3 +100,18 @@ def test_get_job_returns_state_and_404_for_unknown_job():
     assert response.status_code == 200
     assert response.json()["lines"][0]["suchtext"] == "Servo"
     assert missing.status_code == 404
+
+
+def test_stock_correction_form_redirects_after_success():
+    repository = FakeRepository()
+    client = TestClient(create_app(repository, lambda: 1))
+
+    response = client.post(
+        "/bestand/korrektur",
+        data={"stock_id": "4", "delta": "-1", "kommentar": "Inventur"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/bestand"
+    assert repository.corrections == [(4, -1, "Inventur")]

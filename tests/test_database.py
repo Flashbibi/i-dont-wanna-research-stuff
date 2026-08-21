@@ -453,6 +453,52 @@ def test_check_stock_separates_matches_candidates_limits_and_calculates_shortage
     assert all("Servo" in row["bezeichnung"] for row in result["kandidaten"])
 
 
+class CorrectionConnection(Connection):
+    def __init__(self, stock=None):
+        self.stock = stock
+        self.statements = []
+
+    def transaction(self):
+        return self
+
+    def execute(self, sql, params=None):
+        normalized = " ".join(sql.split())
+        self.statements.append((normalized, params))
+        if normalized.startswith("SELECT id, menge FROM stock"):
+            return Result(one=self.stock)
+        if normalized.startswith("UPDATE stock"):
+            self.stock = {**self.stock, "menge": self.stock["menge"] + params[0]}
+            return Result(one=self.stock)
+        return Result()
+
+
+def test_correct_stock_locks_updates_and_writes_correction_ledger_atomically():
+    repository = PostgresRepository("unused")
+    connection = CorrectionConnection({"id": 4, "menge": 5})
+    repository._connect = lambda: connection
+
+    result = repository.korrigiere_bestand(4, -2, "Inventur")
+
+    assert result["menge"] == 3
+    assert connection.statements[0] == (
+        "SELECT id, menge FROM stock WHERE id = %s FOR UPDATE", (4,)
+    )
+    assert any(
+        sql.startswith("INSERT INTO stock_bewegung") and params == (4, -2, "Inventur")
+        for sql, params in connection.statements
+    )
+
+
+def test_correct_stock_rejects_unknown_or_negative_result_without_write():
+    repository = PostgresRepository("unused")
+    for stock, message in [(None, "unbekannt"), ({"id": 4, "menge": 1}, "negativ")]:
+        connection = CorrectionConnection(stock)
+        repository._connect = lambda connection=connection: connection
+        with pytest.raises(ValueError, match=message):
+            repository.korrigiere_bestand(4, -2, "Inventur")
+        assert not any(sql.startswith("UPDATE stock") for sql, _ in connection.statements)
+
+
 def test_shop_writes_original_shipping_currency_and_rate_evidence():
     class ShopConnection(Connection):
         def __init__(self):

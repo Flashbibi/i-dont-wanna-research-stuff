@@ -60,6 +60,9 @@ class StubService:
         return {"line_id": line_id, "benoetigt": 2, "gedeckt": False, "fehlmenge": 2,
                 "treffer": [], "kandidaten": []}
 
+    def korrigiere_bestand(self, stock_id, delta, kommentar):
+        return {"id": stock_id, "menge": delta, "kommentar": kommentar}
+
     def record_shop(self, *args):
         return {"id": 1}
 
@@ -106,6 +109,7 @@ def test_mcp_exposes_exact_procurement_tools():
         "next_job",
         "check_line",
         "check_stock",
+        "adjust_stock",
         "record_shop",
         "record_offer",
         "mark_line",
@@ -177,6 +181,7 @@ def test_all_tool_descriptions_match_current_behavior():
         "check_stock": (
             "Passende Bestände und ähnliche Kandidaten für eine Zeile prüfen (read-only)."
         ),
+        "adjust_stock": "Bestandsmenge mit begründeter Korrekturbuchung anpassen.",
         "record_shop": (
             "Shop mit tatsächlichem Herkunftsland, explizitem Lieferziel, HTTP(S)-"
             "Profilquelle und Versand-Originaltext erfassen. Shopland und Lieferziel "
@@ -402,6 +407,7 @@ def test_streamable_http_endpoint_initializes_and_lists_tools():
         "next_job",
         "check_line",
         "check_stock",
+        "adjust_stock",
         "record_shop",
         "record_offer",
         "mark_line",

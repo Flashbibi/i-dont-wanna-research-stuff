@@ -41,6 +41,7 @@ class FakeProcurementRepository:
         self.deleted_jobs = []
         self.kurse = {}
         self.saved_kurse = []
+        self.corrections = []
 
     def get_job(self, job_id):
         return {
@@ -159,6 +160,10 @@ class FakeProcurementRepository:
             "treffer": [],
             "kandidaten": [],
         }
+
+    def korrigiere_bestand(self, stock_id, delta, kommentar):
+        self.corrections.append((stock_id, delta, kommentar))
+        return {"id": stock_id, "menge": 3 + delta}
 
     def optimization_input(self, job_id):
         return {
@@ -510,6 +515,21 @@ def test_check_stock_returns_repository_result_and_rejects_unknown_line():
     assert procurement.check_stock(10)["line_id"] == 10
     with pytest.raises(ValidationError, match="Zeile 999 ist unbekannt"):
         procurement.check_stock(999)
+
+
+def test_correct_stock_validates_input_and_forwards_normalized_comment():
+    procurement = service()
+
+    assert procurement.korrigiere_bestand(4, 2, "  Inventur  ")["menge"] == 5
+    assert procurement.repository.corrections == [(4, 2, "Inventur")]
+    for delta, kommentar, message in [
+        (0, "Inventur", "ungleich 0"),
+        (1, "   ", "Kommentar"),
+        (True, "Inventur", "ganzzahlig"),
+        (1.5, "Inventur", "ganzzahlig"),
+    ]:
+        with pytest.raises(ValidationError, match=message):
+            procurement.korrigiere_bestand(4, delta, kommentar)
 
 
 def test_plan_order_calls_pure_optimizer_and_serializes_variant():
