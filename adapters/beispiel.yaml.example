@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+#
+# Vollständiges Beispiel für Schema 1. Die Endung .example hält die Datei aus
+# der Registry heraus - zum Bauen nach <shop>.yaml kopieren.
+schema: 1
+id: beispielshop            # ^[a-z0-9][a-z0-9-]{1,31}$
+domain: beispielshop.ch     # klein, ohne Schema, ohne Pfad
+notes: >
+  Freitext. Woher die Selektoren stammen, was beim Bauen auffiel.
+fetch:
+  min_delay_s: 8            # optional; wirkt nur erhöhend
+product:
+  url_pattern: "^https://(www\\.)?beispielshop\\.ch/produkt/"
+  fields:
+    produktname:
+      selector: "h1.product-title"
+    preis:
+      selector: ".price .amount"
+      parse: price
+    lieferzeit_text:
+      selector: ".delivery-info"
+      optional: true
+    lager_text:
+      selector: ".stock-status"
+      optional: true
+    artikelnummer:
+      selector: "meta[itemprop=sku]"
+      attribute: "content"
+      optional: true

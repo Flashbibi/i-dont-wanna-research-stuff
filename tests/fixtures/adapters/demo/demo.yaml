@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: demo
+domain: demoshop.example
+notes: >
+  Erfundener Shop, der nur in der Testsuite existiert. Die Selektoren gehören zu
+  produkt.html im selben Verzeichnis; kein Zeichen davon stammt aus einem echten
+  Shop.
+fetch:
+  min_delay_s: 6
+product:
+  url_pattern: "^https://(www\\.)?demoshop\\.example/produkt/"
+  fields:
+    produktname:
+      selector: "h1.produkt-titel"
+    preis:
+      selector: ".preis .betrag"
+      parse: price
+    lieferzeit_text:
+      selector: "p.lieferzeit"
+      optional: true
+    lager_text:
+      selector: "p.lager"
+      optional: true
+    artikelnummer:
+      selector: "meta[itemprop=sku]"
+      attribute: "content"
+      optional: true
