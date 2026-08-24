@@ -239,6 +239,15 @@ def test_shop_platform_migration_is_additive_and_enforces_evidence():
     assert "DROP TABLE" not in sql.upper()
 
 
+def test_offer_capture_path_migration_is_additive():
+    sql = Path("migrations/017_offer_erfasst_via.sql").read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS erfasst_via TEXT" in sql
+    assert "offer_erfasst_via_not_blank" in sql
+    assert "DELETE " not in sql.upper()
+    assert "DROP " not in sql.upper()
+
+
 def test_stock_ledger_migration_creates_checked_foundation_and_backfill():
     sql = Path("migrations/016_stock_bewegung.sql").read_text(encoding="utf-8")
 

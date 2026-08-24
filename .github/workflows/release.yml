@@ -51,8 +51,8 @@ jobs:
 
       - name: Guard - die Datenbankverifikation muss gelaufen sein
         run: |
-          if ! grep -q "12 passed" integration.log; then
-            echo "Erwartet waren 12 bestandene Integrationstests."
+          if ! grep -q "13 passed" integration.log; then
+            echo "Erwartet waren 13 bestandene Integrationstests."
             exit 1
           fi
           if grep -qE "SKIPPED| skipped" integration.log; then

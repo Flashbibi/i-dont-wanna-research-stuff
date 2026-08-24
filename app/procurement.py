@@ -8,6 +8,13 @@ import re
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
+from .adapter import (
+    AdapterFehler,
+    extrahiere,
+    finde_adapter,
+    parse_preis,
+    uebersicht as adapter_uebersicht,
+)
 from .cart import (
     SUPPORTED_PLATFORMS,
     CartError,
@@ -17,6 +24,7 @@ from .cart import (
     open_session,
     start_guest_session,
 )
+from .fetch import FetchFehler, hole_seite
 from .jobs import BomInputLine, parse_bom
 from .waehrung import (
     HOME_CURRENCY,
@@ -118,6 +126,11 @@ def _hostname(url: str, field: str) -> str:
         raise ValidationError(f"{field} muss eine gueltige HTTP(S)-URL ohne Zugangsdaten sein")
     host = parsed.hostname.lower().rstrip(".")
     return host.removeprefix("www.")
+
+
+def _deckt_domain(host: str, shop_domain: str) -> bool:
+    """Produkt-URL und Shop-Domain vergleichen: exakt oder als Subdomain."""
+    return host == shop_domain or host.endswith("." + shop_domain)
 
 
 def parse_delivery_upper_days(text: str | None) -> int | None:
@@ -472,7 +485,14 @@ class ProcurementService:
         artikelnummer: str | None = None,
         waehrung: str = HOME_CURRENCY,
         provenienz_text: str | None = None,
+        erfasst_via: str | None = None,
     ) -> dict[str, Any]:
+        """Ein Angebot erfassen - der einzige Schreibpfad für Angebote.
+
+        ``erfasst_via`` wird nur durchgereicht und ausschliesslich von
+        :meth:`fetch_offer` gesetzt. Das MCP-Tool ``record_offer`` reicht den
+        Parameter nicht durch: die KI kann sich nicht als Adapter ausgeben.
+        """
         if self.repository.get_line(line_id) is None:
             raise ValidationError(f"Zeile {line_id} ist unbekannt")
         shop = self.repository.get_shop(shop_id)
@@ -489,7 +509,7 @@ class ProcurementService:
         price = umrechnung["preis_chf"]
         product_domain = _hostname(produkt_url, "Produkt-URL")
         shop_domain = str(shop["domain"]).lower().removeprefix("www.")
-        if product_domain != shop_domain and not product_domain.endswith("." + shop_domain):
+        if not _deckt_domain(product_domain, shop_domain):
             raise ValidationError(
                 f"Produkt-URL passt nicht zur Shop-Domain {shop_domain}"
             )
@@ -513,8 +533,96 @@ class ProcurementService:
             lager=normalized_stock_text,
             artikelnummer=(artikelnummer or "").strip() or None,
             provenienz_text=(provenienz_text or "").strip() or None,
+            erfasst_via=(erfasst_via or "").strip() or None,
             **umrechnung["spalten"],
         )
+
+    def fetch_offer(self, line_id: int, produkt_url: str) -> dict[str, Any]:
+        """Produktseite deterministisch lesen und das Angebot daraus erfassen.
+
+        Der Unterschied zu :meth:`record_offer` ist, wer liest: hier holt die
+        Engine die Seite selbst und wendet die Selektoren des Adapters an.
+        ``lieferzeit_text`` und ``lager_text`` sind danach wörtlicher
+        Seitentext statt einer Behauptung.
+
+        Geschrieben wird trotzdem ausschliesslich über ``record_offer`` - mit
+        Originalbetrag und Shopwährung. Damit laufen dieselben Validierungen,
+        dieselbe Kursumrechnung und derselbe Lieferzeit-Parser wie beim
+        manuellen Weg; einen zweiten Schreibpfad gibt es nicht.
+        """
+        if self.repository.get_line(line_id) is None:
+            raise ValidationError(f"Zeile {line_id} ist unbekannt")
+        domain = _hostname(produkt_url, "Produkt-URL")
+        shop = self._shop_fuer_domain(domain)
+        if shop["status"] == "gesperrt":
+            raise ValidationError(f"Shop {shop['id']} ist gesperrt")
+        try:
+            adapter = finde_adapter(produkt_url)
+        except AdapterFehler as error:
+            raise ValidationError(str(error)) from error
+
+        try:
+            seite = hole_seite(produkt_url, min_delay_s=adapter.min_delay_s)
+        except FetchFehler as error:
+            raise ValidationError(str(error)) from error
+
+        shop_domain = str(shop["domain"]).lower().removeprefix("www.")
+        if not _deckt_domain(_hostname(seite.final_url, "Produkt-URL"), shop_domain):
+            raise ValidationError(
+                f"Weiterleitung verlässt {shop_domain}: {seite.final_url}"
+            )
+        # Die Shopwährung steht am Shop, nicht auf der Seite: der Preistext darf
+        # sie bestätigen, aber nicht bestimmen.
+        waehrung = str(shop.get("versand_waehrung") or HOME_CURRENCY).strip().upper()
+        try:
+            felder = extrahiere(adapter, seite.text)
+            preis = parse_preis(felder["preis"] or "", waehrung)
+        except AdapterFehler as error:
+            raise ValidationError(str(error)) from error
+
+        angebot = self.record_offer(
+            line_id,
+            int(shop["id"]),
+            str(felder["produktname"]),
+            seite.final_url,
+            preis,
+            felder.get("lieferzeit_text"),
+            felder.get("lager_text"),
+            felder.get("artikelnummer"),
+            waehrung,
+            None,
+            f"adapter:{adapter.id}",
+        )
+        return {
+            **angebot,
+            # Was die Seite wörtlich gesagt hat - damit der Aufrufer die
+            # Zuordnung prüfen kann, ohne der Engine glauben zu müssen.
+            "extraktion": {
+                "adapter": adapter.id,
+                "final_url": seite.final_url,
+                "felder": felder,
+            },
+        }
+
+    def list_adapters(self) -> dict[str, Any]:
+        """Geladene Adapter und übersprungene Dateien - read-only."""
+        return adapter_uebersicht()
+
+    def _shop_fuer_domain(self, domain: str) -> dict[str, Any]:
+        """Shop zur Domain einer Produkt-URL, nach derselben Regel wie record_offer."""
+        treffer = [
+            shop
+            for shop in self.repository.list_shops()
+            if _deckt_domain(domain, str(shop["domain"]).lower().removeprefix("www."))
+        ]
+        if not treffer:
+            raise ValidationError(
+                f"Kein Shop mit Domain {domain} bekannt; zuerst record_shop aufrufen"
+            )
+        # Die spezifischere Domain gewinnt, bei Gleichstand die kleinere ID.
+        return sorted(
+            treffer, key=lambda shop: (-len(str(shop["domain"])), int(shop["id"]))
+        )[0]
 
     def _umrechnung(self, waehrung: str, preis_original: Decimal) -> dict[str, Any]:
         """Originalpreis in CHF überführen und die Umrechnung belegen.

@@ -240,6 +240,35 @@ def test_the_database_refuses_a_converted_price_without_evidence(service, reposi
             )
 
 
+def test_the_capture_path_survives_the_round_trip(service, repository):
+    """Migration 017: wer das Angebot erfasst hat, steht am Angebot."""
+    job_id, line_id = _create_line(service, repository, "1x Servohalter")
+    shop = _create_shop(service, "erfassung")
+
+    von_hand = _create_offer(service, line_id, shop, "servohalter", "ART-1")
+    per_adapter = service.record_offer(
+        line_id, shop["id"], "Servohalter",
+        f"{shop['url'].rstrip('/')}/servohalter-v2", "2.00",
+        lieferzeit_text="2 Tage", erfasst_via="adapter:demo",
+    )
+
+    # NULL heisst weiterhin "von Hand bzw. via KI erfasst".
+    assert von_hand["erfasst_via"] is None
+    assert per_adapter["erfasst_via"] == "adapter:demo"
+
+    with psycopg.connect(_test_url()) as connection:
+        gespeichert = connection.execute(
+            "SELECT erfasst_via FROM offer WHERE id = %s", (per_adapter["id"],)
+        ).fetchone()[0]
+        assert gespeichert == "adapter:demo"
+        # Und ein leerer Erfassungsweg ist keiner.
+        with pytest.raises(psycopg.errors.CheckViolation):
+            connection.execute(
+                "UPDATE offer SET erfasst_via = '   ' WHERE id = %s",
+                (per_adapter["id"],),
+            )
+
+
 def test_the_platform_finding_needs_evidence_at_the_database(repository):
     shop = repository.list_shops()[0]
 

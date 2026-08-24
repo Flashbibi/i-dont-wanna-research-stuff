@@ -723,6 +723,9 @@ class PostgresRepository:
         return len(artikelnummern)
 
     def create_offer(self, **values: Any) -> dict[str, Any]:
+        # Bestehende Aufrufer kennen den Erfassungsweg nicht; NULL heisst dort
+        # weiterhin "von Hand bzw. via KI erfasst".
+        values.setdefault("erfasst_via", None)
         if values.get("lieferzeit_tage") is not None and not values.get("lieferzeit_text"):
             raise ValueError(
                 "Lieferzeit darf nicht ohne wörtlichen Originaltext der Produktseite gesetzt sein"
@@ -736,14 +739,16 @@ class PostgresRepository:
                             line_id, shop_id, produktname, produkt_url, quelle_url,
                             preis_chf, lieferzeit_tage, lieferzeit_text, lager_text, lager,
                             artikelnummer, provenienz_text,
-                            preis_original, waehrung, kurs, kurs_am, kurs_quelle
+                            preis_original, waehrung, kurs, kurs_am, kurs_quelle,
+                            erfasst_via
                         ) VALUES (%(line_id)s, %(shop_id)s, %(produktname)s,
                                   %(produkt_url)s, %(quelle_url)s, %(preis_chf)s,
                                   %(lieferzeit_tage)s, %(lieferzeit_text)s,
                                   %(lager_text)s, %(lager)s, %(artikelnummer)s,
                                   %(provenienz_text)s, %(preis_original)s,
                                   %(waehrung)s, %(kurs)s,
-                                  %(kurs_am)s, %(kurs_quelle)s)
+                                  %(kurs_am)s, %(kurs_quelle)s,
+                                  %(erfasst_via)s)
                         ON CONFLICT (line_id, produkt_url, beobachtungstag) DO UPDATE SET
                             shop_id = EXCLUDED.shop_id,
                             produktname = EXCLUDED.produktname,
@@ -760,6 +765,7 @@ class PostgresRepository:
                             kurs = EXCLUDED.kurs,
                             kurs_am = EXCLUDED.kurs_am,
                             kurs_quelle = EXCLUDED.kurs_quelle,
+                            erfasst_via = EXCLUDED.erfasst_via,
                             gesehen_am = NOW()
                         RETURNING *
                         """,
