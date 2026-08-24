@@ -408,6 +408,22 @@ def test_mcp_e2e_calls_get_shops_and_checks_the_public_shop_id():
     assert '"shop_id"' in source
 
 
+def test_mcp_e2e_lists_fetch_offer_but_never_calls_it():
+    """Der Smoketest läuft gegen Produktion; fetch_offer würde dort einen echten
+    Shop abrufen und ein Angebot schreiben. Listen ja, aufrufen nein."""
+    source = Path("tests/e2e/mcp_tools_call.py").read_text(encoding="utf-8")
+
+    assert '"fetch_offer",' in source
+    assert re.search(r'call\(\s*\d+\s*,\s*"fetch_offer"', source) is None
+
+
+def test_mcp_e2e_calls_list_adapters_because_it_reads_only():
+    source = Path("tests/e2e/mcp_tools_call.py").read_text(encoding="utf-8")
+
+    assert 'call(8, "list_adapters", {})' in source
+    assert '"adapter_count"' in source
+
+
 def test_streamable_http_endpoint_initializes_and_lists_tools():
     class Repository:
         def create_job(self, *_):
