@@ -88,7 +88,12 @@ def main(argv: list[str] | None = None) -> int:
 def _seite(adapter: Adapter, args: argparse.Namespace) -> tuple[str, str]:
     """Die zu prüfende Seite besorgen - aus dem Netz oder von der Platte."""
     if args.fixture is not None:
-        return str(args.fixture), args.fixture.read_text(encoding="utf-8")
+        try:
+            return str(args.fixture), args.fixture.read_text(encoding="utf-8")
+        except UnicodeDecodeError as fehler:
+            raise AdapterFehler(
+                f"{args.fixture}: ist nicht UTF-8 ({fehler})"
+            ) from fehler
     _pruefe_zustaendigkeit(adapter, args.url)
     ergebnis = hole_seite(args.url, min_delay_s=adapter.min_delay_s)
     return ergebnis.final_url, ergebnis.text

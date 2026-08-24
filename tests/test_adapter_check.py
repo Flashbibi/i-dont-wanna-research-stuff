@@ -149,6 +149,16 @@ def test_a_missing_file_fails_without_a_traceback(capsys, tmp_path):
     assert "Fehler:" in capsys.readouterr().err
 
 
+def test_a_fixture_that_is_not_utf8_fails_without_a_traceback(capsys, tmp_path):
+    seite = tmp_path / "latin1.html"
+    seite.write_bytes("<h1>Grösse</h1>".encode("iso-8859-1"))
+
+    code = main([DEMO_YAML, "--fixture", str(seite)])
+
+    assert code == 1
+    assert "nicht UTF-8" in capsys.readouterr().err
+
+
 def test_the_tool_stays_clear_of_the_database():
     """Abschnitt H, wörtlich: kein procurement, keine Datenbank.
 

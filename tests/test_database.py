@@ -702,7 +702,12 @@ def test_create_offer_updates_same_day_but_inserts_new_daily_observation():
     insert_sql = connection.statements[0][0]
     assert "lieferzeit_text, lager_text" in insert_sql
     assert "provenienz_text" in insert_sql
-    assert "provenienz_text = EXCLUDED.provenienz_text" in insert_sql
+    # Der sichtbare Verkäufer eines Marktplatzangebots überlebt eine
+    # Auffrischung, die ihn nicht kennt - wie die Artikelnummer daneben.
+    assert (
+        "provenienz_text = COALESCE( EXCLUDED.provenienz_text, offer.provenienz_text )"
+        in insert_sql
+    )
     assert any(
         "status = 'kandidaten', kommentar = NULL" in sql
         for sql, _ in connection.statements

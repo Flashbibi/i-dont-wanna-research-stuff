@@ -360,6 +360,20 @@ def test_a_currency_code_glued_to_the_number_still_contradicts(text, erwartete, 
         parse_preis(text, erwartete)
 
 
+@pytest.mark.parametrize("unsichtbar", ["\u200b", "\u00ad", "\u2060", "\ufeff"])
+def test_an_invisible_character_does_not_cut_a_price_in_half(unsichtbar):
+    """Shops streuen sie ein; str.split sieht sie nicht als Whitespace."""
+    assert parse_preis(f"CHF 1{unsichtbar}234.50", "CHF") == Decimal("1234.50")
+
+
+def test_a_price_the_column_cannot_hold_is_refused_not_rounded():
+    # preis_chf ist NUMERIC(12,2); Postgres rundete sonst wortlos auf 0.10.
+    with pytest.raises(ExtraktionFehlt, match="Nachkommastellen"):
+        parse_preis("CHF 0.09562", "CHF")
+    # Nachlaufende Nullen sind keine zusätzliche Genauigkeit.
+    assert parse_preis("CHF 12.900", "CHF") == Decimal("12.90")
+
+
 def test_a_word_containing_a_currency_code_is_no_currency():
     # «Neuromodul» enthält «euro», ist aber keiner.
     assert parse_preis("Neuromodul 5.00", "CHF") == Decimal("5.00")
@@ -465,6 +479,24 @@ def test_two_files_with_the_same_id_in_one_directory_are_an_error(
     assert stand.adapter["demo"].datei.name == "a.yaml"
     assert len(stand.fehler) == 1
     assert "schon von a.yaml belegt" in stand.fehler[0][1]
+
+
+def test_a_file_that_is_not_utf8_only_takes_itself_down(tmp_path, monkeypatch):
+    """Ohne eigenen Zweig entkäme der UnicodeDecodeError der ganzen Registry."""
+    gebuendelt = tmp_path / "gebuendelt"
+    gebuendelt.mkdir()
+    kopiere_demo(gebuendelt, kennung="heil", name="heil.yaml")
+    (gebuendelt / "latin1.yaml").write_bytes(
+        DEMO_YAML.read_text(encoding="utf-8")
+        .replace("id: demo", "id: latin1")
+        .encode("iso-8859-1")
+    )
+    monkeypatch.setattr(adapter, "GEBUENDELT_DIR", gebuendelt)
+
+    uebersicht = adapter.uebersicht()
+
+    assert [eintrag["id"] for eintrag in uebersicht["adapter"]] == ["heil"]
+    assert "nicht UTF-8" in uebersicht["fehler"][0]["grund"]
 
 
 def test_a_broken_file_does_not_take_the_rest_down(tmp_path, monkeypatch, caplog):

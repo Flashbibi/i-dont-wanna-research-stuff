@@ -84,6 +84,11 @@ TRENNZEICHEN: dict[str, tuple[tuple[str, ...], str]] = {
     "GBP": ((",",), "."),
 }
 
+#: Unsichtbare Zeichen: weiches Trennzeichen, Nullbreiten und Steuerzeichen der
+#: Textrichtung. Shops streuen sie in Preise, und für ``str.split`` sind sie
+#: kein Whitespace - aus «1<U+200B>234.50» würde sonst stillschweigend eine 1.
+_UNSICHTBAR = re.compile(r"[\u00ad\u200b-\u200f\u2028\u2029\u2060-\u2064\ufeff]")
+
 #: Erster zusammenhängender Zahlenlauf im Text, Trennzeichen eingeschlossen -
 #: das Leerzeichen ausdrücklich mit. Schweizer Bundesschreibweise gruppiert mit
 #: Leerzeichen, und ein in Spans zerlegter Preis kommt als «19 ,99» aus der
@@ -154,6 +159,10 @@ def lade_adapter(pfad: Path, *, quelle: str = QUELLE_GEBUENDELT) -> Adapter:
     """Genau eine Adapterdatei lesen und streng prüfen."""
     try:
         roh = yaml.safe_load(pfad.read_text(encoding="utf-8"))
+    except UnicodeDecodeError as error:
+        # Kein OSError - ohne eigenen Zweig entkäme dieser Fehler der Registry
+        # und nähme jeden anderen Adapter mit.
+        raise AdapterLadefehler(f"{pfad.name}: ist nicht UTF-8 ({error})") from error
     except OSError as error:
         raise AdapterLadefehler(f"{pfad.name}: nicht lesbar ({error})") from error
     except yaml.YAMLError as error:
@@ -381,9 +390,10 @@ def _normalisiere(text: str) -> str:
     """Whitespace jeder Art auf einzelne Leerzeichen.
 
     ``str.split`` zählt auch geschützte Leerzeichen als Whitespace - genau die
-    stehen in Preisen wie «CHF 12.90» oft statt eines normalen.
+    stehen in Preisen wie «CHF 12.90» oft statt eines normalen. Unsichtbare
+    Zeichen fallen ganz weg, statt eine Zahl zu zerteilen.
     """
-    return " ".join(text.split())
+    return " ".join(_UNSICHTBAR.sub("", text).split())
 
 
 # -- Preis -------------------------------------------------------------------
@@ -430,7 +440,19 @@ def parse_preis(text: str, erwartete_waehrung: str) -> Decimal:
         raise ExtraktionFehlt(f"Preis nicht als {code}-Betrag lesbar: «{roh}»") from error
     if betrag <= 0:
         raise ExtraktionFehlt(f"Preis muss grösser als 0 sein: «{roh}»")
+    if betrag != betrag.quantize(Decimal("0.01")):
+        # Die Preisspalten sind NUMERIC(12,2); Postgres rundete beim Schreiben
+        # ohne ein Wort. Lieber ein Klartextfehler als ein anderer Betrag.
+        raise ExtraktionFehlt(
+            f"Preis hat mehr als zwei Nachkommastellen und würde beim Speichern "
+            f"gerundet: «{roh}»"
+        )
     return betrag
+
+
+def nennt_waehrung(text: str, code: str) -> bool:
+    """Ob ein Text diese Währung ausdrücklich nennt."""
+    return (code or "").strip().upper() in _erkannte_waehrungen(_normalisiere(text or ""))
 
 
 def _erkannte_waehrungen(text: str) -> set[str]:

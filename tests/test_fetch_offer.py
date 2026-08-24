@@ -31,13 +31,20 @@ ROBOTS_VERBIETET = "User-agent: *\nDisallow: /produkt/\n"
 class FakeRepository:
     """Nur so viel Datenbank, wie fetch_offer anfasst."""
 
-    def __init__(self, *, status: str = "bestaetigt", waehrung: str = "CHF"):
+    def __init__(
+        self,
+        *,
+        status: str = "bestaetigt",
+        waehrung: str = "CHF",
+        land: str = "CH",
+    ):
         self.shops = {
             1: {
                 "id": 1,
                 "name": "Demoshop",
                 "url": "https://demoshop.example",
                 "domain": "demoshop.example",
+                "land": land,
                 "status": status,
                 "versand_waehrung": waehrung,
             }
@@ -230,6 +237,33 @@ def test_a_currency_contradiction_writes_nothing(monkeypatch, registry_und_uhr):
         service.fetch_offer(10, PRODUKT_URL)
 
     assert "CHF" in str(fehler.value) and "EUR" in str(fehler.value)
+    assert repository.offers == []
+
+
+def test_a_foreign_shop_kept_in_chf_needs_the_page_to_say_so(monkeypatch, registry_und_uhr):
+    """CHF ist die Vorgabe von record_shop - bei einem DE-Shop also oft ein Versehen."""
+    netz(monkeypatch, demoshop())
+    service, repository = dienst(land="DE", waehrung="CHF")
+
+    # Die Fixture nennt CHF ausdrücklich, damit ist die Sache belegt.
+    assert service.fetch_offer(10, PRODUKT_URL)["preis_chf"] == Decimal("12.90")
+
+    # Ohne Währung im Preistext wird nichts erfasst.
+    ohne_waehrung = SEITE.replace("CHF&nbsp;12.90", "12.90")
+    netz(monkeypatch, demoshop(seite=ohne_waehrung))
+    service, repository = dienst(land="DE", waehrung="CHF")
+    with pytest.raises(ValidationError, match="nennt keine Währung"):
+        service.fetch_offer(10, PRODUKT_URL)
+    assert repository.offers == []
+
+
+def test_a_shop_without_a_currency_is_refused(monkeypatch, registry_und_uhr):
+    netz(monkeypatch, demoshop())
+    service, repository = dienst(waehrung="")
+
+    with pytest.raises(ValidationError, match="keine Währung hinterlegt"):
+        service.fetch_offer(10, PRODUKT_URL)
+
     assert repository.offers == []
 
 

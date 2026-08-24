@@ -197,6 +197,10 @@ def _client() -> httpx.Client:
             "User-Agent": USER_AGENT,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": ACCEPT_LANGUAGE,
+            # Unkomprimiert, damit das Grössenlimit die Leitung misst und nicht
+            # die entpackte Seite. Ein gzip-Strom kann beliebig lange senden,
+            # ohne dass entpackt etwas ankommt - dann liefe das Limit ins Leere.
+            "Accept-Encoding": "identity",
         },
         timeout=TIMEOUT_S,
         follow_redirects=False,
@@ -228,9 +232,26 @@ def hole_seite(url: str, *, min_delay_s: float | None = None) -> FetchErgebnis:
 
 
 def _zerlege(url: str) -> _Ziel:
-    """URL prüfen und in Herkunft, Domain und Pfad zerlegen."""
-    teile = urlsplit(url)
-    if teile.scheme not in {"http", "https"} or not teile.hostname or teile.username:
+    """URL prüfen und in Herkunft, Domain und Pfad zerlegen.
+
+    Geprüft wird hier auch, was httpx erst beim Absenden ablehnen würde - ein
+    Zeilenumbruch aus einer Zwischenablage, ein unbrauchbarer Port. Sonst käme
+    der Abbruch erst nach dem robots-Abruf und als Traceback statt als Klartext.
+    """
+    try:
+        teile = urlsplit(url)
+        rechner, nutzer, passwort = teile.hostname, teile.username, teile.password
+        httpx.URL(url)
+    except (ValueError, httpx.InvalidURL) as error:
+        raise FetchAbgelehnt(f"Unbrauchbare Adresse ({error}): {url!r}") from error
+    # Zugangsdaten in der URL werden als Basic-Auth mitgeschickt und landeten
+    # danach im Angebot - nicht bloss ein leerer Benutzername zählt.
+    if (
+        teile.scheme not in {"http", "https"}
+        or not rechner
+        or nutzer is not None
+        or passwort is not None
+    ):
         raise FetchAbgelehnt(
             f"Adapter-URL muss eine HTTP(S)-URL ohne Zugangsdaten sein: {url}"
         )
@@ -238,7 +259,7 @@ def _zerlege(url: str) -> _Ziel:
     return _Ziel(
         url=url,
         herkunft=herkunft,
-        domain=_domain(teile.hostname),
+        domain=_domain(rechner),
         pfad=teile.path or "/",
     )
 
@@ -380,7 +401,9 @@ def _frage_robots(client: httpx.Client, ziel: _Ziel, abstand: float) -> _RobotsS
             ),
         )
     regeln = RobotFileParser()
-    regeln.parse(text.splitlines())
+    # Ein führendes BOM würde die erste Zeile unkenntlich machen; robotparser
+    # verwürfe dann stillschweigend jede Regel der Datei und erlaubte alles.
+    regeln.parse(text.lstrip("\ufeff").splitlines())
     return _RobotsStand(_jetzt() + ROBOTS_CACHE_S_ERFOLG, regeln=regeln)
 
 
@@ -449,7 +472,20 @@ def _pruefe_status(status: int, ziel: _Ziel) -> None:
 
 
 def _lies_text(antwort: httpx.Response, url: str) -> str:
-    """Antwort gestreamt lesen und beim Grössenlimit abbrechen."""
+    """Antwort gestreamt lesen und beim Grössenlimit abbrechen.
+
+    Der Abbruch bei einer komprimierten Antwort steht vor der Schleife, und er
+    ist der Grund, warum die Schleife überhaupt zählen kann: httpx packt in
+    ``iter_bytes`` erst aus, ein gzip-Strom kann also beliebig lange senden,
+    ohne dass entpackt ein einziges Byte ankommt - das Limit liefe ins Leere.
+    Ohne Packung sind die gelieferten Bytes genau die der Leitung.
+    """
+    packung = antwort.headers.get("content-encoding", "").strip().lower()
+    if packung and packung != "identity":
+        raise FetchAbgelehnt(
+            f"Shop antwortet komprimiert ({packung}), obwohl unkomprimiert "
+            f"angefordert: {url}"
+        )
     stuecke: list[bytes] = []
     groesse = 0
     for stueck in antwort.iter_bytes():

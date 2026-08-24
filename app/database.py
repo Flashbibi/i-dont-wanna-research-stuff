@@ -759,7 +759,9 @@ class PostgresRepository:
                             lager_text = EXCLUDED.lager_text,
                             lager = EXCLUDED.lager,
                             artikelnummer = COALESCE(EXCLUDED.artikelnummer, offer.artikelnummer),
-                            provenienz_text = EXCLUDED.provenienz_text,
+                            provenienz_text = COALESCE(
+                                EXCLUDED.provenienz_text, offer.provenienz_text
+                            ),
                             preis_original = EXCLUDED.preis_original,
                             waehrung = EXCLUDED.waehrung,
                             kurs = EXCLUDED.kurs,

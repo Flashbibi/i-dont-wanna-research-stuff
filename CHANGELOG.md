@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Offers record how they were captured (`erfasst_via`). Empty keeps meaning
   captured by hand or via the model; only the engine writes `adapter:<id>`.
+- Re-recording an offer on the same day keeps the marketplace seller it already
+  had when the new capture does not name one, the way the article number
+  already behaved. Provenance is evidence that cannot be re-derived later.
+- A URL carrying credentials is refused wherever a URL is validated, including
+  the password-only form that used to slip through.
 
 ## [0.1.0] - 2026-08-21
 

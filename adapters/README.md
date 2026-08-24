@@ -157,9 +157,21 @@ Three consequences worth knowing before you blame the parser:
   Point the selector at the element that holds the whole price, or pull it out
   with a `regex`.
 
+- A price with more than two decimals is refused as well. The price columns are
+  `NUMERIC(12,2)`, so `CHF 0.09562` would be stored as `0.10` — a different
+  number, silently. Invisible characters (zero width space, soft hyphen and
+  friends) are removed before parsing, because they are formatting, not content,
+  and they used to cut a price in half.
+
 If several numbers sit inside the matched element and something that cannot be
 part of a number separates them, the first one wins. The selector is supposed to
 hit the price; where it cannot, `regex` narrows it.
+
+One check sits outside the parser, in the engine: if a shop's country and its
+recorded currency disagree — a German shop kept in CHF, which is what
+`record_shop` defaults to when no currency is given — the page has to name the
+currency itself, or nothing is recorded. Booking a euro price as francs at rate
+1 would be exactly the kind of unprovable number this project refuses to store.
 
 ## Politeness is structural
 
@@ -187,7 +199,12 @@ there is no second way past it:
   answering 301. A chain that leaves the domain ends the fetch *before* the
   foreign host is contacted at all. At most five hops.
 - **An honest user agent**, naming the tool, its version and the URL where you
-  can read what it does.
+  can read what it does. A URL carrying credentials is refused outright — they
+  would travel as a `Basic` header and end up stored in the offer row.
+- **At most 2 MB per page**, counted on the wire. Answers are requested
+  uncompressed for exactly that reason: a compressed stream is only measurable
+  after unpacking, and a shop could otherwise push unlimited bytes while the
+  limit never moves. A response that arrives compressed anyway is refused.
 - **No retries, no backoff, no response caching.** A temporary failure comes
   back as one and a human or the model decides whether to try again. An
   automatic retry would be exactly the silent doubling of load the delay

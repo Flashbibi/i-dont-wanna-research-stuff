@@ -9,6 +9,7 @@ Wartezeiten werden nur aufgezeichnet - sonst dauerte allein diese Datei Minuten.
 
 from __future__ import annotations
 
+import gzip
 import threading
 
 import httpx
@@ -305,6 +306,80 @@ def test_a_foreign_robots_txt_may_not_authorise_the_crawl(uhr, monkeypatch):
 
     assert "robots.txt von shop.example.ch nicht lesbar" in str(fehler.value)
     assert pfade(aufrufe) == ["shop.example.ch/robots.txt"]
+
+
+def test_a_byte_order_mark_does_not_void_robots_txt(uhr, monkeypatch):
+    """Ein BOM machte die erste Zeile unkenntlich - und damit die ganze Datei."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(
+                200,
+                content="\ufeff".encode("utf-8") + ROBOTS_VERBIETET.encode("utf-8"),
+                headers={"Content-Type": "text/plain; charset=utf-8"},
+            )
+        return httpx.Response(200, html=SEITE)
+
+    aufrufe = netz(monkeypatch, handler)
+
+    with pytest.raises(fetch.RobotsVerboten):
+        fetch.hole_seite(PRODUKT_URL)
+
+    assert pfade(aufrufe) == ["shop.example.ch/robots.txt"]
+
+
+def test_a_compressed_answer_is_refused_because_the_limit_could_not_hold(uhr, monkeypatch):
+    """Entpackt zählt httpx erst nach dem Auspacken - dann bindet kein Limit mehr."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text=ROBOTS_ALLES)
+        return httpx.Response(
+            200,
+            content=gzip.compress(SEITE.encode("utf-8")),
+            headers={"Content-Encoding": "gzip"},
+        )
+
+    netz(monkeypatch, handler)
+
+    with pytest.raises(fetch.FetchAbgelehnt, match="komprimiert"):
+        fetch.hole_seite(PRODUKT_URL)
+
+
+def test_the_client_asks_for_an_uncompressed_answer(uhr, monkeypatch):
+    aufrufe = netz(monkeypatch, shop())
+
+    fetch.hole_seite(PRODUKT_URL)
+
+    assert all(
+        request.headers["Accept-Encoding"] == "identity" for request in aufrufe
+    )
+
+
+def test_an_unusable_address_is_refused_before_anything_is_requested(uhr, monkeypatch):
+    aufrufe = netz(monkeypatch, shop())
+
+    for kaputt in (
+        "https://shop.example.ch/produkt/servo\n",
+        "https://shop.example.ch:abc/produkt/servo",
+    ):
+        with pytest.raises(fetch.FetchAbgelehnt):
+            fetch.hole_seite(kaputt)
+    assert aufrufe == []
+
+
+def test_a_password_without_a_username_is_still_a_credential(uhr, monkeypatch):
+    """Sonst reisten die Zugangsdaten als Basic-Auth mit und landeten im Angebot."""
+    aufrufe = netz(monkeypatch, shop())
+
+    for kaputt in (
+        "https://:geheim@shop.example.ch/produkt/servo",
+        "https://nutzer@shop.example.ch/produkt/servo",
+        "https://nutzer:geheim@shop.example.ch/produkt/servo",
+    ):
+        with pytest.raises(fetch.FetchAbgelehnt, match="Zugangsdaten"):
+            fetch.hole_seite(kaputt)
+    assert aufrufe == []
 
 
 def test_a_blocking_shop_is_named_honestly(uhr, monkeypatch):

@@ -12,6 +12,7 @@ from .adapter import (
     AdapterFehler,
     extrahiere,
     finde_adapter,
+    nennt_waehrung,
     parse_preis,
     uebersicht as adapter_uebersicht,
 )
@@ -122,7 +123,14 @@ def _decimal(value: Any, field: str, *, positive: bool = False) -> Decimal:
 
 def _hostname(url: str, field: str) -> str:
     parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username:
+    # username allein reicht nicht: «https://:geheim@shop.ch/» hat einen leeren
+    # Benutzernamen und trotzdem ein Passwort, das sonst im Angebot landete.
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
         raise ValidationError(f"{field} muss eine gueltige HTTP(S)-URL ohne Zugangsdaten sein")
     host = parsed.hostname.lower().rstrip(".")
     return host.removeprefix("www.")
@@ -573,10 +581,17 @@ class ProcurementService:
             )
         # Die Shopwährung steht am Shop, nicht auf der Seite: der Preistext darf
         # sie bestätigen, aber nicht bestimmen.
-        waehrung = str(shop.get("versand_waehrung") or HOME_CURRENCY).strip().upper()
+        waehrung = str(shop.get("versand_waehrung") or "").strip().upper()
+        if not waehrung:
+            raise ValidationError(
+                f"Für Shop {shop['id']} ist keine Währung hinterlegt; "
+                "zuerst das Shopprofil mit Währung erfassen"
+            )
         try:
             felder = extrahiere(adapter, seite.text)
-            preis = parse_preis(felder["preis"] or "", waehrung)
+            preistext = felder["preis"] or ""
+            self._pruefe_shopwaehrung(shop, waehrung, preistext)
+            preis = parse_preis(preistext, waehrung)
         except AdapterFehler as error:
             raise ValidationError(str(error)) from error
 
@@ -603,6 +618,31 @@ class ProcurementService:
                 "felder": felder,
             },
         }
+
+    @staticmethod
+    def _pruefe_shopwaehrung(
+        shop: Mapping[str, Any], waehrung: str, preistext: str
+    ) -> None:
+        """Eine Shopwährung, die dem Shopland widerspricht, braucht einen Beleg.
+
+        ``record_shop`` setzt CHF, wenn keine Währung angegeben wird. Bei einem
+        Shop ausserhalb des CHF-Raums ist CHF deshalb genauso oft ein Versehen
+        wie eine Tatsache - und ein als CHF verbuchter Europreis wäre still
+        falsch, mit Kurs 1 und ohne jeden Beleg. Sagt die Seite die Währung
+        selbst, ist die Sache entschieden; sonst wird nichts erfasst.
+        """
+        land = str(shop.get("land") or "").strip().upper()
+        landeswaehrung = waehrung_fuer_land(land)
+        if landeswaehrung is None or landeswaehrung == waehrung:
+            return
+        if nennt_waehrung(preistext, waehrung):
+            return
+        raise ValidationError(
+            f"Shop {shop['id']} liegt in {land}, ist aber in {waehrung} geführt, "
+            f"und der Preistext «{preistext}» nennt keine Währung. Ohne Beleg "
+            "wird nichts erfasst - Shopwährung korrigieren oder record_offer "
+            "mit ausdrücklicher Währung verwenden."
+        )
 
     def list_adapters(self) -> dict[str, Any]:
         """Geladene Adapter und übersprungene Dateien - read-only."""
