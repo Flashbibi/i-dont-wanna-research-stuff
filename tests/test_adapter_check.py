@@ -41,7 +41,7 @@ def netz(monkeypatch):
 
     monkeypatch.setattr(fetch, "_transport", lambda: httpx.MockTransport(handler))
     monkeypatch.setattr(fetch, "_schlafe", lambda _: None)
-    monkeypatch.setattr(fetch, "_naechster_slot", {})
+    monkeypatch.setattr(fetch, "_letzter_request", {})
     monkeypatch.setattr(fetch, "_robots_cache", {})
     return aufrufe
 

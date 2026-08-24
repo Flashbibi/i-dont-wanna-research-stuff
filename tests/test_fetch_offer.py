@@ -76,7 +76,7 @@ def registry_und_uhr(monkeypatch):
     monkeypatch.setattr(adapter, "GEBUENDELT_DIR", FIXTURES)
     monkeypatch.setattr(adapter, "_registry", None)
     monkeypatch.delenv(adapter.ENV_ADAPTER_DIR, raising=False)
-    monkeypatch.setattr(fetch, "_naechster_slot", {})
+    monkeypatch.setattr(fetch, "_letzter_request", {})
     monkeypatch.setattr(fetch, "_robots_cache", {})
     schlaefe: list[float] = []
     monkeypatch.setattr(fetch, "_schlafe", schlaefe.append)

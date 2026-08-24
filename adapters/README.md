@@ -160,8 +160,21 @@ there is no second way past it:
   refused before the product page is requested at all. If robots.txt cannot be
   read — timeout, HTTP 5xx — the fetch stops; nothing is assumed. Only a clean
   4xx means "there are no rules here".
+- **The shop's own `Crawl-delay` is honoured** where robots.txt names one. It
+  raises the delay; it never replaces or lowers it. Above 60 seconds the fetch
+  is refused rather than quietly waiting less - a silently shortened wait would
+  be worse than an honest error.
 - **A minimum delay per domain**, process-wide, at least 5 seconds. An adapter
-  may raise it with `fetch.min_delay_s`. It cannot lower it.
+  may raise it with `fetch.min_delay_s`. Neither an adapter nor a caller can
+  lower it. The key is the hostname with a leading `www.` stripped, so a shop
+  serving `de.`/`fr.`/`it.` locale subdomains gets one clock per subdomain -
+  worth knowing when you pick `min_delay_s` for such a shop.
+- **Every hop of a redirect chain runs the whole procedure again**: robots.txt
+  for the new path, then the delay, then the request. Redirects are followed by
+  hand for exactly that reason - an automatic client would walk the chain
+  silently, and a shop could hand us a path its own robots.txt forbids simply by
+  answering 301. A chain that leaves the domain ends the fetch *before* the
+  foreign host is contacted at all. At most five hops.
 - **An honest user agent**, naming the tool, its version and the URL where you
   can read what it does.
 - **No retries, no backoff, no response caching.** A temporary failure comes
@@ -169,8 +182,7 @@ there is no second way past it:
   automatic retry would be exactly the silent doubling of load the delay
   exists to prevent.
 - **Fetching only happens on an explicit call.** Nothing is refreshed on a
-  timer, and a redirect that leaves the domain ends the fetch, because for that
-  other domain no robots.txt was read.
+  timer.
 
 None of this is switchable. There is no flag, no environment variable and no
 adapter key that turns it off, and adding one is not a feature request this

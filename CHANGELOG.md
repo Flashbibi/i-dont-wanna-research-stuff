@@ -14,9 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   text and article number; the engine fetches the page and applies them, so
   those texts are literal page text instead of something a model typed.
 - A polite fetch layer that every adapter request goes through: robots.txt is
-  read first and obeyed, a minimum delay per domain is enforced process-wide,
-  and the user agent names the tool and where to read what it does. None of it
-  is switchable.
+  read first and obeyed (including `Crawl-delay`), a minimum delay per domain is
+  enforced process-wide, and the user agent names the tool and where to read
+  what it does. Redirects are followed by hand so that every hop passes the same
+  checks, and a chain leaving the domain ends the fetch before the other host is
+  contacted. None of it is switchable.
 - MCP tools `fetch_offer` and `list_adapters`.
 - An `adapter_check` CLI for building adapters: it prints the raw text found
   per field next to the parsed value, live through the same fetch layer or

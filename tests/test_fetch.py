@@ -9,6 +9,8 @@ Wartezeiten werden nur aufgezeichnet - sonst dauerte allein diese Datei Minuten.
 
 from __future__ import annotations
 
+import threading
+
 import httpx
 import pytest
 
@@ -23,18 +25,24 @@ PRODUKT_URL = "https://shop.example.ch/produkt/servo"
 
 
 class Uhr:
-    """Monotone Zeit zum Anfassen: Schlafen springt vorwärts statt zu warten."""
+    """Monotone Zeit zum Anfassen: Schlafen springt vorwärts statt zu warten.
+
+    Mit Sperre, weil ein Test sie aus mehreren Threads benutzt.
+    """
 
     def __init__(self, start: float = 1_000.0):
         self.zeit = start
         self.schlaefe: list[float] = []
+        self._sperre = threading.Lock()
 
     def jetzt(self) -> float:
-        return self.zeit
+        with self._sperre:
+            return self.zeit
 
     def schlafe(self, sekunden: float) -> None:
-        self.schlaefe.append(sekunden)
-        self.zeit += sekunden
+        with self._sperre:
+            self.schlaefe.append(sekunden)
+            self.zeit += sekunden
 
 
 @pytest.fixture
@@ -43,8 +51,9 @@ def uhr(monkeypatch):
     zeitgeber = Uhr()
     monkeypatch.setattr(fetch, "_jetzt", zeitgeber.jetzt)
     monkeypatch.setattr(fetch, "_schlafe", zeitgeber.schlafe)
-    monkeypatch.setattr(fetch, "_naechster_slot", {})
+    monkeypatch.setattr(fetch, "_letzter_request", {})
     monkeypatch.setattr(fetch, "_robots_cache", {})
+    monkeypatch.setattr(fetch, "_robots_sperren", {})
     return zeitgeber
 
 
@@ -310,12 +319,164 @@ def test_a_redirect_leaving_the_domain_ends_the_fetch(uhr, monkeypatch):
             )
         return httpx.Response(200, html=SEITE)
 
-    netz(monkeypatch, handler)
+    aufrufe = netz(monkeypatch, handler)
 
     with pytest.raises(fetch.FetchAbgelehnt) as fehler:
         fetch.hole_seite(PRODUKT_URL)
 
     assert "Weiterleitung verlässt shop.example.ch" in str(fehler.value)
+    # Die fremde Domain wird nicht einmal angefragt: für sie haben wir weder
+    # robots.txt gelesen noch einen Abstand gewahrt.
+    assert pfade(aufrufe) == [
+        "shop.example.ch/robots.txt",
+        "shop.example.ch/produkt/servo",
+    ]
+
+
+def test_a_redirect_into_a_disallowed_path_is_refused(uhr, monkeypatch):
+    """Der Shop darf sich die robots-Prüfung nicht mit einem 301 wegleiten."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nDisallow: /intern/\n")
+        if request.url.path == "/produkt/servo":
+            return httpx.Response(
+                301, headers={"Location": "https://shop.example.ch/intern/servo"}
+            )
+        return httpx.Response(200, html=SEITE)
+
+    aufrufe = netz(monkeypatch, handler)
+
+    with pytest.raises(fetch.RobotsVerboten) as fehler:
+        fetch.hole_seite(PRODUKT_URL)
+
+    assert "/intern/servo" in str(fehler.value)
+    assert pfade(aufrufe) == [
+        "shop.example.ch/robots.txt",
+        "shop.example.ch/produkt/servo",
+    ]
+
+
+def test_every_hop_of_a_chain_waits_its_own_delay(uhr, monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text=ROBOTS_ALLES)
+        if request.url.path == "/produkt/servo":
+            return httpx.Response(302, headers={"Location": "/produkt/servo-2"})
+        if request.url.path == "/produkt/servo-2":
+            return httpx.Response(302, headers={"Location": "/produkt/servo-3"})
+        return httpx.Response(200, html=SEITE)
+
+    aufrufe = netz(monkeypatch, handler)
+
+    ergebnis = fetch.hole_seite(PRODUKT_URL)
+
+    assert ergebnis.final_url == "https://shop.example.ch/produkt/servo-3"
+    # Jeder Sprung ist ein Request und kostet einen vollen Abstand.
+    assert uhr.schlaefe == [fetch.DEFAULT_MIN_DELAY_S] * 3
+    assert len(aufrufe) == 4
+
+
+def test_a_chain_longer_than_the_limit_ends_with_a_plain_error(uhr, monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text=ROBOTS_ALLES)
+        nummer = int(request.url.path.rsplit("/", 1)[1])
+        return httpx.Response(302, headers={"Location": f"/p/{nummer + 1}"})
+
+    aufrufe = netz(monkeypatch, handler)
+
+    with pytest.raises(fetch.FetchAbgelehnt, match="Mehr als 5 Weiterleitungen"):
+        fetch.hole_seite("https://shop.example.ch/p/0")
+
+    # robots.txt plus das Original plus fünf erlaubte Sprünge - danach Schluss.
+    assert len(aufrufe) == 1 + 1 + fetch.MAX_REDIRECTS
+
+
+def test_a_redirect_without_a_target_is_refused(uhr, monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text=ROBOTS_ALLES)
+        return httpx.Response(302)
+
+    netz(monkeypatch, handler)
+
+    with pytest.raises(fetch.FetchAbgelehnt, match="Weiterleitung ohne Ziel"):
+        fetch.hole_seite(PRODUKT_URL)
+
+
+def test_a_crawl_delay_raises_the_wait(uhr, monkeypatch):
+    netz(monkeypatch, shop(robots="User-agent: *\nCrawl-delay: 20\nAllow: /\n"))
+
+    fetch.hole_seite(PRODUKT_URL)
+    fetch.hole_seite("https://shop.example.ch/produkt/kabel")
+
+    # Der Shop verlangt 20s - der Boden von 5s wird angehoben, nicht andersherum.
+    assert uhr.schlaefe == [20.0, 20.0]
+
+
+def test_an_adapter_cannot_undercut_a_crawl_delay(uhr, monkeypatch):
+    netz(monkeypatch, shop(robots="User-agent: *\nCrawl-delay: 20\nAllow: /\n"))
+
+    fetch.hole_seite(PRODUKT_URL, min_delay_s=8)
+
+    assert uhr.schlaefe == [20.0]
+
+
+def test_an_absurd_crawl_delay_is_refused_instead_of_silently_shortened(uhr, monkeypatch):
+    aufrufe = netz(monkeypatch, shop(robots="User-agent: *\nCrawl-delay: 900\n"))
+
+    with pytest.raises(fetch.FetchAbgelehnt) as fehler:
+        fetch.hole_seite(PRODUKT_URL)
+
+    assert "900s Abstand" in str(fehler.value)
+    assert pfade(aufrufe) == ["shop.example.ch/robots.txt"]
+
+
+def test_the_robots_lookup_happens_under_the_lock_of_its_origin(uhr, monkeypatch):
+    """Deterministischer Nachweis dessen, was der Thread-Test nur wahrscheinlich macht."""
+
+    class Zaehlsperre:
+        def __init__(self) -> None:
+            self.eintritte = 0
+
+        def __enter__(self):
+            self.eintritte += 1
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    sperre = Zaehlsperre()
+    monkeypatch.setattr(fetch, "_robots_sperren", {"https://shop.example.ch": sperre})
+    netz(monkeypatch, shop())
+
+    fetch.hole_seite(PRODUKT_URL)
+
+    assert sperre.eintritte == 1
+
+
+def test_a_cold_cache_reads_robots_txt_once_even_from_several_threads(uhr, monkeypatch):
+    """Vier gleichzeitige Abrufe teilen sich eine robots.txt statt vier zu holen."""
+    aufrufe = netz(monkeypatch, shop())
+    start = threading.Barrier(4)
+    fehler: list[BaseException] = []
+
+    def abrufen() -> None:
+        try:
+            start.wait(timeout=5)
+            fetch.hole_seite(PRODUKT_URL)
+        except BaseException as problem:  # noqa: BLE001 - im Test weitergereicht
+            fehler.append(problem)
+
+    threads = [threading.Thread(target=abrufen) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert fehler == []
+    assert pfade(aufrufe).count("shop.example.ch/robots.txt") == 1
 
 
 def test_a_redirect_inside_the_domain_yields_the_final_url(uhr, monkeypatch):

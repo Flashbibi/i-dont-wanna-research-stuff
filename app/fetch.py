@@ -8,6 +8,12 @@ robots.txt, Mindestabstand pro Domain und ein ehrlicher User-Agent sitzen in
 dieser einen Funktion. Es gibt keinen Schalter, der das abstellt, und keinen
 zweiten Weg daran vorbei.
 
+Eine Weiterleitung ist hier kein Sonderfall, sondern derselbe Ablauf noch
+einmal: die Kette wird von Hand gegangen, und jede Adresse darin muss erst
+wieder durch robots.txt und Mindestabstand, bevor sie angefragt wird. Verlässt
+die Kette die Domain, endet der Abruf - für eine fremde Domain haben wir nichts
+gelesen und fragen dort auch nichts an.
+
 Bewusst nicht in diesem Modul: Retries, Backoff, Antwort-Caching,
 Cookie-Verwaltung, POST. Ein temporärer Fehler kommt als solcher zurück und der
 Aufrufer - Mensch oder Modell - entscheidet, ob er es nochmal versucht. Ein
@@ -25,7 +31,7 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.robotparser import RobotFileParser
 
 import httpx
@@ -54,8 +60,19 @@ TIMEOUT_S = 10.0
 #: Eine Produktseite ist kleiner. Alles darüber lesen wir nicht zu Ende.
 MAX_BYTES = 2_000_000
 
-#: Eine Handvoll Weiterleitungen ist normal, eine Kette davon nicht.
+#: Eine Handvoll Weiterleitungen ist normal, eine Kette davon nicht. Gezählt
+#: werden sie hier selbst, denn jeder Sprung ist ein eigener Request und muss
+#: durch dieselben Prüfungen wie der erste.
 MAX_REDIRECTS = 5
+
+#: Antworten, die auf eine andere Adresse zeigen statt eine Seite zu liefern.
+REDIRECT_STATUS = frozenset({301, 302, 303, 307, 308})
+
+#: Obergrenze für ein ``Crawl-delay`` aus robots.txt. Wer mehr verlangt, bekommt
+#: keine still gekürzte Wartezeit, sondern einen Abbruch - eine Viertelstunde in
+#: einem interaktiven Aufruf zu schlafen wäre kein Entgegenkommen, sondern ein
+#: Hänger.
+MAX_CRAWL_DELAY_S = 60.0
 
 #: Deutschsprachige Seite bevorzugen; die Texte landen wörtlich in der Datenbank.
 ACCEPT_LANGUAGE = "de-CH,de;q=0.9,en;q=0.8"
@@ -133,11 +150,18 @@ class _RobotsStand:
 #: "gerade frei" sehen.
 _sperre = threading.Lock()
 
-#: Domain -> monotoner Zeitpunkt, ab dem der nächste Request starten darf.
-_naechster_slot: dict[str, float] = {}
+#: Domain -> monotoner Zeitpunkt des letzten Requests. Gemerkt wird der
+#: Zeitpunkt selbst und kein fertig ausgerechneter nächster Slot: der wirksame
+#: Abstand kann zwischen zwei Requests steigen, und dann muss die schon
+#: vergangene Zeit nach der neuen Regel gemessen werden.
+_letzter_request: dict[str, float] = {}
 
 #: Herkunft -> Stand ihrer robots.txt.
 _robots_cache: dict[str, _RobotsStand] = {}
+
+#: Herkunft -> eigene Sperre. Ohne sie holen vier gleichzeitig gestartete Abrufe
+#: derselben Domain viermal dieselbe robots.txt statt einmal.
+_robots_sperren: dict[str, threading.Lock] = {}
 
 
 def _jetzt() -> float:
@@ -161,7 +185,13 @@ def _transport() -> Any | None:
 
 
 def _client() -> httpx.Client:
-    """Der Client, mit dem dieses Modul spricht. Für robots.txt und Seite derselbe."""
+    """Der Client, mit dem dieses Modul spricht. Für robots.txt und Seite derselbe.
+
+    ``follow_redirects=False`` ist die tragende Zeile. httpx würde eine Kette
+    still durchlaufen, und jeder Sprung darin wäre ein Request an eine Adresse,
+    für die weder robots.txt ausgewertet noch der Mindestabstand gewahrt wurde -
+    ein 301 des Shops würde damit beides aushebeln.
+    """
     return httpx.Client(
         headers={
             "User-Agent": USER_AGENT,
@@ -169,8 +199,7 @@ def _client() -> httpx.Client:
             "Accept-Language": ACCEPT_LANGUAGE,
         },
         timeout=TIMEOUT_S,
-        follow_redirects=True,
-        max_redirects=MAX_REDIRECTS,
+        follow_redirects=False,
         transport=_transport(),
     )
 
@@ -179,14 +208,23 @@ def hole_seite(url: str, *, min_delay_s: float | None = None) -> FetchErgebnis:
     """Eine Seite höflich holen: erst robots.txt, dann warten, dann GET.
 
     ``min_delay_s`` kommt aus dem Adapter und wirkt nur erhöhend; der Boden aus
-    :data:`DEFAULT_MIN_DELAY_S` bleibt in jedem Fall stehen.
+    :data:`DEFAULT_MIN_DELAY_S` bleibt in jedem Fall stehen, und ein
+    ``Crawl-delay`` des Shops hebt ihn weiter an.
+
+    Jede Adresse einer Weiterleitungskette durchläuft dieselbe Runde: erst
+    robots.txt, dann warten, dann anfragen.
     """
     ziel = _zerlege(url)
-    abstand = max(DEFAULT_MIN_DELAY_S, min_delay_s or 0.0)
+    boden = max(DEFAULT_MIN_DELAY_S, min_delay_s or 0.0)
     with _client() as client:
-        _pruefe_robots(client, ziel, abstand)
-        _warte(ziel.domain, abstand)
-        return _lade_seite(client, ziel)
+        for _ in range(MAX_REDIRECTS + 1):
+            wunsch = _pruefe_robots(client, ziel, boden)
+            _warte(ziel.domain, max(boden, wunsch or 0.0))
+            ergebnis = _lade_sprung(client, ziel)
+            if isinstance(ergebnis, FetchErgebnis):
+                return ergebnis
+            ziel = ergebnis
+    raise FetchAbgelehnt(f"Mehr als {MAX_REDIRECTS} Weiterleitungen: {url}")
 
 
 def _zerlege(url: str) -> _Ziel:
@@ -215,38 +253,78 @@ def _domain(hostname: str) -> str:
 
 
 def _warte(domain: str, abstand: float) -> None:
-    """Den nächsten Slot dieser Domain belegen und bis dahin schlafen.
+    """Den Zeitpunkt des nächsten Requests belegen und bis dahin schlafen.
 
-    Der Slot wird unter der Sperre reserviert, geschlafen wird ohne sie: zwei
-    Threads auf derselben Domain reihen sich damit auf, zwei Threads auf
-    verschiedenen Domains behindern sich nicht.
+    Belegt wird unter der Sperre, geschlafen wird ohne sie: zwei Threads auf
+    derselben Domain reihen sich damit auf, zwei Threads auf verschiedenen
+    Domains behindern sich nicht.
     """
     with _sperre:
         jetzt = _jetzt()
-        start = max(_naechster_slot.get(domain, jetzt), jetzt)
-        _naechster_slot[domain] = start + abstand
+        letzter = _letzter_request.get(domain)
+        start = jetzt if letzter is None else max(jetzt, letzter + abstand)
+        _letzter_request[domain] = start
     wartezeit = start - jetzt
     if wartezeit > 0:
         _schlafe(wartezeit)
 
 
-def _pruefe_robots(client: httpx.Client, ziel: _Ziel, abstand: float) -> None:
+def _robots_sperre(herkunft: str) -> threading.Lock:
+    """Eigene Sperre je Herkunft, damit ihre robots.txt einmal geholt wird."""
+    with _sperre:
+        return _robots_sperren.setdefault(herkunft, threading.Lock())
+
+
+def _pruefe_robots(client: httpx.Client, ziel: _Ziel, abstand: float) -> float | None:
     """robots.txt der Herkunft auswerten - notfalls frisch geholt.
 
     Der Abruf selbst ist ein Request und zählt deshalb gegen den Mindestabstand.
+    Die Sperre je Herkunft hält gleichzeitig gestartete Abrufe derselben Domain
+    zusammen: sie teilen sich eine robots.txt, statt sie zu vervielfachen.
+
+    Zurück kommt ein ``Crawl-delay``, falls der Shop eines nennt - robots.txt zu
+    lesen und die Hälfte davon zu übergehen wäre keine Höflichkeit.
     """
-    stand = _robots_cache.get(ziel.herkunft)
-    if stand is None or _jetzt() >= stand.ablauf:
-        _warte(ziel.domain, abstand)
-        stand = _frage_robots(client, ziel)
-        _robots_cache[ziel.herkunft] = stand
+    with _robots_sperre(ziel.herkunft):
+        stand = _robots_cache.get(ziel.herkunft)
+        if stand is None or _jetzt() >= stand.ablauf:
+            _warte(ziel.domain, abstand)
+            stand = _frage_robots(client, ziel)
+            _robots_cache[ziel.herkunft] = stand
     if stand.fehler is not None:
         raise FetchTemporaerFehler(stand.fehler)
-    if stand.regeln is not None and not stand.regeln.can_fetch(ROBOTS_AGENT, ziel.url):
+    if stand.regeln is None:
+        return None
+    if not stand.regeln.can_fetch(ROBOTS_AGENT, ziel.url):
         raise RobotsVerboten(
             f"robots.txt von {ziel.domain} verbietet {ziel.pfad} - "
             "die Seite wird nicht abgerufen"
         )
+    return _crawl_delay(stand.regeln, ziel)
+
+
+def _crawl_delay(regeln: RobotFileParser, ziel: _Ziel) -> float | None:
+    """Den vom Shop gewünschten Abstand lesen; er hebt an und senkt nie.
+
+    Über :data:`MAX_CRAWL_DELAY_S` wird nicht gekürzt, sondern abgebrochen. Eine
+    still halbierte Wartezeit wäre genau die Art von Ungefähr, die dieses Modul
+    sonst überall vermeidet.
+    """
+    wert = regeln.crawl_delay(ROBOTS_AGENT)
+    if wert is None:
+        return None
+    try:
+        wunsch = float(wert)
+    except (TypeError, ValueError):  # pragma: no cover - robotparser liefert Zahlen
+        return None
+    if wunsch <= 0:
+        return None
+    if wunsch > MAX_CRAWL_DELAY_S:
+        raise FetchAbgelehnt(
+            f"robots.txt von {ziel.domain} verlangt {wunsch:.0f}s Abstand; "
+            f"länger als {MAX_CRAWL_DELAY_S:.0f}s wartet dieser Abruf nicht"
+        )
+    return wunsch
 
 
 def _frage_robots(client: httpx.Client, ziel: _Ziel) -> _RobotsStand:
@@ -285,20 +363,23 @@ def _frage_robots(client: httpx.Client, ziel: _Ziel) -> _RobotsStand:
     return _RobotsStand(_jetzt() + ROBOTS_CACHE_S_ERFOLG, regeln=regeln)
 
 
-def _lade_seite(client: httpx.Client, ziel: _Ziel) -> FetchErgebnis:
-    """Die Produktseite holen und den Status in die Fehlertaxonomie übersetzen."""
+def _lade_sprung(client: httpx.Client, ziel: _Ziel) -> FetchErgebnis | _Ziel:
+    """Einen Sprung holen: die fertige Seite, oder die nächste Adresse.
+
+    Der Körper einer Weiterleitungsantwort wird nicht gelesen - er interessiert
+    nicht, und die nächste Adresse muss ohnehin erst wieder durch robots.txt und
+    Mindestabstand.
+    """
     try:
         with client.stream("GET", ziel.url) as antwort:
-            _pruefe_domain(antwort, ziel)
+            weiter = _weiterleitung(antwort, ziel)
+            if weiter is not None:
+                return weiter
             _pruefe_status(antwort.status_code, ziel)
             text = _lies_text(antwort, ziel.url)
             return FetchErgebnis(
                 final_url=str(antwort.url), status=antwort.status_code, text=text
             )
-    except httpx.TooManyRedirects as error:
-        raise FetchAbgelehnt(
-            f"Mehr als {MAX_REDIRECTS} Weiterleitungen: {ziel.url}"
-        ) from error
     except httpx.TimeoutException as error:
         raise FetchTemporaerFehler(
             f"{ziel.domain} antwortet nicht innerhalb von {TIMEOUT_S:.0f}s: {ziel.url}"
@@ -309,19 +390,25 @@ def _lade_seite(client: httpx.Client, ziel: _Ziel) -> FetchErgebnis:
         ) from error
 
 
-def _pruefe_domain(antwort: httpx.Response, ziel: _Ziel) -> None:
-    """Eine Weiterleitungskette darf die geprüfte Domain nicht verlassen.
+def _weiterleitung(antwort: httpx.Response, ziel: _Ziel) -> _Ziel | None:
+    """Die Adresse hinter einer Weiterleitung - oder None, wenn es keine ist.
 
-    Für eine fremde Domain haben wir weder robots.txt gelesen noch ihren
-    Mindestabstand eingehalten - dort wird nichts weitergelesen. httpx folgt der
-    Kette selbst, der Abbruch kommt deshalb nach dem letzten Sprung; gelesen
-    wird die Antwort trotzdem nicht.
+    Die Kette darf die Domain nicht verlassen. Für eine fremde Domain haben wir
+    weder robots.txt gelesen noch ihren Mindestabstand gewahrt; sie auch nur
+    einmal anzufragen wäre schon zu viel, und deshalb endet der Abruf hier statt
+    erst nach dem Sprung.
     """
-    erreicht = antwort.url.host
-    if erreicht and _domain(erreicht) != ziel.domain:
+    if antwort.status_code not in REDIRECT_STATUS:
+        return None
+    ort = antwort.headers.get("location", "").strip()
+    if not ort:
         raise FetchAbgelehnt(
-            f"Weiterleitung verlässt {ziel.domain}: {antwort.url}"
+            f"Weiterleitung ohne Ziel (HTTP {antwort.status_code}): {ziel.url}"
         )
+    neu = _zerlege(urljoin(ziel.url, ort))
+    if neu.domain != ziel.domain:
+        raise FetchAbgelehnt(f"Weiterleitung verlässt {ziel.domain}: {neu.url}")
+    return neu
 
 
 def _pruefe_status(status: int, ziel: _Ziel) -> None:
