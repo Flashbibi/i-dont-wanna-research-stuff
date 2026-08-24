@@ -78,7 +78,11 @@ def registry_und_uhr(monkeypatch):
     monkeypatch.delenv(adapter.ENV_ADAPTER_DIR, raising=False)
     monkeypatch.setattr(fetch, "_letzter_request", {})
     monkeypatch.setattr(fetch, "_robots_cache", {})
+    monkeypatch.setattr(fetch, "_robots_sperren", {})
     schlaefe: list[float] = []
+    # Angehaltene Uhr: die gemessene Wartezeit ist damit exakt und nicht von der
+    # Laufzeit des Testrechners abhängig.
+    monkeypatch.setattr(fetch, "_jetzt", lambda: 1_000.0)
     monkeypatch.setattr(fetch, "_schlafe", schlaefe.append)
     return schlaefe
 
@@ -145,10 +149,8 @@ def test_the_adapter_delay_reaches_the_fetch_layer(monkeypatch, registry_und_uhr
 
     service.fetch_offer(10, PRODUKT_URL)
 
-    # demo.yaml erhöht auf 6 Sekunden; gewartet wird zwischen robots.txt und
-    # Seite, abzüglich der Zeit, die der robots-Abruf selbst gebraucht hat.
-    assert len(registry_und_uhr) == 1
-    assert fetch.DEFAULT_MIN_DELAY_S < registry_und_uhr[0] <= 6.0
+    # demo.yaml erhöht auf 6 Sekunden; gewartet wird zwischen robots.txt und Seite.
+    assert registry_und_uhr == [6.0]
 
 
 def test_an_unknown_line_never_reaches_the_network(monkeypatch, registry_und_uhr):

@@ -289,7 +289,7 @@ def _pruefe_robots(client: httpx.Client, ziel: _Ziel, abstand: float) -> float |
         stand = _robots_cache.get(ziel.herkunft)
         if stand is None or _jetzt() >= stand.ablauf:
             _warte(ziel.domain, abstand)
-            stand = _frage_robots(client, ziel)
+            stand = _frage_robots(client, ziel, abstand)
             _robots_cache[ziel.herkunft] = stand
     if stand.fehler is not None:
         raise FetchTemporaerFehler(stand.fehler)
@@ -327,29 +327,50 @@ def _crawl_delay(regeln: RobotFileParser, ziel: _Ziel) -> float | None:
     return wunsch
 
 
-def _frage_robots(client: httpx.Client, ziel: _Ziel) -> _RobotsStand:
+def _frage_robots(client: httpx.Client, ziel: _Ziel, abstand: float) -> _RobotsStand:
     """robots.txt holen und zu einem Cache-Eintrag machen; wirft nie.
 
     Zwei Ausgänge, und der Unterschied ist Absicht: eine Domain **ohne**
     robots.txt (HTTP 4xx) erlaubt alles, eine Domain, deren robots.txt wir
     **nicht lesen konnten**, erlaubt gar nichts. Im zweiten Fall wird nicht
     geraten.
+
+    Weitergeleitet wird auch hier von Hand und nur innerhalb der Domain. Eine
+    robots.txt, die auf einen fremden Host zeigt, wird nicht gelesen: sonst
+    entschiede ein Dritter, was bei diesem Shop erlaubt ist.
     """
+    quelle = _zerlege(ziel.robots_url)
     try:
-        with client.stream("GET", ziel.robots_url) as antwort:
-            if 400 <= antwort.status_code < 500 and antwort.status_code != 429:
-                return _RobotsStand(_jetzt() + ROBOTS_CACHE_S_ERFOLG, regeln=None)
-            if antwort.status_code >= 400:
-                return _RobotsStand(
-                    _jetzt() + ROBOTS_CACHE_S_FEHLSCHLAG,
-                    fehler=(
-                        f"robots.txt von {ziel.domain} nicht erreichbar "
-                        f"(HTTP {antwort.status_code}) - ohne sie wird nicht abgerufen"
-                    ),
-                )
-            text = _lies_text(antwort, ziel.robots_url)
+        for sprung in range(MAX_REDIRECTS + 1):
+            if sprung:
+                _warte(ziel.domain, abstand)
+            with client.stream("GET", quelle.url) as antwort:
+                weiter = _weiterleitung(antwort, quelle)
+                if weiter is not None:
+                    quelle = weiter
+                    continue
+                if 400 <= antwort.status_code < 500 and antwort.status_code != 429:
+                    return _RobotsStand(_jetzt() + ROBOTS_CACHE_S_ERFOLG, regeln=None)
+                if antwort.status_code >= 400:
+                    return _RobotsStand(
+                        _jetzt() + ROBOTS_CACHE_S_FEHLSCHLAG,
+                        fehler=(
+                            f"robots.txt von {ziel.domain} nicht erreichbar "
+                            f"(HTTP {antwort.status_code}) - ohne sie wird nicht abgerufen"
+                        ),
+                    )
+                text = _lies_text(antwort, quelle.url)
+                break
+        else:
+            raise FetchAbgelehnt(f"mehr als {MAX_REDIRECTS} Weiterleitungen")
     except FetchFehler as error:
-        return _RobotsStand(_jetzt() + ROBOTS_CACHE_S_FEHLSCHLAG, fehler=str(error))
+        return _RobotsStand(
+            _jetzt() + ROBOTS_CACHE_S_FEHLSCHLAG,
+            fehler=(
+                f"robots.txt von {ziel.domain} nicht lesbar ({error}) - "
+                "ohne sie wird nicht abgerufen"
+            ),
+        )
     except httpx.HTTPError as error:
         return _RobotsStand(
             _jetzt() + ROBOTS_CACHE_S_FEHLSCHLAG,

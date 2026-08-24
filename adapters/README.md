@@ -131,24 +131,35 @@ because the same string means different amounts in different conventions.
 
 | Currency | Grouping | Decimal | Reads |
 | --- | --- | --- | --- |
-| `CHF` | `'` `’` | `.` | `CHF 1'234.50`, `Fr. 7.50`, `12.90` |
-| `EUR` | `.` | `,` | `1.234,56 €`, `EUR 12,90` |
-| `USD` | `,` | `.` | `$1,299.00` |
-| `GBP` | `,` | `.` | `£9.99` |
+| `CHF` | `'` `’` space | `.` | `CHF 1'234.50`, `CHF 1 234.50`, `Fr. 7.50`, `12.90` |
+| `EUR` | `.` space | `,` | `1.234,56 €`, `1 234,56 €`, `EUR 12,90` |
+| `USD` | `,` space | `.` | `$1,299.00` |
+| `GBP` | `,` space | `.` | `£9.99` |
 
-Two consequences worth knowing before you blame the parser:
+A space groups in every currency — Swiss federal style writes `1 234.50`, and a
+space can never be a decimal separator anyway. Ordinary, non-breaking and narrow
+non-breaking spaces are all treated alike.
+
+Three consequences worth knowing before you blame the parser:
 
 - If the text names a **different** currency than the shop trades in, the
   offer is refused. A `€` on a CHF shop is not converted, it is a
-  contradiction.
+  contradiction. This holds whether or not the code is glued to the number:
+  `USD12.90` contradicts a CHF shop just as `USD 12.90` does.
 - A number that does not fit its currency's rules is refused as unreadable
   rather than reinterpreted. `12.90` at a EUR shop is not 1290 — a grouping
   separator followed by two digits is not a grouping. Narrow the selector or
   add a `regex`; if the shop genuinely writes prices in a foreign convention,
   the manual path via `record_offer` stays open.
+- A price torn apart by markup is refused too. `<span>19<sup>,99</sup></span>`
+  comes out of extraction as `19 ,99`, because reading text inserts a separator
+  between nested nodes — that is refused rather than silently truncated to 19.
+  Point the selector at the element that holds the whole price, or pull it out
+  with a `regex`.
 
-If several numbers sit inside the matched element, the first one wins. The
-selector is supposed to hit the price; where it cannot, `regex` narrows it.
+If several numbers sit inside the matched element and something that cannot be
+part of a number separates them, the first one wins. The selector is supposed to
+hit the price; where it cannot, `regex` narrows it.
 
 ## Politeness is structural
 

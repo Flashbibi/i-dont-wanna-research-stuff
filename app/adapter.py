@@ -65,13 +65,14 @@ FELD_SCHLUESSEL = {"selector", "attribute", "regex", "parse", "optional"}
 ID_MUSTER = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
 DOMAIN_MUSTER = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
 
-#: Wie eine Währung im Preistext auftauchen darf. Buchstabencodes stehen an
-#: Wortgrenzen, damit ein «Neuromodul» keinen Euro-Preis vortäuscht.
+#: Wie eine Währung im Preistext auftauchen darf. Ein Buchstabencode darf keine
+#: Buchstaben neben sich haben - sonst täuschte ein «Neuromodul» einen Euro-Preis
+#: vor -, wohl aber eine Ziffer: «USD12.90» ist genauso gemeint wie «USD 12.90».
 WAEHRUNGS_MARKER: dict[str, str] = {
-    "CHF": r"\bchf\b|\bfr\.",
-    "EUR": r"\beuro?\b|€",
-    "USD": r"\busd\b|\$",
-    "GBP": r"\bgbp\b|£",
+    "CHF": r"(?<![a-z])chf(?![a-z])|(?<![a-z])s?fr\.",
+    "EUR": r"(?<![a-z])euro?(?![a-z])|€",
+    "USD": r"(?<![a-z])usd(?![a-z])|\$",
+    "GBP": r"(?<![a-z])gbp(?![a-z])|£",
 }
 
 #: Trennzeichen sind pro erwarteter Währung fest verdrahtet. Hier wird nichts
@@ -83,8 +84,12 @@ TRENNZEICHEN: dict[str, tuple[tuple[str, ...], str]] = {
     "GBP": ((",",), "."),
 }
 
-#: Erster zusammenhängender Zahlenlauf im Text, Trennzeichen eingeschlossen.
-_ZAHLENLAUF = re.compile(r"\d[\d.,'’]*\d|\d")
+#: Erster zusammenhängender Zahlenlauf im Text, Trennzeichen eingeschlossen -
+#: das Leerzeichen ausdrücklich mit. Schweizer Bundesschreibweise gruppiert mit
+#: Leerzeichen, und ein in Spans zerlegter Preis kommt als «19 ,99» aus der
+#: Extraktion. Beides muss vollständig in den Lauf, sonst gewänne die erste
+#: Gruppe und aus 1 234.50 würde stillschweigend 1.
+_ZAHLENLAUF = re.compile(r"\d[\d.,'’ ]*\d|\d")
 
 
 class AdapterFehler(ValueError):
@@ -355,6 +360,9 @@ def _feldwert(suppe: BeautifulSoup, feld: Feld) -> str | None:
         gefunden = feld.regex.search(roh)
         if gefunden is None:
             return _fehlt(feld, f"regex trifft nicht auf «{roh}»")
+        # Eine optionale Capture-Group kann mittreffen, ohne etwas zu fangen.
+        if gefunden.group(1) is None:
+            return _fehlt(feld, f"regex fängt nichts in «{roh}»")
         roh = _normalisiere(gefunden.group(1))
         if not roh:
             return _fehlt(feld, "regex liefert nur Leerraum")
@@ -388,8 +396,10 @@ def parse_preis(text: str, erwartete_waehrung: str) -> Decimal:
     geschrieben. Passt die Zahl nicht zu den Trennzeichen dieser Währung, gilt
     sie als unlesbar - lieber ein Klartextfehler als ein Faktor 100 daneben.
 
-    Stehen mehrere Zahlen im Text, gewinnt die erste. Der Selektor soll den
-    Preis treffen; wo das nicht reicht, engt ``regex`` im Adapter ein.
+    Stehen mehrere Zahlen im Text, gewinnt die erste - aber nur, wenn zwischen
+    ihnen etwas steht, das keine Zahl sein kann. «12.90 19.90» ist kein Preis,
+    sondern zwei, und wird abgelehnt. Der Selektor soll den Preis treffen; wo das
+    nicht reicht, engt ``regex`` im Adapter ein.
     """
     code = (erwartete_waehrung or "").strip().upper()
     regel = TRENNZEICHEN.get(code)
@@ -404,7 +414,10 @@ def parse_preis(text: str, erwartete_waehrung: str) -> Decimal:
         raise WaehrungWiderspricht(
             f"Preistext nennt {'/'.join(sorted(fremd))}, der Shop rechnet in {code}: «{roh}»"
         )
+    # Das Leerzeichen gruppiert in jeder Währung: als Dezimaltrennzeichen kommt
+    # es nirgends vor, also ist es entweder Gruppierung oder gar keine Zahl.
     gruppen, dezimal = regel
+    gruppen = gruppen + (" ",)
     lauf = _ZAHLENLAUF.search(roh)
     if lauf is None or not _passt_zur_regel(lauf.group(0), gruppen, dezimal):
         raise ExtraktionFehlt(f"Preis nicht als {code}-Betrag lesbar: «{roh}»")

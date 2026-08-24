@@ -279,6 +279,20 @@ def test_the_regex_narrows_the_raw_text(tmp_path, seite):
     assert extrahiere(geladen, seite)["lager_text"] == "5"
 
 
+def test_a_capture_group_that_catches_nothing_is_a_plain_error(tmp_path, seite):
+    """Eine optionale Gruppe kann mittreffen, ohne etwas zu fangen."""
+    mit_regex = DEMO_YAML.read_text(encoding="utf-8").replace(
+        '      selector: "p.lager"',
+        '      selector: "p.lager"\n      regex: "an Lager( \\\\d+)?"',
+    )
+    geladen = lade_adapter(schreibe(tmp_path, mit_regex))
+
+    # Kein Absturz, kein Traceback - das Feld ist optional und bleibt leer.
+    assert extrahiere(geladen, seite.replace("an Lager (5 Stück)", "an Lager"))[
+        "lager_text"
+    ] is None
+
+
 def test_a_regex_without_a_match_counts_as_missing(tmp_path, seite):
     mit_regex = DEMO_YAML.read_text(encoding="utf-8").replace(
         '      selector: "p.lager"',
@@ -305,10 +319,50 @@ def test_a_regex_without_a_match_counts_as_missing(tmp_path, seite):
         ("EUR 12,90", "EUR", "12.90"),
         ("$1,299.00", "USD", "1299.00"),
         ("£9.99", "GBP", "9.99"),
+        # Schweizer Bundesschreibweise gruppiert mit Leerzeichen, geschützt oder
+        # nicht - das darf nicht als «1» in der Datenbank landen.
+        ("CHF 1 234.50", "CHF", "1234.50"),
+        ("CHF 1\u00a0234.50", "CHF", "1234.50"),
+        ("1\u202f234,56 €", "EUR", "1234.56"),
     ],
 )
 def test_the_price_parser_reads_the_common_notations(text, waehrung, erwartet):
     assert parse_preis(text, waehrung) == Decimal(erwartet)
+
+
+@pytest.mark.parametrize(
+    "text, waehrung",
+    [
+        # Ein in Spans zerlegter Preis kommt so aus der Extraktion. Lieber ein
+        # Fehler als stillschweigend die Rappen weglassen.
+        ("19 ,99 €", "EUR"),
+        ("CHF 12. 90", "CHF"),
+        ("1.234 ,50 €", "EUR"),
+        # Zwei Zahlen nebeneinander sind kein Preis.
+        ("12.90 19.90", "CHF"),
+    ],
+)
+def test_a_price_torn_apart_is_refused_instead_of_truncated(text, waehrung):
+    with pytest.raises(ExtraktionFehlt):
+        parse_preis(text, waehrung)
+
+
+@pytest.mark.parametrize(
+    "text, erwartete, fremde",
+    [
+        ("USD12.90", "CHF", "USD"),
+        ("12.90GBP", "USD", "GBP"),
+        ("SFr. 12.90", "EUR", "CHF"),
+    ],
+)
+def test_a_currency_code_glued_to_the_number_still_contradicts(text, erwartete, fremde):
+    with pytest.raises(WaehrungWiderspricht, match=fremde):
+        parse_preis(text, erwartete)
+
+
+def test_a_word_containing_a_currency_code_is_no_currency():
+    # «Neuromodul» enthält «euro», ist aber keiner.
+    assert parse_preis("Neuromodul 5.00", "CHF") == Decimal("5.00")
 
 
 def test_a_foreign_currency_in_the_text_writes_nothing():

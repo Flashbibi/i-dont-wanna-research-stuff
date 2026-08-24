@@ -26,10 +26,19 @@ PRODUKT_URL = "https://demoshop.example/produkt/mg996r"
 ROBOTS_ALLES = "User-agent: *\nAllow: /\n"
 
 
+class Netzprotokoll(list):
+    """Die aufgezeichneten Requests - und was dazwischen gewartet wurde."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.schlaefe: list[float] = []
+
+
 @pytest.fixture
 def netz(monkeypatch):
-    """Fake-Netz plus stummer Schlaf; ohne das wartet der Test sechs Sekunden."""
-    aufrufe: list[httpx.Request] = []
+    """Fake-Netz plus angehaltene Uhr; ohne das wartet der Test sechs Sekunden."""
+    aufrufe = Netzprotokoll()
+    schlaefe = aufrufe.schlaefe
 
     def handler(request: httpx.Request) -> httpx.Response:
         aufrufe.append(request)
@@ -40,9 +49,11 @@ def netz(monkeypatch):
         )
 
     monkeypatch.setattr(fetch, "_transport", lambda: httpx.MockTransport(handler))
-    monkeypatch.setattr(fetch, "_schlafe", lambda _: None)
+    monkeypatch.setattr(fetch, "_jetzt", lambda: 1_000.0)
+    monkeypatch.setattr(fetch, "_schlafe", schlaefe.append)
     monkeypatch.setattr(fetch, "_letzter_request", {})
     monkeypatch.setattr(fetch, "_robots_cache", {})
+    monkeypatch.setattr(fetch, "_robots_sperren", {})
     return aufrufe
 
 
@@ -89,6 +100,8 @@ def test_the_live_mode_goes_through_the_same_door_as_the_engine(capsys, netz):
     assert PRODUKT_URL in ausgabe
     # robots.txt zuerst, dann die Seite - dieselbe Reihenfolge wie im Dienst.
     assert [request.url.path for request in netz] == ["/robots.txt", "/produkt/mg996r"]
+    # Und mit dem Abstand, den demo.yaml verlangt, nicht mit dem Boden.
+    assert netz.schlaefe == [6.0]
 
 
 def test_a_url_the_adapter_does_not_cover_never_reaches_the_network(capsys, netz):

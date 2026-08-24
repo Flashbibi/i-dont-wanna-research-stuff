@@ -267,6 +267,46 @@ def test_a_failed_robots_fetch_is_remembered_for_a_shorter_time(uhr, monkeypatch
     assert len(aufrufe) == 2
 
 
+def test_robots_txt_may_redirect_inside_the_domain(uhr, monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(
+                301, headers={"Location": "https://shop.example.ch/static/robots.txt"}
+            )
+        if request.url.path == "/static/robots.txt":
+            return httpx.Response(200, text=ROBOTS_VERBIETET)
+        return httpx.Response(200, html=SEITE)
+
+    aufrufe = netz(monkeypatch, handler)
+
+    with pytest.raises(fetch.RobotsVerboten):
+        fetch.hole_seite(PRODUKT_URL)
+
+    assert pfade(aufrufe) == [
+        "shop.example.ch/robots.txt",
+        "shop.example.ch/static/robots.txt",
+    ]
+
+
+def test_a_foreign_robots_txt_may_not_authorise_the_crawl(uhr, monkeypatch):
+    """Sonst entschiede ein Dritter, was bei diesem Shop erlaubt ist."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "shop.example.ch" and request.url.path == "/robots.txt":
+            return httpx.Response(
+                302, headers={"Location": "https://cdn.fremd.example.org/robots.txt"}
+            )
+        return httpx.Response(200, text=ROBOTS_ALLES)
+
+    aufrufe = netz(monkeypatch, handler)
+
+    with pytest.raises(fetch.FetchTemporaerFehler) as fehler:
+        fetch.hole_seite(PRODUKT_URL)
+
+    assert "robots.txt von shop.example.ch nicht lesbar" in str(fehler.value)
+    assert pfade(aufrufe) == ["shop.example.ch/robots.txt"]
+
+
 def test_a_blocking_shop_is_named_honestly(uhr, monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
@@ -296,10 +336,20 @@ def test_too_many_requests_is_a_temporary_failure(uhr, monkeypatch):
 
 
 def test_an_oversized_page_is_not_read_to_the_end(uhr, monkeypatch):
+    haeppchen = 100_000
+    geliefert: list[int] = []
+
+    def endlos():
+        # Ein Shop, der nicht aufhört zu senden. Ohne Abbruch im Stream liefe
+        # das hier bis zum Speicherfehler statt bis zum Limit.
+        while True:
+            geliefert.append(haeppchen)
+            yield b"x" * haeppchen
+
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
             return httpx.Response(200, text=ROBOTS_ALLES)
-        return httpx.Response(200, content=b"x" * (fetch.MAX_BYTES + 1))
+        return httpx.Response(200, content=endlos())
 
     netz(monkeypatch, handler)
 
@@ -307,6 +357,8 @@ def test_an_oversized_page_is_not_read_to_the_end(uhr, monkeypatch):
         fetch.hole_seite(PRODUKT_URL)
 
     assert "Seite grösser als 2 MB" in str(fehler.value)
+    # Abgebrochen wird im Stream, nicht nach dem vollständigen Herunterladen.
+    assert sum(geliefert) <= fetch.MAX_BYTES + haeppchen
 
 
 def test_a_redirect_leaving_the_domain_ends_the_fetch(uhr, monkeypatch):
