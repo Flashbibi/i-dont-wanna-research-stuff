@@ -12,6 +12,10 @@ tools/call here.
 adjust_stock is listed but never called: it writes stock. Keep it
 out of tools/call here. check_stock is read-only but covered by
 the unit suite; the smoke test only asserts its presence.
+
+fetch_offer is listed but never called: it reaches a real shop over the network
+and writes an offer. Keep it out of tools/call here. list_adapters is read-only
+and touches neither, so it is called.
 """
 
 from __future__ import annotations
@@ -41,6 +45,8 @@ EXPECTED_TOOLS = {
     "adjust_stock",
     "record_shop",
     "record_offer",
+    "fetch_offer",
+    "list_adapters",
     "mark_line",
     "plan_order",
     "record_purchase",
@@ -110,8 +116,16 @@ def main() -> None:
     assert shop_rows
     assert all("shop_id" in shop and "name" in shop for shop in shop_rows)
 
+    adapters = call(8, "list_adapters", {})
+    assert adapters["isError"] is False
+    adapter_state = adapters["structuredContent"]
+    assert "adapter" in adapter_state and "fehler" in adapter_state
+    assert [eintrag["id"] for eintrag in adapter_state["adapter"]] == sorted(
+        eintrag["id"] for eintrag in adapter_state["adapter"]
+    )
+
     scenarios = call(
-        8,
+        9,
         "plan_scenarios",
         {"job_id": 1, "tempo": 0.5, "pins": {}, "excludes": []},
     )
@@ -131,6 +145,8 @@ def main() -> None:
                 "shop_count": len(shop_rows),
                 "job_id": job["structuredContent"]["id"],
                 "scenario_count": len(matrix["scenarios"]),
+                "adapter_count": len(adapter_state["adapter"]),
+                "adapter_errors": len(adapter_state["fehler"]),
                 "create_job_write": False,
             },
             ensure_ascii=False,

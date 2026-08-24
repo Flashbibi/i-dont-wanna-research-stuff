@@ -68,8 +68,32 @@ class StubService:
     def record_shop(self, *args):
         return {"id": 1}
 
-    def record_offer(self, *args):
-        return {"id": 2}
+    def record_offer(self, *args, **kwargs):
+        return {"id": 2, **kwargs}
+
+    def fetch_offer(self, line_id, produkt_url):
+        return {
+            "id": 4,
+            "line_id": line_id,
+            "produkt_url": produkt_url,
+            "erfasst_via": "adapter:demo",
+            "extraktion": {"adapter": "demo", "final_url": produkt_url, "felder": {}},
+        }
+
+    def list_adapters(self):
+        return {
+            "adapter": [
+                {
+                    "id": "demo",
+                    "domain": "demoshop.example",
+                    "felder": ["produktname", "preis"],
+                    "quelle": "gebuendelt",
+                    "datei": "demo.yaml",
+                    "min_delay_s": 6.0,
+                }
+            ],
+            "fehler": [],
+        }
 
     def mark_line(self, *args, **kwargs):
         return {"id": args[0], "stock_ids": kwargs.get("stock_ids")}
@@ -114,6 +138,8 @@ def test_mcp_exposes_exact_procurement_tools():
         "adjust_stock",
         "record_shop",
         "record_offer",
+        "fetch_offer",
+        "list_adapters",
         "mark_line",
         "plan_order",
         "record_purchase",
@@ -204,6 +230,23 @@ def test_all_tool_descriptions_match_current_behavior():
             "Kursdatum und Quelle dazu - niemals selbst umrechnen. Bei Marktplätzen "
             "nennt provenienz_text den sichtbaren Verkäufer und die Versandpartei "
             "wörtlich."
+        ),
+        "fetch_offer": (
+            "Produktseite über den deklarativen Shop-Adapter deterministisch lesen "
+            "und das Angebot mit wörtlichen Seitentexten erfassen. Respektiert "
+            "robots.txt und einen Mindestabstand pro Domain; kein "
+            "JavaScript-Rendering. Der Shop wird über die Domain der URL gefunden "
+            "und muss bereits erfasst und nicht gesperrt sein. Geschrieben wird "
+            "über denselben Pfad wie record_offer, mit derselben Kursumrechnung und "
+            "demselben Lieferzeit-Parser; die Antwort führt zusätzlich den Rohtext "
+            "je Feld. Ohne passenden Adapter kommt ein Klartextfehler - dann bleibt "
+            "der manuelle Weg über record_offer mit wörtlich abgetippten Texten."
+        ),
+        "list_adapters": (
+            "Geladene Shop-Adapter deterministisch nach id sortiert lesen: je "
+            "Adapter id, Domain, abgedeckte Felder und Quelle (gebuendelt oder "
+            "nutzer), dazu die Liste der übersprungenen Dateien mit Fehlergrund "
+            "(read-only)."
         ),
         "mark_line": (
             "Zeile als Bestand, nichts gefunden oder erledigt markieren; bei Bestand "
@@ -412,6 +455,8 @@ def test_streamable_http_endpoint_initializes_and_lists_tools():
         "adjust_stock",
         "record_shop",
         "record_offer",
+        "fetch_offer",
+        "list_adapters",
         "mark_line",
         "plan_order",
         "record_purchase",
@@ -439,6 +484,20 @@ def test_record_offer_exposes_currency_and_article_number_as_optional():
     assert "waehrung" in properties and "waehrung" not in pflicht
     assert "artikelnummer" in properties and "artikelnummer" not in pflicht
     assert "provenienz_text" in properties and "provenienz_text" not in pflicht
+
+
+def test_the_engine_reads_the_page_and_the_ai_cannot_pose_as_an_adapter():
+    tools = asyncio.run(build_mcp(StubService()).list_tools())
+    fetch_offer = next(tool for tool in tools if tool.name == "fetch_offer")
+    record_offer = next(tool for tool in tools if tool.name == "record_offer")
+    list_adapters = next(tool for tool in tools if tool.name == "list_adapters")
+
+    # Die KI nennt Zeile und URL, die Engine liest den Rest von der Seite.
+    assert set(fetch_offer.inputSchema["properties"]) == {"line_id", "produkt_url"}
+    assert set(fetch_offer.inputSchema.get("required", [])) == {"line_id", "produkt_url"}
+    # Den Erfassungsweg setzt ausschliesslich die Engine.
+    assert "erfasst_via" not in record_offer.inputSchema["properties"]
+    assert list_adapters.inputSchema["properties"] == {}
 
 
 def test_the_descriptions_state_the_currency_and_target_rules():

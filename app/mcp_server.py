@@ -157,6 +157,16 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         )
 
     @mcp.tool()
+    def fetch_offer(line_id: int, produkt_url: str) -> dict[str, Any]:
+        """Produktseite über den deklarativen Shop-Adapter deterministisch lesen und das Angebot mit wörtlichen Seitentexten erfassen. Respektiert robots.txt und einen Mindestabstand pro Domain; kein JavaScript-Rendering. Der Shop wird über die Domain der URL gefunden und muss bereits erfasst und nicht gesperrt sein. Geschrieben wird über denselben Pfad wie record_offer, mit derselben Kursumrechnung und demselben Lieferzeit-Parser; die Antwort führt zusätzlich den Rohtext je Feld. Ohne passenden Adapter kommt ein Klartextfehler - dann bleibt der manuelle Weg über record_offer mit wörtlich abgetippten Texten."""
+        return service.fetch_offer(line_id, produkt_url)
+
+    @mcp.tool()
+    def list_adapters() -> dict[str, Any]:
+        """Geladene Shop-Adapter deterministisch nach id sortiert lesen: je Adapter id, Domain, abgedeckte Felder und Quelle (gebuendelt oder nutzer), dazu die Liste der übersprungenen Dateien mit Fehlergrund (read-only)."""
+        return service.list_adapters()
+
+    @mcp.tool()
     def mark_line(
         line_id: int,
         status: str,
