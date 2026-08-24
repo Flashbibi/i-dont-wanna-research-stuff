@@ -71,7 +71,7 @@ def frische_registry(monkeypatch):
 # -- Schema ------------------------------------------------------------------
 
 
-def test_der_beispieladapter_im_repo_laedt(tmp_path):
+def test_the_bundled_example_adapter_loads(tmp_path):
     # Die .example-Datei ist die Vorlage für echte Adapter - sie muss gültig sein.
     vorlage = Path("adapters/beispiel.yaml.example").read_text(encoding="utf-8")
 
@@ -82,14 +82,14 @@ def test_der_beispieladapter_im_repo_laedt(tmp_path):
     assert geladen.min_delay_s == 8
 
 
-def test_der_demoadapter_beschreibt_alle_fuenf_felder(demo):
+def test_the_demo_adapter_describes_all_five_fields(demo):
     assert demo.id == "demo"
     assert demo.domain == "demoshop.example"
     assert demo.min_delay_s == 6
     assert list(demo.felder) == list(adapter.FELDNAMEN)
 
 
-def test_ein_unbekannter_schluessel_ist_ein_ladefehler(tmp_path):
+def test_an_unknown_key_is_a_load_error(tmp_path):
     pfad = schreibe(tmp_path, GUELTIG + "\nfarbe: blau\n")
 
     with pytest.raises(AdapterLadefehler) as fehler:
@@ -99,21 +99,21 @@ def test_ein_unbekannter_schluessel_ist_ein_ladefehler(tmp_path):
     assert "«farbe»" in str(fehler.value)
 
 
-def test_ein_unbekannter_schluessel_im_feld_ist_ein_ladefehler(tmp_path):
+def test_an_unknown_key_inside_a_field_is_a_load_error(tmp_path):
     pfad = schreibe(tmp_path, GUELTIG.replace('      selector: "h1"', '      selector: "h1"\n      trim: true'))
 
     with pytest.raises(AdapterLadefehler, match="product.fields.produktname"):
         lade_adapter(pfad)
 
 
-def test_ein_falscher_typ_ist_ein_ladefehler(tmp_path):
+def test_a_wrong_type_is_a_load_error(tmp_path):
     pfad = schreibe(tmp_path, GUELTIG.replace("id: demo", "id: 7"))
 
     with pytest.raises(AdapterLadefehler, match="id muss ein nicht leerer Text sein"):
         lade_adapter(pfad)
 
 
-def test_ein_regex_ohne_capture_group_ist_ein_ladefehler(tmp_path):
+def test_a_regex_without_a_capture_group_is_a_load_error(tmp_path):
     pfad = schreibe(
         tmp_path,
         GUELTIG.replace('      selector: ".preis"', '      selector: ".preis"\n      regex: "CHF .*"'),
@@ -125,7 +125,7 @@ def test_ein_regex_ohne_capture_group_ist_ein_ladefehler(tmp_path):
     assert "genau eine Capture-Group" in str(fehler.value)
 
 
-def test_zwei_capture_groups_sind_auch_zu_viele(tmp_path):
+def test_two_capture_groups_are_too_many_as_well(tmp_path):
     pfad = schreibe(
         tmp_path,
         GUELTIG.replace('      selector: ".preis"', '      selector: ".preis"\n      regex: "(CHF) (.*)"'),
@@ -135,7 +135,7 @@ def test_zwei_capture_groups_sind_auch_zu_viele(tmp_path):
         lade_adapter(pfad)
 
 
-def test_eine_ungueltige_id_ist_ein_ladefehler(tmp_path):
+def test_an_invalid_id_is_a_load_error(tmp_path):
     pfad = schreibe(tmp_path, GUELTIG.replace("id: demo", "id: Demo_Shop"))
 
     with pytest.raises(AdapterLadefehler) as fehler:
@@ -145,14 +145,14 @@ def test_eine_ungueltige_id_ist_ein_ladefehler(tmp_path):
     assert "id «Demo_Shop»" in str(fehler.value)
 
 
-def test_eine_ungueltige_domain_ist_ein_ladefehler(tmp_path):
+def test_an_invalid_domain_is_a_load_error(tmp_path):
     pfad = schreibe(tmp_path, GUELTIG.replace("domain: demoshop.example", "domain: https://Demoshop.example/"))
 
     with pytest.raises(AdapterLadefehler, match="domain"):
         lade_adapter(pfad)
 
 
-def test_ein_fehlendes_pflichtfeld_ist_ein_ladefehler(tmp_path):
+def test_a_missing_mandatory_field_is_a_load_error(tmp_path):
     ohne_preis = GUELTIG.split("    preis:")[0]
     pfad = schreibe(tmp_path, ohne_preis)
 
@@ -160,42 +160,42 @@ def test_ein_fehlendes_pflichtfeld_ist_ein_ladefehler(tmp_path):
         lade_adapter(pfad)
 
 
-def test_pflichtfelder_duerfen_nicht_optional_sein(tmp_path):
+def test_mandatory_fields_may_not_be_declared_optional(tmp_path):
     pfad = schreibe(tmp_path, GUELTIG.replace('      selector: "h1"', '      selector: "h1"\n      optional: true'))
 
     with pytest.raises(AdapterLadefehler, match="darf nicht optional sein"):
         lade_adapter(pfad)
 
 
-def test_price_gibt_es_nur_beim_preis(tmp_path):
+def test_price_parsing_exists_only_for_the_price_field(tmp_path):
     pfad = schreibe(tmp_path, GUELTIG.replace('      selector: "h1"', '      selector: "h1"\n      parse: price'))
 
     with pytest.raises(AdapterLadefehler, match="nur «text»"):
         lade_adapter(pfad)
 
 
-def test_der_preis_braucht_parse_price(tmp_path):
+def test_the_price_field_demands_parse_price(tmp_path):
     pfad = schreibe(tmp_path, GUELTIG.replace("      parse: price", "      parse: text"))
 
     with pytest.raises(AdapterLadefehler, match="muss «price» sein"):
         lade_adapter(pfad)
 
 
-def test_eine_falsche_schemafassung_ist_ein_ladefehler(tmp_path):
+def test_a_wrong_schema_version_is_a_load_error(tmp_path):
     pfad = schreibe(tmp_path, GUELTIG.replace("schema: 1", "schema: 2"))
 
     with pytest.raises(AdapterLadefehler, match="schema muss 1 sein"):
         lade_adapter(pfad)
 
 
-def test_ein_kaputter_selektor_faellt_beim_laden_auf(tmp_path):
+def test_a_broken_selector_shows_up_at_load_time(tmp_path):
     pfad = schreibe(tmp_path, GUELTIG.replace('selector: "h1"', 'selector: "h1[["'))
 
     with pytest.raises(AdapterLadefehler, match="CSS-Selektor"):
         lade_adapter(pfad)
 
 
-def test_kaputtes_yaml_nennt_die_datei(tmp_path):
+def test_broken_yaml_names_the_file(tmp_path):
     pfad = schreibe(tmp_path, "schema: 1\n  id: [unschliessbar\n")
 
     with pytest.raises(AdapterLadefehler) as fehler:
@@ -207,7 +207,7 @@ def test_kaputtes_yaml_nennt_die_datei(tmp_path):
 # -- Extraktion --------------------------------------------------------------
 
 
-def test_die_demoseite_liefert_jedes_feld_woertlich(demo, seite):
+def test_the_demo_page_yields_every_field_literally(demo, seite):
     roh = extrahiere(demo, seite)
 
     assert roh == {
@@ -219,7 +219,7 @@ def test_die_demoseite_liefert_jedes_feld_woertlich(demo, seite):
     }
 
 
-def test_whitespace_wird_auf_einzelne_leerzeichen_normalisiert(demo, seite):
+def test_whitespace_is_normalized_to_single_spaces(demo, seite):
     # Die Fixture bricht den Titel über drei Zeilen und schreibt den Preis mit
     # geschütztem Leerzeichen.
     roh = extrahiere(demo, seite)
@@ -228,7 +228,7 @@ def test_whitespace_wird_auf_einzelne_leerzeichen_normalisiert(demo, seite):
     assert "\xa0" not in roh["preis"]
 
 
-def test_ein_fehlendes_pflichtfeld_schreibt_nichts(demo, seite):
+def test_a_missing_mandatory_field_writes_nothing(demo, seite):
     ohne_preis = seite.replace('class="betrag"', 'class="weg"')
 
     with pytest.raises(ExtraktionFehlt) as fehler:
@@ -238,14 +238,14 @@ def test_ein_fehlendes_pflichtfeld_schreibt_nichts(demo, seite):
     assert ".preis .betrag" in str(fehler.value)
 
 
-def test_ein_leerer_treffer_zaehlt_als_fehlend(demo, seite):
+def test_an_empty_match_counts_as_missing(demo, seite):
     leer = seite.replace("CHF&nbsp;12.90", "   ")
 
     with pytest.raises(ExtraktionFehlt, match="Treffer ohne Text"):
         extrahiere(demo, leer)
 
 
-def test_ein_fehlendes_optionales_feld_ergibt_none(demo, seite):
+def test_a_missing_optional_field_yields_none(demo, seite):
     ohne_lager = seite.replace('class="lager"', 'class="weg"')
 
     roh = extrahiere(demo, ohne_lager)
@@ -254,14 +254,14 @@ def test_ein_fehlendes_optionales_feld_ergibt_none(demo, seite):
     assert roh["preis"] == "CHF 12.90"
 
 
-def test_der_attribut_modus_liest_das_attribut_statt_des_texts(demo, seite):
+def test_the_attribute_mode_reads_the_attribute_instead_of_the_text(demo, seite):
     roh = extrahiere(demo, seite)
 
     # Das meta-Tag hat gar keinen Textinhalt - ohne attribute käme nichts.
     assert roh["artikelnummer"] == "DEMO-4711"
 
 
-def test_ein_fehlendes_attribut_zaehlt_als_fehlend(demo, seite):
+def test_a_missing_attribute_counts_as_missing(demo, seite):
     ohne_sku = seite.replace('content="DEMO-4711"', 'inhalt="DEMO-4711"')
 
     roh = extrahiere(demo, ohne_sku)
@@ -269,7 +269,7 @@ def test_ein_fehlendes_attribut_zaehlt_als_fehlend(demo, seite):
     assert roh["artikelnummer"] is None
 
 
-def test_der_regex_engt_den_rohtext_ein(tmp_path, seite):
+def test_the_regex_narrows_the_raw_text(tmp_path, seite):
     mit_regex = DEMO_YAML.read_text(encoding="utf-8").replace(
         '      selector: "p.lager"',
         '      selector: "p.lager"\n      regex: "an Lager \\\\((\\\\d+) Stück\\\\)"',
@@ -279,7 +279,7 @@ def test_der_regex_engt_den_rohtext_ein(tmp_path, seite):
     assert extrahiere(geladen, seite)["lager_text"] == "5"
 
 
-def test_ein_regex_ohne_treffer_zaehlt_als_fehlend(tmp_path, seite):
+def test_a_regex_without_a_match_counts_as_missing(tmp_path, seite):
     mit_regex = DEMO_YAML.read_text(encoding="utf-8").replace(
         '      selector: "p.lager"',
         '      selector: "p.lager"\n      regex: "(ausverkauft)"',
@@ -307,11 +307,11 @@ def test_ein_regex_ohne_treffer_zaehlt_als_fehlend(tmp_path, seite):
         ("£9.99", "GBP", "9.99"),
     ],
 )
-def test_der_preis_parser_liest_die_gaengigen_schreibweisen(text, waehrung, erwartet):
+def test_the_price_parser_reads_the_common_notations(text, waehrung, erwartet):
     assert parse_preis(text, waehrung) == Decimal(erwartet)
 
 
-def test_eine_fremde_waehrung_im_text_schreibt_nichts():
+def test_a_foreign_currency_in_the_text_writes_nothing():
     with pytest.raises(WaehrungWiderspricht) as fehler:
         parse_preis("€ 12,90", "CHF")
 
@@ -319,25 +319,25 @@ def test_eine_fremde_waehrung_im_text_schreibt_nichts():
     assert "CHF" in str(fehler.value)
 
 
-def test_muell_ist_kein_preis():
+def test_garbage_is_not_a_price():
     with pytest.raises(ExtraktionFehlt) as fehler:
         parse_preis("auf Anfrage", "CHF")
 
     assert "auf Anfrage" in str(fehler.value)
 
 
-def test_eine_zahl_die_nicht_zur_waehrungsregel_passt_wird_abgelehnt():
+def test_a_number_that_breaks_the_currency_rule_is_refused():
     # «12.90» bei einem EUR-Shop wäre nach EUR-Regel 1290 - lieber ein Fehler.
     with pytest.raises(ExtraktionFehlt, match="EUR-Betrag"):
         parse_preis("12.90 EUR", "EUR")
 
 
-def test_eine_unbekannte_waehrung_wird_nicht_geraten():
+def test_an_unknown_currency_is_not_guessed():
     with pytest.raises(ExtraktionFehlt, match="Trennzeichen-Regel"):
         parse_preis("12.90", "JPY")
 
 
-def test_ein_preis_von_null_ist_kein_preis():
+def test_a_price_of_zero_is_no_price():
     with pytest.raises(ExtraktionFehlt, match="grösser als 0"):
         parse_preis("CHF 0.00", "CHF")
 
@@ -352,7 +352,7 @@ def kopiere_demo(ziel: Path, *, kennung: str = "demo", name: str = "demo.yaml") 
     return pfad
 
 
-def test_die_registry_liest_gebuendelte_und_eigene_adapter(tmp_path, monkeypatch):
+def test_the_registry_reads_bundled_and_own_adapters(tmp_path, monkeypatch):
     gebuendelt = tmp_path / "gebuendelt"
     eigen = tmp_path / "eigen"
     gebuendelt.mkdir()
@@ -373,7 +373,7 @@ def test_die_registry_liest_gebuendelte_und_eigene_adapter(tmp_path, monkeypatch
     assert uebersicht["fehler"] == []
 
 
-def test_das_nutzerverzeichnis_ersetzt_einen_gebuendelten_adapter(
+def test_the_user_directory_replaces_a_bundled_adapter(
     tmp_path, monkeypatch, caplog
 ):
     gebuendelt = tmp_path / "gebuendelt"
@@ -396,7 +396,7 @@ def test_das_nutzerverzeichnis_ersetzt_einen_gebuendelten_adapter(
     assert "aus Nutzerverzeichnis ersetzt gebündelten" in caplog.text
 
 
-def test_zwei_dateien_mit_derselben_id_im_selben_verzeichnis_sind_ein_fehler(
+def test_two_files_with_the_same_id_in_one_directory_are_an_error(
     tmp_path, monkeypatch
 ):
     gebuendelt = tmp_path / "gebuendelt"
@@ -413,7 +413,7 @@ def test_zwei_dateien_mit_derselben_id_im_selben_verzeichnis_sind_ein_fehler(
     assert "schon von a.yaml belegt" in stand.fehler[0][1]
 
 
-def test_eine_defekte_datei_nimmt_den_rest_nicht_mit(tmp_path, monkeypatch, caplog):
+def test_a_broken_file_does_not_take_the_rest_down(tmp_path, monkeypatch, caplog):
     gebuendelt = tmp_path / "gebuendelt"
     gebuendelt.mkdir()
     kopiere_demo(gebuendelt, kennung="heil", name="heil.yaml")
@@ -429,7 +429,7 @@ def test_eine_defekte_datei_nimmt_den_rest_nicht_mit(tmp_path, monkeypatch, capl
     assert "kaputt.yaml" in caplog.text
 
 
-def test_die_example_datei_wird_nicht_geladen(tmp_path, monkeypatch):
+def test_the_example_file_is_not_loaded(tmp_path, monkeypatch):
     gebuendelt = tmp_path / "gebuendelt"
     gebuendelt.mkdir()
     kopiere_demo(gebuendelt, name="beispiel.yaml.example")
@@ -441,7 +441,7 @@ def test_die_example_datei_wird_nicht_geladen(tmp_path, monkeypatch):
     assert stand.fehler == ()
 
 
-def test_ein_falsch_gesetztes_nutzerverzeichnis_bleibt_sichtbar(tmp_path, monkeypatch):
+def test_a_misconfigured_user_directory_stays_visible(tmp_path, monkeypatch):
     gebuendelt = tmp_path / "gebuendelt"
     gebuendelt.mkdir()
     monkeypatch.setattr(adapter, "GEBUENDELT_DIR", gebuendelt)
@@ -453,7 +453,7 @@ def test_ein_falsch_gesetztes_nutzerverzeichnis_bleibt_sichtbar(tmp_path, monkey
     assert "BESCHAFFUNG_ADAPTER_DIR" in uebersicht["fehler"][0]["grund"]
 
 
-def test_ein_fehlendes_gebuendeltes_verzeichnis_bleibt_sichtbar(tmp_path, monkeypatch):
+def test_a_missing_bundled_directory_stays_visible(tmp_path, monkeypatch):
     monkeypatch.setattr(adapter, "GEBUENDELT_DIR", tmp_path / "gibtsnicht")
 
     uebersicht = adapter.uebersicht()
@@ -461,7 +461,7 @@ def test_ein_fehlendes_gebuendeltes_verzeichnis_bleibt_sichtbar(tmp_path, monkey
     assert "fehlt" in uebersicht["fehler"][0]["grund"]
 
 
-def test_finde_adapter_prueft_domain_und_url_muster(tmp_path, monkeypatch):
+def test_the_lookup_checks_domain_and_url_pattern(tmp_path, monkeypatch):
     gebuendelt = tmp_path / "gebuendelt"
     gebuendelt.mkdir()
     kopiere_demo(gebuendelt)

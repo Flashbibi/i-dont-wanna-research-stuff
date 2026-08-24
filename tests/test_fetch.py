@@ -83,7 +83,7 @@ def pfade(aufrufe: list[httpx.Request]) -> list[str]:
     return [f"{request.url.host}{request.url.path}" for request in aufrufe]
 
 
-def test_jeder_request_nennt_werkzeug_version_und_adresse(uhr, monkeypatch):
+def test_every_request_names_the_tool_its_version_and_its_address(uhr, monkeypatch):
     aufrufe = netz(monkeypatch, shop())
 
     ergebnis = fetch.hole_seite(PRODUKT_URL)
@@ -100,7 +100,7 @@ def test_jeder_request_nennt_werkzeug_version_und_adresse(uhr, monkeypatch):
     assert "github.com/Flashbibi" in fetch.USER_AGENT
 
 
-def test_zwei_seiten_derselben_domain_halten_den_mindestabstand(uhr, monkeypatch):
+def test_two_pages_from_the_same_domain_keep_the_minimum_delay(uhr, monkeypatch):
     monkeypatch.setattr(fetch, "_robots_cache", erlaubte_robots(uhr, "https://shop.example.ch"))
     netz(monkeypatch, shop())
 
@@ -111,7 +111,7 @@ def test_zwei_seiten_derselben_domain_halten_den_mindestabstand(uhr, monkeypatch
     assert uhr.schlaefe == [fetch.DEFAULT_MIN_DELAY_S]
 
 
-def test_verschiedene_domains_warten_nicht_aufeinander(uhr, monkeypatch):
+def test_different_domains_do_not_wait_for_each_other(uhr, monkeypatch):
     monkeypatch.setattr(
         fetch,
         "_robots_cache",
@@ -125,7 +125,7 @@ def test_verschiedene_domains_warten_nicht_aufeinander(uhr, monkeypatch):
     assert uhr.schlaefe == []
 
 
-def test_www_und_nacktes_ist_dieselbe_domain(uhr, monkeypatch):
+def test_www_and_the_bare_host_count_as_one_domain(uhr, monkeypatch):
     monkeypatch.setattr(
         fetch,
         "_robots_cache",
@@ -139,7 +139,7 @@ def test_www_und_nacktes_ist_dieselbe_domain(uhr, monkeypatch):
     assert uhr.schlaefe == [fetch.DEFAULT_MIN_DELAY_S]
 
 
-def test_der_adapter_darf_den_abstand_erhoehen(uhr, monkeypatch):
+def test_an_adapter_may_raise_the_delay(uhr, monkeypatch):
     monkeypatch.setattr(fetch, "_robots_cache", erlaubte_robots(uhr, "https://shop.example.ch"))
     netz(monkeypatch, shop())
 
@@ -149,7 +149,7 @@ def test_der_adapter_darf_den_abstand_erhoehen(uhr, monkeypatch):
     assert uhr.schlaefe == [8.0]
 
 
-def test_der_adapter_darf_den_abstand_nicht_senken(uhr, monkeypatch):
+def test_an_adapter_may_not_lower_the_delay(uhr, monkeypatch):
     monkeypatch.setattr(fetch, "_robots_cache", erlaubte_robots(uhr, "https://shop.example.ch"))
     netz(monkeypatch, shop())
 
@@ -159,7 +159,7 @@ def test_der_adapter_darf_den_abstand_nicht_senken(uhr, monkeypatch):
     assert uhr.schlaefe == [fetch.DEFAULT_MIN_DELAY_S]
 
 
-def test_verbotener_pfad_wird_gar_nicht_erst_angefragt(uhr, monkeypatch):
+def test_a_disallowed_path_is_never_requested(uhr, monkeypatch):
     aufrufe = netz(monkeypatch, shop(robots=ROBOTS_VERBIETET))
 
     with pytest.raises(fetch.RobotsVerboten) as fehler:
@@ -170,7 +170,7 @@ def test_verbotener_pfad_wird_gar_nicht_erst_angefragt(uhr, monkeypatch):
     assert pfade(aufrufe) == ["shop.example.ch/robots.txt"]
 
 
-def test_ohne_robots_txt_ist_alles_erlaubt(uhr, monkeypatch):
+def test_a_missing_robots_txt_allows_everything(uhr, monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
             return httpx.Response(404, text="nicht da")
@@ -184,7 +184,7 @@ def test_ohne_robots_txt_ist_alles_erlaubt(uhr, monkeypatch):
     assert pfade(aufrufe) == ["shop.example.ch/robots.txt", "shop.example.ch/produkt/servo"]
 
 
-def test_unerreichbare_robots_txt_wird_nicht_geraten(uhr, monkeypatch):
+def test_an_unreachable_robots_txt_is_not_guessed_around(uhr, monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
             raise httpx.ConnectTimeout("keine Antwort")
@@ -199,7 +199,7 @@ def test_unerreichbare_robots_txt_wird_nicht_geraten(uhr, monkeypatch):
     assert pfade(aufrufe) == ["shop.example.ch/robots.txt"]
 
 
-def test_serverfehler_bei_robots_txt_ist_temporaer(uhr, monkeypatch):
+def test_a_server_error_on_robots_txt_is_temporary(uhr, monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
             return httpx.Response(503, text="wartung")
@@ -214,7 +214,7 @@ def test_serverfehler_bei_robots_txt_ist_temporaer(uhr, monkeypatch):
     assert pfade(aufrufe) == ["shop.example.ch/robots.txt"]
 
 
-def test_robots_txt_wird_innerhalb_der_ttl_nicht_erneut_geholt(uhr, monkeypatch):
+def test_robots_txt_is_not_fetched_twice_within_its_ttl(uhr, monkeypatch):
     aufrufe = netz(monkeypatch, shop())
 
     fetch.hole_seite(PRODUKT_URL)
@@ -227,7 +227,7 @@ def test_robots_txt_wird_innerhalb_der_ttl_nicht_erneut_geholt(uhr, monkeypatch)
     ]
 
 
-def test_nach_ablauf_der_ttl_wird_robots_txt_neu_gelesen(uhr, monkeypatch):
+def test_an_expired_ttl_reads_robots_txt_again(uhr, monkeypatch):
     aufrufe = netz(monkeypatch, shop())
 
     fetch.hole_seite(PRODUKT_URL)
@@ -237,7 +237,7 @@ def test_nach_ablauf_der_ttl_wird_robots_txt_neu_gelesen(uhr, monkeypatch):
     assert pfade(aufrufe).count("shop.example.ch/robots.txt") == 2
 
 
-def test_ein_gescheiterter_robots_abruf_wird_kuerzer_gemerkt(uhr, monkeypatch):
+def test_a_failed_robots_fetch_is_remembered_for_a_shorter_time(uhr, monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
             return httpx.Response(500, text="kaputt")
@@ -258,7 +258,7 @@ def test_ein_gescheiterter_robots_abruf_wird_kuerzer_gemerkt(uhr, monkeypatch):
     assert len(aufrufe) == 2
 
 
-def test_ein_blockender_shop_wird_ehrlich_benannt(uhr, monkeypatch):
+def test_a_blocking_shop_is_named_honestly(uhr, monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
             return httpx.Response(200, text=ROBOTS_ALLES)
@@ -272,7 +272,7 @@ def test_ein_blockender_shop_wird_ehrlich_benannt(uhr, monkeypatch):
     assert "Shop blockt automatisierte Zugriffe (HTTP 403)" in str(fehler.value)
 
 
-def test_zu_viele_anfragen_sind_temporaer(uhr, monkeypatch):
+def test_too_many_requests_is_a_temporary_failure(uhr, monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
             return httpx.Response(200, text=ROBOTS_ALLES)
@@ -286,7 +286,7 @@ def test_zu_viele_anfragen_sind_temporaer(uhr, monkeypatch):
     assert "HTTP 429" in str(fehler.value)
 
 
-def test_eine_zu_grosse_seite_wird_nicht_zu_ende_gelesen(uhr, monkeypatch):
+def test_an_oversized_page_is_not_read_to_the_end(uhr, monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
             return httpx.Response(200, text=ROBOTS_ALLES)
@@ -300,7 +300,7 @@ def test_eine_zu_grosse_seite_wird_nicht_zu_ende_gelesen(uhr, monkeypatch):
     assert "Seite grösser als 2 MB" in str(fehler.value)
 
 
-def test_eine_weiterleitung_auf_eine_fremde_domain_endet_hier(uhr, monkeypatch):
+def test_a_redirect_leaving_the_domain_ends_the_fetch(uhr, monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
             return httpx.Response(200, text=ROBOTS_ALLES)
@@ -318,7 +318,7 @@ def test_eine_weiterleitung_auf_eine_fremde_domain_endet_hier(uhr, monkeypatch):
     assert "Weiterleitung verlässt shop.example.ch" in str(fehler.value)
 
 
-def test_eine_weiterleitung_innerhalb_der_domain_liefert_die_finale_url(uhr, monkeypatch):
+def test_a_redirect_inside_the_domain_yields_the_final_url(uhr, monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/robots.txt":
             return httpx.Response(200, text=ROBOTS_ALLES)
@@ -335,7 +335,7 @@ def test_eine_weiterleitung_innerhalb_der_domain_liefert_die_finale_url(uhr, mon
     assert ergebnis.final_url == "https://shop.example.ch/produkt/servo-mg996r"
 
 
-def test_eine_unbrauchbare_url_kommt_gar_nicht_bis_zum_netz(uhr, monkeypatch):
+def test_an_unusable_url_never_reaches_the_network(uhr, monkeypatch):
     aufrufe = netz(monkeypatch, shop())
 
     for kaputt in ("ftp://shop.example.ch/servo", "https://nutzer:geheim@shop.example.ch/servo"):
@@ -344,7 +344,7 @@ def test_eine_unbrauchbare_url_kommt_gar_nicht_bis_zum_netz(uhr, monkeypatch):
     assert aufrufe == []
 
 
-def test_die_kodierung_kommt_notfalls_aus_dem_html_selbst(uhr, monkeypatch):
+def test_the_encoding_falls_back_to_the_html_itself(uhr, monkeypatch):
     seite = '<html><head><meta charset="iso-8859-1"></head><body>Grösse</body></html>'
 
     def handler(request: httpx.Request) -> httpx.Response:
