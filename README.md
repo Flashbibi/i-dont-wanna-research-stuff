@@ -169,6 +169,15 @@ Der Browser-Klickpfad (`tests/e2e/decision_click.mjs`) legt sich über
 `/api/e2e/jobs` einen eigenen, als `[E2E-TEST]` markierten Wegwerf-Job an und
 räumt ihn wieder ab. Er fasst reale Jobs nicht an.
 
+## Shop adapters
+
+Ein Shop-Adapter ist eine YAML-Datei mit CSS-Selektoren; die Engine holt die
+Produktseite selbst und liest Name, Preis, Liefer- und Lagertext deterministisch
+daraus, statt sie sich diktieren zu lassen. Gebündelte Adapter liegen in
+`adapters/`, eigene in dem Verzeichnis, auf das `BESCHAFFUNG_ADAPTER_DIR` zeigt -
+bei gleicher `id` gewinnt die eigene Datei. Schema, Grenzen und die Regeln, nach
+denen gefetcht wird, stehen in `adapters/README.md`.
+
 ## Extension
 
 Die Browser-Erweiterung unter `extension/` setzt das Gast-Session-Cookie im Shop

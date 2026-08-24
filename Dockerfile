@@ -15,7 +15,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # extension/ gehört dazu: /extension.zip zippt dieses Verzeichnis im Moment
 # des Abrufs, und ohne es fällt die Job-Seite auf den Kopierflow zurück.
 # LICENSE reist mit, weil die AGPL das Bereitstellen des Angebots verlangt.
+# adapters/ gehört dazu: die Registry liest gebündelte Adapter von dort, und
+# ohne das Verzeichnis hätte das Image keinen einzigen.
 COPY app/ ./app/
+COPY adapters/ ./adapters/
 COPY migrations/ ./migrations/
 COPY static/ ./static/
 COPY templates/ ./templates/
