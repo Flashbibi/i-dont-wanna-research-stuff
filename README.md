@@ -66,8 +66,10 @@ python -m venv .venv
 # .venv/bin/python -m pip install -r requirements-dev.txt     # Linux/macOS
 ```
 
-`requirements-dev.txt` zieht `httpx2`. Das sieht nach Tippfehler aus, ist aber
-korrekt: der `TestClient` von Starlette 1.6 nutzt `httpx2`, nicht `httpx`.
+Ausser `pytest` kommt nichts dazu. Der `TestClient` von Starlette 1.6 greift
+bevorzugt zu `httpx2`, fällt aber auf das ohnehin vorhandene `httpx` zurück -
+und genau darauf läuft die CI seit jeher, die nur `requirements.txt` und
+`pytest` installiert.
 
 ### 2. Postgres
 
