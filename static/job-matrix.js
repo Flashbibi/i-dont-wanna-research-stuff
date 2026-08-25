@@ -344,10 +344,13 @@
         const item = lineOffer(column, line.line_id);
         if (!item) return `<div class="mc pcell missing${classFor(column, index)}">nicht verfügbar</div>`;
         const selectedItem = selected ? lineOffer(selected, line.line_id) : null;
-        const differs = selected && !sameAssignments(column.assignments, selected.assignments) && selectedItem && selectedItem.offer_id !== item.offer_id;
+        const istGewaehlt = Boolean(selected) && sameAssignments(column.assignments, selected.assignments);
+        const differs = selected && !istGewaehlt && selectedItem && selectedItem.offer_id !== item.offer_id;
+        // Der Erfassungsweg steht an der gewählten Spalte, nicht in jeder: das
+        // ist das Angebot, das bestellt würde, und die Matrix bleibt lesbar.
         return `<div class="mc pcell${differs ? " diff" : ""}${classFor(column, index)}" data-row="${line.line_id}">
           <div class="prod" title="${esc(item.produktname)}">${esc(item.produktname)}</div>
-          <div class="l2"><span class="price">${offerPrice(item, "einzelpreis_chf")}</span>${chip(item)}${item.pinned ? '<span class="chip pin">gepinnt</span>' : ""}${erfasstBadge(item.erfasst_via)}</div>
+          <div class="l2"><span class="price">${offerPrice(item, "einzelpreis_chf")}</span>${chip(item)}${item.pinned ? '<span class="chip pin">gepinnt</span>' : ""}${istGewaehlt ? erfasstBadge(item.erfasst_via) : ""}</div>
         </div>`;
       }).join("");
       if (isOpen) html += renderDetail(line, selected);
