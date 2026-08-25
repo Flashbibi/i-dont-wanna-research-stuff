@@ -1000,3 +1000,53 @@ def test_the_scenario_payload_carries_the_pickup_and_import_fields():
     kandidat = matrix["lines"][0]["candidates"][0]
     for feld in ("waehrung", "waehrung_fremd", "waehrung_beleg", "abholung", "lieferziel_name"):
         assert feld in kandidat, f"{feld} fehlt am Matrix-Kandidaten"
+
+
+def test_the_job_page_offers_a_price_check_and_the_capture_widgets():
+    script = Path("static/job-matrix.js").read_text(encoding="utf-8")
+    css = Path("static/app.css").read_text(encoding="utf-8")
+    page = client_and_repo()[0].get("/jobs/7").text
+
+    # Serverseitig sichtbar: der Knopf und der Platz für seinen Fortschritt.
+    assert 'id="check-prices"' in page
+    assert "Preise prüfen" in page
+    assert 'id="refresh-view"' in page
+
+    # Erfassung per URL, ergebnisweise, mit dem Weg von Hand daneben.
+    assert "Angebot per URL hinzufügen" in script
+    assert "data-add-urls" in script and "data-add-run" in script
+    assert "/offers/fetch" in script
+    assert "von Hand nachtragen" in script
+    assert "wörtlich von der Seite" in script
+    assert ".addbox" in css and ".manualform" in css
+
+    # Das Schwache markieren: «ungeprüft» ist ein Badge, «via Adapter» bleibt still.
+    assert "erfasstBadge" in script
+    assert "ungeprüft" in script
+    assert "chip.unverified" in css and ".via {" in css
+
+    # Auffrischen: nacheinander, abbrechbar, mit Übersprungen-Zähler.
+    assert "/refreshable" in script and "/refresh`" in script
+    assert 'id="check-cancel"' in script
+    assert "ohne Adapter übersprungen" in script
+    assert "geprüft — noch" in script
+    assert ".refreshrow" in css
+
+
+def test_manual_offer_e2e_uses_a_disposable_job_and_never_reaches_a_shop():
+    script = Path("tests/e2e/manual_offer_click.mjs").read_text(encoding="utf-8")
+
+    assert "/api/e2e/jobs" in script
+    assert "method: 'DELETE'" in script
+    assert "'X-E2E-Marker'" in script
+    # Der Engine-Versuch scheitert an AdapterFehlt, also vor jedem Netzzugriff -
+    # deshalb ist genau eine 422 das erwartete Ergebnis, kein Fehlschlag.
+    assert "fetchResponses, [422]" in script
+    assert "recordResponses, [200]" in script
+    assert "engineError" in script
+    assert "manualFormPrefilled" in script
+    assert "unverifiedBadge" in script
+    assert "badgePersisted" in script
+    # Der Auffrischlauf ginge ans echte Netz und wird hier nicht geklickt.
+    assert "priceCheckPresent" in script
+    assert "#check-prices').click" not in script

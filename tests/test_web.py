@@ -1,7 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Flashbibi
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
+
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 
+from app import adapter, fetch
 from app.jobs import parse_bom
 from app.version import __version__
 from app.web import create_app
@@ -162,3 +169,271 @@ def test_stock_correction_validation_error_is_rendered_on_stock_page():
 
     assert response.status_code == 422
     assert "Korrektur würde Bestand negativ machen" in response.text
+
+
+# -- Angebote erfassen und auffrischen ---------------------------------------
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "adapters" / "demo"
+SEITE = (FIXTURES / "produkt.html").read_text(encoding="utf-8")
+PRODUKT_URL = "https://demoshop.example/produkt/mg996r"
+FREMD_URL = "https://andershop.example/produkt/servo"
+ROBOTS_ALLES = "User-agent: *\nAllow: /\n"
+HEUTE = date(2026, 8, 25)
+
+
+class OfferRepository(FakeRepository):
+    """Ein Job mit einer Zeile, zwei Shops und einer tagesgenauen Angebotstabelle."""
+
+    def __init__(self, *, shop_status: str = "bestaetigt"):
+        super().__init__()
+        self.jobs[7] = {
+            "id": 7,
+            "status": "in_arbeit",
+            "quelltext": "1x Servo",
+            "lines": [{
+                "id": 100, "position": 1, "originaltext": "1x Servo",
+                "suchtext": "Servo", "menge": 1, "status": "kandidaten",
+                "kommentar": None,
+            }],
+        }
+        self.jobs[8] = {"id": 8, "status": "offen", "quelltext": "1x Kabel", "lines": []}
+        self.shops = {
+            1: {"id": 1, "name": "Demoshop", "url": "https://demoshop.example",
+                "domain": "demoshop.example", "land": "CH", "status": shop_status,
+                "versand_waehrung": "CHF"},
+            2: {"id": 2, "name": "Andershop", "url": "https://andershop.example",
+                "domain": "andershop.example", "land": "CH", "status": "bestaetigt",
+                "versand_waehrung": "CHF"},
+        }
+        self.offers: dict[tuple, dict] = {}
+        self.next_offer_id = 20
+
+    def get_line(self, line_id):
+        return {"id": line_id} if line_id == 100 else None
+
+    def get_shop(self, shop_id):
+        return self.shops.get(shop_id)
+
+    def list_shops(self):
+        return [dict(shop) for shop in self.shops.values()]
+
+    def get_kurs(self, waehrung):
+        return None
+
+    def save_kurs(self, waehrung, kurs, geholt_am, quelle_url):
+        return {"waehrung": waehrung, "kurs": kurs, "geholt_am": geholt_am,
+                "quelle_url": quelle_url}
+
+    def create_offer(self, **values):
+        schluessel = (int(values["line_id"]), str(values["produkt_url"]), HEUTE)
+        bestehend = self.offers.get(schluessel)
+        if bestehend is None:
+            self.next_offer_id += 1
+        row = {
+            "id": bestehend["id"] if bestehend else self.next_offer_id,
+            "beobachtungstag": HEUTE,
+            "position": 1,
+            **values,
+        }
+        self.offers[schluessel] = row
+        return dict(row)
+
+    def get_offer(self, offer_id):
+        treffer = next((row for row in self.offers.values() if row["id"] == offer_id), None)
+        if treffer is None:
+            return None
+        reihe = [row for row in self.offers.values()
+                 if row["line_id"] == treffer["line_id"]
+                 and row["produkt_url"] == treffer["produkt_url"]]
+        return dict(max(reihe, key=lambda row: (row["beobachtungstag"], row["id"])))
+
+    def optimization_input(self, job_id):
+        # Das echte SQL joint bom_line dazu; ohne menge/suchtext rechnet der
+        # Optimierer nicht.
+        return {
+            "offers": [
+                {**row, "menge": 1, "suchtext": "Servo"}
+                for row in self.offers.values()
+            ],
+            "shops": [dict(shop) for shop in self.shops.values()],
+            "required_line_ids": [100],
+            "lines": [{"id": 100, "position": 1, "suchtext": "Servo"}],
+            "selected_assignments": None,
+            "job_status": "in_arbeit",
+        }
+
+
+@pytest.fixture
+def offer_client(monkeypatch):
+    """Demo-Adapter, Fake-Netz, keine echte Wartezeit."""
+    monkeypatch.setattr(adapter, "GEBUENDELT_DIR", FIXTURES)
+    monkeypatch.setattr(adapter, "_registry", None)
+    monkeypatch.delenv(adapter.ENV_ADAPTER_DIR, raising=False)
+    monkeypatch.setattr(fetch, "_letzter_request", {})
+    monkeypatch.setattr(fetch, "_robots_cache", {})
+    monkeypatch.setattr(fetch, "_robots_sperren", {})
+    monkeypatch.setattr(fetch, "_jetzt", lambda: 1_000.0)
+    monkeypatch.setattr(fetch, "_schlafe", lambda _: None)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text=ROBOTS_ALLES)
+        return httpx.Response(200, html=SEITE)
+
+    monkeypatch.setattr(fetch, "_transport", lambda: httpx.MockTransport(handler))
+    repository = OfferRepository()
+    return TestClient(create_app(repository, lambda: 17)), repository
+
+
+def test_an_offer_is_fetched_for_a_line_of_this_job(offer_client):
+    client, repository = offer_client
+
+    response = client.post(
+        "/api/jobs/7/lines/100/offers/fetch", json={"produkt_url": PRODUKT_URL}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["produktname"] == "MG996R Servo Metallgetriebe"
+    assert payload["erfasst_via"] == "adapter:demo"
+    assert payload["extraktion"]["felder"]["lager_text"] == "an Lager (5 Stück)"
+    assert len(repository.offers) == 1
+
+
+def test_fetching_for_a_line_of_another_job_is_refused(offer_client):
+    client, repository = offer_client
+
+    response = client.post(
+        "/api/jobs/8/lines/100/offers/fetch", json={"produkt_url": PRODUKT_URL}
+    )
+
+    assert response.status_code == 404
+    assert "gehört nicht zu Job 8" in response.json()["detail"]
+    assert repository.offers == {}
+
+
+def test_a_page_without_an_adapter_answers_with_the_manual_way(offer_client):
+    client, repository = offer_client
+
+    response = client.post(
+        "/api/jobs/7/lines/100/offers/fetch", json={"produkt_url": FREMD_URL}
+    )
+
+    assert response.status_code == 422
+    assert "record_offer" in response.json()["detail"]
+    assert repository.offers == {}
+
+
+def test_a_manual_offer_is_recorded_as_unverified(offer_client):
+    client, repository = offer_client
+
+    response = client.post(
+        "/api/jobs/7/lines/100/offers",
+        json={
+            "produkt_url": FREMD_URL,
+            "produktname": "Servo XL",
+            "preis": "7.50",
+            "waehrung": "CHF",
+            "lieferzeit_text": "2-3 Werktage",
+            "lager_text": "an Lager",
+            "artikelnummer": "XL-1",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    # Leer heisst «ungeprüft» - genau das weist die Oberfläche aus.
+    assert payload["erfasst_via"] is None
+    assert payload["lieferzeit_tage"] == 3
+    assert payload["lieferzeit_text"] == "2-3 Werktage"
+    assert payload["shop_id"] == 2
+
+
+def test_a_manual_offer_for_an_unknown_shop_names_the_missing_step(offer_client):
+    client, repository = offer_client
+
+    response = client.post(
+        "/api/jobs/7/lines/100/offers",
+        json={"produkt_url": "https://nochnie.example/p/1",
+              "produktname": "Servo", "preis": "7.50", "waehrung": "CHF"},
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "nochnie.example" in detail and "record_shop" in detail
+    assert repository.offers == {}
+
+
+def test_a_manual_offer_for_a_line_of_another_job_is_refused(offer_client):
+    client, repository = offer_client
+
+    response = client.post(
+        "/api/jobs/8/lines/100/offers",
+        json={"produkt_url": FREMD_URL, "produktname": "Servo",
+              "preis": "7.50", "waehrung": "CHF"},
+    )
+
+    assert response.status_code == 404
+    assert repository.offers == {}
+
+
+def test_an_offer_is_refreshed_by_its_id(offer_client):
+    client, repository = offer_client
+    erst = client.post(
+        "/api/jobs/7/lines/100/offers/fetch", json={"produkt_url": PRODUKT_URL}
+    ).json()
+
+    response = client.post(f"/api/offers/{erst['id']}/refresh")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["geaendert"] is False
+    assert payload["vorher"]["preis_chf"] == "12.90"
+    assert payload["nachher"]["id"] == erst["id"]
+    assert payload["extraktion"]["adapter"] == "demo"
+
+
+def test_refreshing_an_unknown_offer_is_a_plain_error(offer_client):
+    client, _ = offer_client
+
+    response = client.post("/api/offers/999/refresh")
+
+    assert response.status_code == 422
+    assert "Angebot 999 ist unbekannt" in response.json()["detail"]
+
+
+def test_the_refresh_list_is_sorted_and_marks_adapter_coverage(offer_client):
+    client, repository = offer_client
+    client.post("/api/jobs/7/lines/100/offers/fetch", json={"produkt_url": PRODUKT_URL})
+    client.post(
+        "/api/jobs/7/lines/100/offers",
+        json={"produkt_url": FREMD_URL, "produktname": "Servo XL",
+              "preis": "7.50", "waehrung": "CHF"},
+    )
+
+    response = client.get("/api/jobs/7/refreshable")
+
+    assert response.status_code == 200
+    rows = response.json()
+    # Deterministisch nach position, dann produkt_url.
+    assert [row["produkt_url"] for row in rows] == [FREMD_URL, PRODUKT_URL]
+    assert [row["adapter_verfuegbar"] for row in rows] == [False, True]
+    assert rows[1]["preis_chf"] == "12.90"
+
+
+def test_the_job_offer_payload_carries_the_capture_path(offer_client):
+    client, repository = offer_client
+    client.post("/api/jobs/7/lines/100/offers/fetch", json={"produkt_url": PRODUKT_URL})
+    client.post(
+        "/api/jobs/7/lines/100/offers",
+        json={"produkt_url": FREMD_URL, "produktname": "Servo XL",
+              "preis": "7.50", "waehrung": "CHF"},
+    )
+
+    matrix = client.post("/api/jobs/7/scenarios", json={"tempo": 0.5}).json()
+
+    kandidaten = matrix["lines"][0]["candidates"]
+    wege = {row["produkt_url"]: row["erfasst_via"] for row in kandidaten}
+    assert wege == {PRODUKT_URL: "adapter:demo", FREMD_URL: None}
+    # Und auch an der gewählten Matrixzelle, nicht nur in der Kandidatenliste.
+    assert all("erfasst_via" in row for row in matrix["scenarios"][0]["lines"])

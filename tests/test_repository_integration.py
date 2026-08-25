@@ -269,6 +269,41 @@ def test_the_capture_path_survives_the_round_trip(service, repository):
             )
 
 
+def test_the_newest_observation_of_a_pair_is_what_a_refresh_starts_from(service, repository):
+    """Tagesgenaue Historie: get_offer liefert die jüngste Zeile ihrer Reihe."""
+    job_id, line_id = _create_line(service, repository, "1x Servohalter alt")
+    shop = _create_shop(service, "auffrischen")
+    url = f"{shop['url'].rstrip('/')}/servohalter"
+
+    gestern = service.record_offer(
+        line_id, shop["id"], "Servohalter", url, "12.90",
+        lieferzeit_text="3 Tage", erfasst_via="adapter:demo",
+    )
+    with psycopg.connect(_test_url()) as connection:
+        # Die Beobachtung von gestern - danach legt derselbe Aufruf eine neue an.
+        connection.execute(
+            "UPDATE offer SET beobachtungstag = CURRENT_DATE - 1 WHERE id = %s",
+            (gestern["id"],),
+        )
+    heute = service.record_offer(
+        line_id, shop["id"], "Servohalter", url, "11.50",
+        lieferzeit_text="2 Tage", erfasst_via="adapter:demo",
+    )
+
+    assert heute["id"] != gestern["id"]
+    # Wer die alte ID in der Hand hält, bekommt trotzdem den heutigen Stand.
+    juengste = repository.get_offer(gestern["id"])
+    assert juengste["id"] == heute["id"]
+    assert juengste["preis_chf"] == Decimal("11.50")
+    assert juengste["lieferzeit_tage"] == 2
+    assert repository.get_offer(999_999) is None
+
+    # Und der Erfassungsweg reist bis in die Angebote der Job-UI mit.
+    daten = repository.optimization_input(job_id)
+    zeile = next(row for row in daten["offers"] if row["id"] == heute["id"])
+    assert zeile["erfasst_via"] == "adapter:demo"
+
+
 def test_the_platform_finding_needs_evidence_at_the_database(repository):
     shop = repository.list_shops()[0]
 
