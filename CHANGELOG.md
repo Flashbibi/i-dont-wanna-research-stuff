@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Offers can be added from the job page by pasting product URLs. The engine
+  reads each page itself, one after another, and shows the result per URL as it
+  arrives. Where it cannot read a page it says why, and a manual form takes
+  over - that offer is then visibly marked as unverified, because nobody
+  machine-read the page it came from.
+- A "check prices" button that re-reads every adapter-covered offer of a job
+  before ordering, showing each old and new price side by side, counting the
+  ones without an adapter instead of hiding them, and cancellable between two
+  requests.
+- MCP tool `refresh_offer`, which re-reads an offer identified by its id, so a
+  refresh cannot pair a line with the wrong page.
 - Declarative YAML shop adapters with a deterministic extraction engine. An
   adapter names the CSS selectors for product name, price, delivery text, stock
   text and article number; the engine fetches the page and applies them, so

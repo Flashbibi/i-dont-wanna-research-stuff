@@ -228,5 +228,13 @@ consent wall that hides the content: an adapter has no business there. A shop
 that answers HTTP 403 to an automated request has made a decision, and the
 error message says so instead of dressing the request up as a browser.
 
+Finding the page is not the adapter's job either, and never will be. Which
+product at which shop answers a line is a judgement call, and an AI client or a
+person with a browser makes it far better than any selector could - so there is
+no `search` block in the schema and none is planned. An adapter is handed a URL
+and reads it; that is the whole contract.
+
 For every one of those cases the manual path stays open: read the page
-yourself and record it with `record_offer`, with the texts typed literally.
+yourself and record it with `record_offer`, with the texts typed literally -
+from the job page, that is the "von Hand nachtragen" form, and what it writes
+is marked as unverified.
