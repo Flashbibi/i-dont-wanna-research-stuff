@@ -922,6 +922,7 @@ class PostgresRepository:
                        o.produktname, o.produkt_url, o.quelle_url, o.gesehen_am,
                        o.shop_produkt_id, o.artikelnummer, o.provenienz_text,
                        o.preis_original, o.waehrung, o.kurs, o.kurs_am, o.kurs_quelle,
+                       o.erfasst_via,
                        bl.menge, bl.suchtext, bl.position,
                        d.override_status
                 FROM offer o
@@ -1040,6 +1041,36 @@ class PostgresRepository:
             ).fetchall()
             return [dict(row) for row in rows]
 
+    def get_offer(self, offer_id: int) -> dict[str, Any] | None:
+        """Ein Angebot samt der jüngsten Beobachtung derselben Zeile und URL.
+
+        Angebote sind tagesgenau (Migration 004): dieselbe Zeile×URL hat je
+        Beobachtungstag eine Zeile. Wer eine ältere ``offer_id`` in der Hand
+        hält, soll trotzdem den heute gültigen Stand sehen - deshalb liefert
+        der Getter nicht die angefragte Zeile, sondern die neueste ihrer Reihe.
+        """
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT juengste.id, juengste.line_id, juengste.shop_id,
+                       juengste.produkt_url, juengste.produktname,
+                       juengste.preis_chf, juengste.lieferzeit_tage,
+                       juengste.lager_text, juengste.beobachtungstag,
+                       juengste.erfasst_via
+                FROM offer o
+                JOIN LATERAL (
+                    SELECT * FROM offer neuer
+                    WHERE neuer.line_id = o.line_id
+                      AND neuer.produkt_url = o.produkt_url
+                    ORDER BY neuer.beobachtungstag DESC, neuer.id DESC
+                    LIMIT 1
+                ) juengste ON TRUE
+                WHERE o.id = %s
+                """,
+                (offer_id,),
+            ).fetchone()
+            return None if row is None else dict(row)
+
     def get_job_detail(self, job_id: int) -> dict[str, Any] | None:
         job = self.get_job(job_id)
         if job is None:
@@ -1050,6 +1081,7 @@ class PostgresRepository:
                 SELECT o.id, o.line_id, o.produktname, o.produkt_url,
                        o.preis_chf, o.lieferzeit_tage, o.lieferzeit_text,
                        o.lager_text, o.lager, o.provenienz_text, o.gesehen_am,
+                       o.erfasst_via,
                        s.id AS shop_id, s.name AS shop_name, s.status AS shop_status,
                        s.lieferzeit_default_tage, d.override_status AS decision
                 FROM offer o JOIN shop s ON s.id = o.shop_id

@@ -80,6 +80,16 @@ class StubService:
             "extraktion": {"adapter": "demo", "final_url": produkt_url, "felder": {}},
         }
 
+    def refresh_offer(self, offer_id):
+        return {
+            "vorher": {"preis_chf": "12.90", "lieferzeit_tage": 3,
+                       "lager_text": "an Lager", "beobachtungstag": "2026-08-24"},
+            "nachher": {"id": offer_id, "preis_chf": "11.50"},
+            "geaendert": True,
+            "extraktion": {"adapter": "demo", "final_url": "https://shop.example/x",
+                           "felder": {}},
+        }
+
     def list_adapters(self):
         return {
             "adapter": [
@@ -139,6 +149,7 @@ def test_mcp_exposes_exact_procurement_tools():
         "record_shop",
         "record_offer",
         "fetch_offer",
+        "refresh_offer",
         "list_adapters",
         "mark_line",
         "plan_order",
@@ -241,6 +252,13 @@ def test_all_tool_descriptions_match_current_behavior():
             "demselben Lieferzeit-Parser; die Antwort führt zusätzlich den Rohtext "
             "je Feld. Ohne passenden Adapter kommt ein Klartextfehler - dann bleibt "
             "der manuelle Weg über record_offer mit wörtlich abgetippten Texten."
+        ),
+        "refresh_offer": (
+            "Bestehendes Angebot über den Adapter neu von der Produktseite "
+            "lesen; identifiziert über die offer_id, damit Zeile und URL nicht "
+            "erneut zugeordnet werden müssen. Antwortet mit vorher/nachher und "
+            "den wörtlichen Seitentexten. Tagesgenaue Historie: ein zweiter "
+            "Aufruf am selben Tag überschreibt die heutige Beobachtung."
         ),
         "list_adapters": (
             "Geladene Shop-Adapter deterministisch nach id sortiert lesen: je "
@@ -472,6 +490,7 @@ def test_streamable_http_endpoint_initializes_and_lists_tools():
         "record_shop",
         "record_offer",
         "fetch_offer",
+        "refresh_offer",
         "list_adapters",
         "mark_line",
         "plan_order",

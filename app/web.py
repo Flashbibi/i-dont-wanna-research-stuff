@@ -11,6 +11,7 @@ import zipfile
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
@@ -120,6 +121,22 @@ class ShopProfileRequest(BaseModel):
     profil_quelle_url: str
     versand_text: str
     waehrung: str = "CHF"
+
+
+class OfferFetchRequest(BaseModel):
+    produkt_url: str
+
+
+class ManualOfferRequest(BaseModel):
+    """Ein abgetipptes Angebot. Die Texte kommen wörtlich von der Seite."""
+
+    produkt_url: str
+    produktname: str
+    preis: Decimal
+    waehrung: str = "CHF"
+    lieferzeit_text: str | None = None
+    lager_text: str | None = None
+    artikelnummer: str | None = None
 
 
 class PurchaseRequest(BaseModel):
@@ -469,6 +486,64 @@ def create_app(
                 base_assignments=request.base_assignments,
                 tempo=request.tempo,
             )
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    def line_of_job(job_id: int, line_id: int) -> dict[str, Any]:
+        """Die Zeile muss zu diesem Job gehören.
+
+        Ohne diese Prüfung liesse sich über die Job-URL ein Angebot an eine
+        fremde Zeile hängen - die Zuordnung ist der einzige Teil, den die
+        Engine nicht selbst nachprüfen kann.
+        """
+        job = active_repository.get_job(job_id)
+        if job is None:
+            raise HTTPException(404, f"Job {job_id} ist unbekannt")
+        for line in job.get("lines", []):
+            if int(line["id"]) == line_id:
+                return line
+        raise HTTPException(404, f"Zeile {line_id} gehört nicht zu Job {job_id}")
+
+    @application.post("/api/jobs/{job_id}/lines/{line_id}/offers/fetch")
+    def fetch_offer_for_line(
+        job_id: int, line_id: int, request: OfferFetchRequest
+    ) -> dict[str, Any]:
+        line_of_job(job_id, line_id)
+        try:
+            return procurement.fetch_offer(line_id, request.produkt_url)
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @application.post("/api/jobs/{job_id}/lines/{line_id}/offers")
+    def record_offer_for_line(
+        job_id: int, line_id: int, request: ManualOfferRequest
+    ) -> dict[str, Any]:
+        line_of_job(job_id, line_id)
+        try:
+            return procurement.record_manual_offer(
+                line_id,
+                request.produkt_url,
+                request.produktname,
+                request.preis,
+                request.waehrung,
+                request.lieferzeit_text,
+                request.lager_text,
+                request.artikelnummer,
+            )
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @application.post("/api/offers/{offer_id}/refresh")
+    def refresh_offer(offer_id: int) -> dict[str, Any]:
+        try:
+            return procurement.refresh_offer(offer_id)
+        except (ValidationError, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @application.get("/api/jobs/{job_id}/refreshable")
+    def refreshable_offers(job_id: int) -> list[dict[str, Any]]:
+        try:
+            return procurement.refreshable_offers(job_id)
         except (ValidationError, ValueError) as error:
             raise HTTPException(422, str(error)) from error
 

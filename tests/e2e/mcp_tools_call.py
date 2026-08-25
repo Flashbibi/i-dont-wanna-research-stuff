@@ -13,9 +13,9 @@ adjust_stock is listed but never called: it writes stock. Keep it
 out of tools/call here. check_stock is read-only but covered by
 the unit suite; the smoke test only asserts its presence.
 
-fetch_offer is listed but never called: it reaches a real shop over the network
-and writes an offer. Keep it out of tools/call here. list_adapters is read-only
-and touches neither, so it is called.
+fetch_offer and refresh_offer are listed but never called: they reach a real
+shop over the network and write an offer. Keep them out of tools/call here.
+list_adapters is read-only and touches neither, so it is called.
 """
 
 from __future__ import annotations
@@ -46,6 +46,7 @@ EXPECTED_TOOLS = {
     "record_shop",
     "record_offer",
     "fetch_offer",
+    "refresh_offer",
     "list_adapters",
     "mark_line",
     "plan_order",

@@ -72,6 +72,7 @@ class ProcurementRepository(Protocol):
     def get_shop(self, shop_id: int) -> dict[str, Any] | None: ...
     def update_shop_profile(self, shop_id: int, **values: Any) -> dict[str, Any]: ...
     def get_line(self, line_id: int) -> dict[str, Any] | None: ...
+    def get_offer(self, offer_id: int) -> dict[str, Any] | None: ...
     def create_offer(self, **values: Any) -> dict[str, Any]: ...
     def mark_line(
         self,
@@ -134,6 +135,33 @@ def _hostname(url: str, field: str) -> str:
         raise ValidationError(f"{field} muss eine gueltige HTTP(S)-URL ohne Zugangsdaten sein")
     host = parsed.hostname.lower().rstrip(".")
     return host.removeprefix("www.")
+
+
+def _adapter_deckt(url: Any) -> bool:
+    """Ob ein Adapter diese URL abdeckt - ohne die Seite anzufassen."""
+    try:
+        finde_adapter(str(url or ""))
+    except AdapterFehler:
+        return False
+    return True
+
+
+def _gleicher_wert(alt: Any, neu: Any) -> bool:
+    """Vergleich über die Grenze Datenbank/Antwort hinweg.
+
+    Preise kommen als ``Decimal``, Texte mal mit und mal ohne Rand-Leerzeichen;
+    ein Vergleich der Roh-Objekte meldete Änderungen, die keine sind.
+    """
+    if alt is None or neu is None:
+        return alt is None and neu is None
+    if isinstance(alt, Decimal) or isinstance(neu, Decimal):
+        try:
+            return Decimal(str(alt)) == Decimal(str(neu))
+        except InvalidOperation:
+            return str(alt) == str(neu)
+    if isinstance(alt, str) or isinstance(neu, str):
+        return str(alt).strip() == str(neu).strip()
+    return alt == neu
 
 
 def _deckt_domain(host: str, shop_domain: str) -> bool:
@@ -644,6 +672,105 @@ class ProcurementService:
             "mit ausdrücklicher Währung verwenden."
         )
 
+    def record_manual_offer(
+        self,
+        line_id: int,
+        produkt_url: str,
+        produktname: str,
+        preis: Any,
+        waehrung: str = HOME_CURRENCY,
+        lieferzeit_text: str | None = None,
+        lager_text: str | None = None,
+        artikelnummer: str | None = None,
+    ) -> dict[str, Any]:
+        """Ein von Hand abgetipptes Angebot erfassen - der «ungeprüft»-Weg.
+
+        Der Shop wird über die Domain der URL gefunden, genau wie bei
+        :meth:`fetch_offer`. ``erfasst_via`` bleibt leer: hier hat niemand
+        ausser dem Menschen die Seite gelesen, und die Oberfläche weist das
+        auch so aus. Ist der Shop unbekannt, kommt derselbe Klartexthinweis
+        wie beim Abruf - erfasst wird nichts.
+        """
+        shop = self._shop_fuer_domain(_hostname(produkt_url, "Produkt-URL"))
+        return self.record_offer(
+            line_id,
+            int(shop["id"]),
+            produktname,
+            produkt_url,
+            preis,
+            lieferzeit_text,
+            lager_text,
+            artikelnummer,
+            waehrung,
+        )
+
+    def refresh_offer(self, offer_id: int) -> dict[str, Any]:
+        """Ein bestehendes Angebot noch einmal von der Produktseite lesen.
+
+        Kein Sonderpfad: gelesen und geschrieben wird über
+        :meth:`fetch_offer`, mit denselben Prüfungen - Adapter, robots.txt,
+        Mindestabstand, Shopwährung, Weiterleitungsregel.
+
+        Die Historie ist **tagesgenau** (Migration 004). Ein zweiter Refresh am
+        selben Tag überschreibt die heutige Beobachtung; ``vorher`` in der
+        Antwort ist dann der einzige Ort, an dem der frühere Wert noch steht.
+        Eine Historie innerhalb eines Tages gibt es nicht.
+
+        Scheitert der Abruf, bleibt die Datenbank unangetastet: die alte
+        Beobachtung steht weiter, wird älter und fällt irgendwann ehrlich aus
+        dem 14-Tage-Fenster. Ein gescheiterter Refresh entwertet nie Daten.
+        """
+        vorher = self.repository.get_offer(offer_id)
+        if vorher is None:
+            raise ValidationError(f"Angebot {offer_id} ist unbekannt")
+        ergebnis = dict(
+            self.fetch_offer(int(vorher["line_id"]), str(vorher["produkt_url"]))
+        )
+        extraktion = ergebnis.pop("extraktion", None)
+        alt = {
+            "preis_chf": vorher.get("preis_chf"),
+            "lieferzeit_tage": vorher.get("lieferzeit_tage"),
+            "lager_text": vorher.get("lager_text"),
+            "beobachtungstag": vorher.get("beobachtungstag"),
+        }
+        return {
+            "vorher": alt,
+            "nachher": ergebnis,
+            "geaendert": any(
+                not _gleicher_wert(alt[feld], ergebnis.get(feld))
+                for feld in ("preis_chf", "lieferzeit_tage", "lager_text")
+            ),
+            "extraktion": extraktion,
+        }
+
+    def refreshable_offers(self, job_id: int) -> list[dict[str, Any]]:
+        """Die Angebote, die ein «Preise prüfen» anfassen würde.
+
+        Genau die Menge, mit der auch der Optimierer rechnet: jüngste
+        Beobachtung je Zeile×URL, Zeile noch offen, Shop nicht gesperrt. Ob ein
+        Adapter greift, wird ohne jeden Netzzugriff beantwortet - die Liste
+        selbst ruft nirgends an.
+        """
+        data = self.repository.optimization_input(job_id)
+        offen = {int(value) for value in data.get("required_line_ids", [])}
+        eintraege = [
+            {
+                "offer_id": int(row["id"]),
+                "line_id": int(row["line_id"]),
+                "position": int(row.get("position") or 0),
+                "produktname": row.get("produktname"),
+                "produkt_url": row.get("produkt_url"),
+                "preis_chf": str(row["preis_chf"]),
+                "shop_id": int(row["shop_id"]),
+                "adapter_verfuegbar": _adapter_deckt(row.get("produkt_url")),
+            }
+            for row in data.get("offers", [])
+            if int(row["line_id"]) in offen
+        ]
+        return sorted(
+            eintraege, key=lambda row: (row["position"], str(row["produkt_url"]))
+        )
+
     def list_adapters(self) -> dict[str, Any]:
         """Geladene Adapter und übersprungene Dateien - read-only."""
         return adapter_uebersicht()
@@ -1041,6 +1168,9 @@ class ProcurementService:
                 "lieferzeit_text": row.get("lieferzeit_text"),
                 "lager_text": row.get("lager_text"),
                 "provenienz_text": row.get("provenienz_text"),
+                # Leer heisst «von Hand bzw. via KI erfasst» - die Oberfläche
+                # weist genau das als ungeprüft aus.
+                "erfasst_via": row.get("erfasst_via"),
                 "pinned": row.get("override_status") == "pin",
                 "excluded": offer_id in excludes,
                 # Auch die Kandidatenzeilen tragen Originalbetrag, Umrechnung
@@ -1482,6 +1612,7 @@ class ProcurementService:
                     "lieferzeit_bedingt": delivery["lieferzeit_bedingt"],
                     "assumption": assumption,
                     "assumption_text": f"Annahme: {row.get('produktname')}" if assumption else None,
+                    "erfasst_via": row.get("erfasst_via"),
                     "pinned": row.get("override_status") == "pin",
                     # Abholung: Shops mit fremdem Ziel tragen den Vermerk mit.
                     "lieferziel_name": shop.get("lieferziel_name"),

@@ -162,6 +162,11 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         return service.fetch_offer(line_id, produkt_url)
 
     @mcp.tool()
+    def refresh_offer(offer_id: int) -> dict[str, Any]:
+        """Bestehendes Angebot über den Adapter neu von der Produktseite lesen; identifiziert über die offer_id, damit Zeile und URL nicht erneut zugeordnet werden müssen. Antwortet mit vorher/nachher und den wörtlichen Seitentexten. Tagesgenaue Historie: ein zweiter Aufruf am selben Tag überschreibt die heutige Beobachtung."""
+        return service.refresh_offer(offer_id)
+
+    @mcp.tool()
     def list_adapters() -> dict[str, Any]:
         """Geladene Shop-Adapter deterministisch nach id sortiert lesen: je Adapter id, Domain, abgedeckte Felder und Quelle (gebuendelt oder nutzer), dazu die Liste der übersprungenen Dateien mit Fehlergrund (read-only)."""
         return service.list_adapters()
