@@ -412,3 +412,27 @@ table.ziele input { border:1px solid var(--line); border-radius:6px; padding:3px
 .stock-delta { font:700 13px var(--mono); }
 .stock-delta.positive { color:var(--accent); }
 .stock-delta.negative { color:var(--danger); }
+
+/* Angebote von Hand erfassen, Erfassungsweg-Badges, «Preise prüfen» */
+.chip.unverified { background:var(--warning-soft); color:var(--warning); }
+.via { font-size:11px; color:var(--muted); white-space:nowrap; }
+.addbox { grid-column:1 / -1; margin-top:10px; }
+.addbox.open { background:var(--paper); border:1px solid var(--line-soft); border-radius:10px; padding:12px 14px; }
+.addlabel { display:block; font-size:12.5px; color:var(--muted); margin-bottom:6px; }
+.addurls { width:100%; box-sizing:border-box; font:12.5px/1.5 var(--mono); color:var(--ink); background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:8px 10px; resize:vertical; }
+.addbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:8px; }
+.addresults:not(:empty) { margin-top:10px; }
+.addrow { border-top:1px solid var(--line-soft); padding:9px 0; }
+.addrow .addurl { font:11.5px/1.4 var(--mono); color:var(--muted); word-break:break-all; }
+.addrow .l1 { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-top:4px; }
+.addrow .src { color:var(--muted); font-size:12px; margin-top:3px; }
+.manualform { margin-top:9px; display:grid; gap:7px; max-width:460px; }
+.manualform label { display:grid; gap:3px; font-size:12.5px; color:var(--muted); }
+.manualform input, .manualform select { font:13px var(--sans); color:var(--ink); background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:6px 8px; }
+.manualfeedback { font-size:12.5px; color:var(--muted); }
+.manualfeedback.error { color:var(--danger); }
+.refreshbox { margin-top:9px; font-size:12.5px; }
+.refreshrow { display:flex; align-items:baseline; gap:8px; padding:4px 0; border-top:1px solid var(--line-soft); }
+.refreshrow .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.refreshrow s { color:var(--muted); }
+#check-prices { margin-top:10px; }

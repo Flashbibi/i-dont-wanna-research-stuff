@@ -5,7 +5,7 @@
   if (!host) return;
 
   const jobId = Number(host.dataset.job);
-  const state = { data: null, tempo: 0.5, currencyMode: "chf", detail: null, showAllCandidates: false, checks: new Set(), ordered: host.dataset.status === "bestellt", cartShops: {}, cart: {}, extension: null, extensionInfo: null, handoff: {} };
+  const state = { data: null, tempo: 0.5, currencyMode: "chf", detail: null, showAllCandidates: false, checks: new Set(), ordered: host.dataset.status === "bestellt", cartShops: {}, cart: {}, extension: null, extensionInfo: null, handoff: {}, adds: {}, refresh: null };
 
   const HANDOFF = "beschaffung/cart-handoff";
   const HANDOFF_RESULT = "beschaffung/cart-handoff-result";
@@ -94,6 +94,33 @@
     const kind = line.lieferzeit_geschaetzt || line.lieferzeit_bedingt ? "est" : "ok";
     return `<span class="chip ${kind}">${esc(line.lieferzeit_chip)}</span>`;
   };
+  // Das Schwache markieren, nicht das Starke dekorieren: ein leeres
+  // erfasst_via heisst «von Hand bzw. via KI erfasst» und wird als ungeprüft
+  // ausgewiesen. Hat die Engine die Seite gelesen, steht das leise daneben.
+  const erfasstBadge = (via) => (via
+    ? `<span class="via" title="Die Engine hat diese Produktseite selbst gelesen">via ${esc(String(via).replace(/^adapter:/, "Adapter "))}</span>`
+    : '<span class="chip unverified" title="Von Hand bzw. über einen AI-Client erfasst - niemand hat die Seite maschinell nachgelesen">ungeprüft</span>');
+
+  const hostOf = (url) => {
+    try { return new URL(String(url)).host.replace(/^www\./, "").toLowerCase(); }
+    catch { return ""; }
+  };
+
+  // Vorbelegung des Währungsfelds: was dieser Job über den Shop schon weiss.
+  // Ist er hier noch nirgends vertreten, bleibt es bei CHF - geraten wird nicht.
+  const waehrungFuerUrl = (url) => {
+    const domain = hostOf(url);
+    if (!domain || !state.data) return "CHF";
+    for (const line of state.data.lines) {
+      for (const candidate of line.candidates) {
+        if (hostOf(candidate.produkt_url) === domain && candidate.waehrung) {
+          return String(candidate.waehrung).toUpperCase();
+        }
+      }
+    }
+    return "CHF";
+  };
+
   const classFor = (column, index, extra = "") => {
     const selected = active();
     return `${extra}${selected && sameAssignments(column.assignments, selected.assignments) ? " selcol" : ""}${index === columns().length - 1 ? " lastcol" : ""}`;
@@ -129,6 +156,127 @@
     }
   }
 
+  const addState = (lineId) => {
+    const key = String(lineId);
+    if (!state.adds[key]) state.adds[key] = { open: false, busy: false, results: [] };
+    return state.adds[key];
+  };
+
+  function addOfferBlock(lineId) {
+    const box = addState(lineId);
+    if (!box.open) {
+      return `<div class="addbox"><button class="linklike" type="button" data-add-open="${lineId}">Angebot per URL hinzufügen</button></div>`;
+    }
+    return `<div class="addbox open">
+      <label class="addlabel" for="add-urls-${lineId}">Produktseiten dieser Position — eine URL pro Zeile</label>
+      <textarea id="add-urls-${lineId}" class="addurls" rows="3" data-add-urls="${lineId}" placeholder="https://shop.example.ch/produkt/..."${box.busy ? " disabled" : ""}></textarea>
+      <div class="addbar">
+        <button class="btn small primary" type="button" data-add-run="${lineId}"${box.busy ? " disabled" : ""}>${box.busy ? "Liest …" : "Seiten lesen"}</button>
+        <button class="linklike" type="button" data-add-open="${lineId}">Schliessen</button>
+        <span class="note">Die Engine liest jede Seite selbst, eine nach der anderen.</span>
+      </div>
+      <div class="addresults">${box.results.map((entry, index) => addResult(lineId, index, entry)).join("")}</div>
+    </div>`;
+  }
+
+  function addResult(lineId, index, entry) {
+    const kopf = `<div class="addurl">${esc(entry.url)}</div>`;
+    if (entry.state === "wait") return `<div class="addrow">${kopf}<div class="note">wartet …</div></div>`;
+    if (entry.state === "busy") return `<div class="addrow">${kopf}<div class="note">wird gelesen …</div></div>`;
+    if (entry.state === "ok") {
+      const offer = entry.offer;
+      return `<div class="addrow">${kopf}
+        <div class="l1"><span class="prod">${esc(offer.produktname)}</span><span class="price">CHF ${chf(offer.preis_chf)}</span>${erfasstBadge(offer.erfasst_via)}</div>
+        <div class="src">Produktseite: «${esc(offer.lieferzeit_text || "Lieferzeit nicht angegeben")}» · Lager: ${esc(offer.lager_text || "Lagerstatus nicht angegeben")}</div>
+      </div>`;
+    }
+    const nachtrag = entry.manual
+      ? manualForm(lineId, index, entry)
+      : `<button class="linklike" type="button" data-manual="${lineId}" data-idx="${index}">von Hand nachtragen</button>`;
+    return `<div class="addrow">${kopf}<div class="warn">${esc(entry.text)}</div>${nachtrag}</div>`;
+  }
+
+  function manualForm(lineId, index, entry) {
+    const vorgabe = waehrungFuerUrl(entry.url);
+    const optionen = ["CHF", "EUR", "USD", "GBP"]
+      .map((code) => `<option value="${code}"${code === vorgabe ? " selected" : ""}>${code}</option>`)
+      .join("");
+    return `<form class="manualform" data-manual-form="${lineId}" data-idx="${index}">
+      <div class="note">Liefer- und Lagertext bitte <b>wörtlich von der Seite</b> abtippen — sie werden genau so gespeichert und später genau so gelesen.</div>
+      <input type="hidden" name="produkt_url" value="${esc(entry.url)}">
+      <label>Produktname<input name="produktname" required></label>
+      <label>Preis<input name="preis" required inputmode="decimal" placeholder="12.90"></label>
+      <label>Währung<select name="waehrung">${optionen}</select></label>
+      <label>Lieferzeit-Text (optional)<input name="lieferzeit_text" placeholder="z. B. 2–3 Werktage"></label>
+      <label>Lager-Text (optional)<input name="lager_text" placeholder="z. B. an Lager"></label>
+      <label>Artikelnummer (optional)<input name="artikelnummer"></label>
+      <div class="addbar"><button class="btn small primary" type="submit">Angebot erfassen</button><span class="manualfeedback"></span></div>
+    </form>`;
+  }
+
+  async function runAdd(lineId) {
+    const box = addState(lineId);
+    const feld = document.querySelector(`[data-add-urls="${lineId}"]`);
+    const urls = (feld ? feld.value : "").split("\n").map((value) => value.trim()).filter(Boolean);
+    if (!urls.length || box.busy) return;
+    box.busy = true;
+    box.results = urls.map((url) => ({ url, state: "wait" }));
+    if (feld) feld.value = "";
+    render();
+    // Nacheinander, nicht parallel: der Mindestabstand pro Domain sitzt im
+    // Server. Gleichzeitige Abrufe stünden dort nur an, und das Ergebnis je
+    // URL soll erscheinen, sobald es da ist.
+    for (const entry of box.results) {
+      entry.state = "busy";
+      render();
+      try {
+        entry.offer = await json(`/api/jobs/${jobId}/lines/${lineId}/offers/fetch`, {
+          method: "POST",
+          body: JSON.stringify({ produkt_url: entry.url }),
+        });
+        entry.state = "ok";
+      } catch (error) {
+        entry.state = "err";
+        entry.text = error.message;
+      }
+      render();
+    }
+    box.busy = false;
+    state.detail = lineId;
+    await load().catch(() => render());
+  }
+
+  async function submitManual(form) {
+    const lineId = Number(form.dataset.manualForm);
+    const entry = addState(lineId).results[Number(form.dataset.idx)];
+    const feedback = form.querySelector(".manualfeedback");
+    const data = new FormData(form);
+    const text = (name) => String(data.get(name) || "").trim() || null;
+    feedback.classList.remove("error");
+    feedback.textContent = "Speichert …";
+    try {
+      entry.offer = await json(`/api/jobs/${jobId}/lines/${lineId}/offers`, {
+        method: "POST",
+        body: JSON.stringify({
+          produkt_url: String(data.get("produkt_url") || ""),
+          produktname: String(data.get("produktname") || "").trim(),
+          preis: String(data.get("preis") || "").trim().replace(",", "."),
+          waehrung: String(data.get("waehrung") || "CHF"),
+          lieferzeit_text: text("lieferzeit_text"),
+          lager_text: text("lager_text"),
+          artikelnummer: text("artikelnummer"),
+        }),
+      });
+      entry.state = "ok";
+      entry.manual = false;
+      state.detail = lineId;
+      await load();
+    } catch (error) {
+      feedback.textContent = error.message;
+      feedback.classList.add("error");
+    }
+  }
+
   function renderProgress() {
     const progress = document.getElementById("progress-view");
     const matrix = document.getElementById("matrix-view");
@@ -142,7 +290,7 @@
     const required = state.data.lines.filter((line) => line.required);
     progress.innerHTML = `<h2>Job in Erfassung</h2>
       <p>Bestellpläne erscheinen, sobald jede Position Kandidaten hat oder mit <code>mark_line</code> markiert ist.</p>
-      <div class="progress-list">${required.map((line) => `<div class="progress-line"><b>Position ${line.position}: ${esc(line.suchtext)}</b><div class="note">${line.candidates.filter((candidate) => !candidate.excluded).length} Kandidaten · ${esc(line.status)}</div></div>`).join("") || '<div class="progress-line">Noch keine offenen Positionen erfasst.</div>'}</div>`;
+      <div class="progress-list">${required.map((line) => `<div class="progress-line"><b>Position ${line.position}: ${esc(line.suchtext)}</b><div class="note">${line.candidates.filter((candidate) => !candidate.excluded).length} Kandidaten · ${esc(line.status)}</div>${addOfferBlock(line.line_id)}</div>`).join("") || '<div class="progress-line">Noch keine offenen Positionen erfasst.</div>'}</div>`;
     document.getElementById("railsum").innerHTML = '<h2>Gewählter Plan</h2><p class="note">Noch kein Plan verfügbar.</p>';
     document.getElementById("railorder").innerHTML = '<h2>Bestellen</h2><p class="note">Keine Pläne über halbfertige Jobs.</p>';
     return true;
@@ -199,7 +347,7 @@
         const differs = selected && !sameAssignments(column.assignments, selected.assignments) && selectedItem && selectedItem.offer_id !== item.offer_id;
         return `<div class="mc pcell${differs ? " diff" : ""}${classFor(column, index)}" data-row="${line.line_id}">
           <div class="prod" title="${esc(item.produktname)}">${esc(item.produktname)}</div>
-          <div class="l2"><span class="price">${offerPrice(item, "einzelpreis_chf")}</span>${chip(item)}${item.pinned ? '<span class="chip pin">gepinnt</span>' : ""}</div>
+          <div class="l2"><span class="price">${offerPrice(item, "einzelpreis_chf")}</span>${chip(item)}${item.pinned ? '<span class="chip pin">gepinnt</span>' : ""}${erfasstBadge(item.erfasst_via)}</div>
         </div>`;
       }).join("");
       if (isOpen) html += renderDetail(line, selected);
@@ -223,12 +371,12 @@
         ? `<button class="btn small" type="submit" name="status" value="neutral" data-decision="neutral" data-offer="${candidate.offer_id}">Pin lösen</button>`
         : `<button class="btn small" type="submit" name="status" value="pin" data-decision="pin" data-offer="${candidate.offer_id}">Pinnen</button>`;
       return `<div class="cand" id="candidate-${candidate.offer_id}">
-        <div class="l1">${inPlan ? '<span class="chip ok">im Plan</span>' : ""}${candidate.pinned ? '<span class="chip pin">gepinnt</span>' : ""}<span class="prod">${esc(candidate.produktname)}</span><span class="shop">· ${esc(candidate.shop_name)}</span><span class="price">${offerPrice(candidate)}</span>${chip(candidate)}</div>
+        <div class="l1">${inPlan ? '<span class="chip ok">im Plan</span>' : ""}${candidate.pinned ? '<span class="chip pin">gepinnt</span>' : ""}<span class="prod">${esc(candidate.produktname)}</span><span class="shop">· ${esc(candidate.shop_name)}</span><span class="price">${offerPrice(candidate)}</span>${chip(candidate)}${erfasstBadge(candidate.erfasst_via)}</div>
         <div class="src">${provenance} · <a href="${esc(candidate.quelle_url)}" target="_blank" rel="noopener">Seite öffnen ↗</a></div>${waehrungZeile(candidate)}
         <form class="l3" method="post" action="/offers/${candidate.offer_id}/decision"><input type="hidden" name="job_id" value="${jobId}">${action}<button class="btn small" type="submit" name="status" value="exclude" data-decision="exclude" data-offer="${candidate.offer_id}" ${candidate.last_candidate ? 'disabled title="letzter Kandidat dieser Zeile"' : ""}>Ausschliessen</button><span class="deltatx" data-delta="${candidate.offer_id}">${inPlan ? "im gewählten Plan enthalten" : "wird berechnet …"}</span></form>
       </div>`;
     }).join("");
-    return `<div class="detail"><h3>Kandidaten für «${esc(line.suchtext)}» — Pinnen legt das Produkt für alle Pläne fest</h3>${rows}<div class="closebar"><button class="linklike" data-row="${line.line_id}">Schliessen</button></div></div>`;
+    return `<div class="detail"><h3>Kandidaten für «${esc(line.suchtext)}» — Pinnen legt das Produkt für alle Pläne fest</h3>${rows}${addOfferBlock(line.line_id)}<div class="closebar"><button class="linklike" data-row="${line.line_id}">Schliessen</button></div></div>`;
   }
 
   async function fillDeltas() {
@@ -270,7 +418,7 @@
     const box = document.getElementById("open-lines");
     if (!state.data.open_lines.length) { box.hidden = true; box.innerHTML = ""; return; }
     box.hidden = false;
-    box.innerHTML = `<h2>Offen</h2>${state.data.open_lines.map((line) => `<div class="open-line"><b>Position ${line.position}: ${esc(line.suchtext)}</b><div class="note">${esc(line.status)}${line.kommentar ? ` · ${esc(line.kommentar)}` : ""}</div></div>`).join("")}`;
+    box.innerHTML = `<h2>Offen</h2>${state.data.open_lines.map((line) => `<div class="open-line"><b>Position ${line.position}: ${esc(line.suchtext)}</b><div class="note">${esc(line.status)}${line.kommentar ? ` · ${esc(line.kommentar)}` : ""}</div>${addOfferBlock(line.line_id)}</div>`).join("")}`;
   }
 
   function oneClickBlock(shop) {
@@ -370,6 +518,78 @@
     order.innerHTML = `<h2>Bestellen</h2>${shopRows}<button class="cta" id="record-purchase" ${canRecord ? "" : "disabled"}>Bestellung erfassen</button><div class="note">${orderNote}</div>`;
   }
 
+  function renderRefresh() {
+    const box = document.getElementById("refresh-view");
+    const knopf = document.getElementById("check-prices");
+    const lauf = state.refresh;
+    if (!box) return;
+    if (knopf) {
+      knopf.disabled = Boolean(lauf && lauf.running);
+      knopf.textContent = lauf && lauf.running ? "Prüft …" : "Preise prüfen";
+    }
+    if (!lauf) { box.hidden = true; box.innerHTML = ""; return; }
+    box.hidden = false;
+    // Der Mindestabstand pro Domain steht im Server: fünfzehn Angebote beim
+    // selben Shop dauern gut eine Minute. Das zeigt die Zeile ehrlich an.
+    const kopf = lauf.running
+      ? `<div class="note">${lauf.done} von ${lauf.total} geprüft — noch ${lauf.total - lauf.done} offen. <button class="linklike" type="button" id="check-cancel">Abbrechen</button></div>`
+      : `<div class="note">${lauf.cancelled ? "Abgebrochen" : "Fertig"}: ${lauf.done} von ${lauf.total} geprüft.</div>`;
+    const zeilen = lauf.rows.map((row) => {
+      const name = `<span class="nm" title="${esc(row.produktname)}">${esc(row.produktname)}</span>`;
+      if (row.state === "wait") return `<div class="refreshrow">${name}<span class="note">wartet</span></div>`;
+      if (row.state === "busy") return `<div class="refreshrow">${name}<span class="note">liest …</span></div>`;
+      if (row.state === "err") return `<div class="refreshrow">${name}<span class="warn">${esc(row.text)}</span></div>`;
+      if (row.state === "same") return `<div class="refreshrow">${name}<span class="note">unverändert</span></div>`;
+      return `<div class="refreshrow">${name}<span><s>CHF ${chf(row.vorher.preis_chf)}</s> → <b>CHF ${chf(row.nachher.preis_chf)}</b></span></div>`;
+    }).join("");
+    const ohne = lauf.skipped
+      ? `<div class="note">${lauf.skipped} ohne Adapter übersprungen — die bleiben Handarbeit.</div>`
+      : "";
+    box.innerHTML = kopf + zeilen + ohne;
+  }
+
+  async function runRefresh() {
+    if (state.refresh && state.refresh.running) return;
+    let liste;
+    try {
+      liste = await json(`/api/jobs/${jobId}/refreshable`);
+    } catch (error) {
+      alert(error.message);
+      return;
+    }
+    const machbar = liste.filter((row) => row.adapter_verfuegbar);
+    state.refresh = {
+      running: true,
+      cancelled: false,
+      done: 0,
+      total: machbar.length,
+      skipped: liste.length - machbar.length,
+      rows: machbar.map((row) => ({ ...row, state: "wait" })),
+    };
+    renderRefresh();
+    for (const row of state.refresh.rows) {
+      if (state.refresh.cancelled) break;
+      row.state = "busy";
+      renderRefresh();
+      try {
+        const ergebnis = await json(`/api/offers/${row.offer_id}/refresh`, { method: "POST" });
+        row.vorher = ergebnis.vorher;
+        row.nachher = ergebnis.nachher;
+        row.state = ergebnis.geaendert ? "changed" : "same";
+      } catch (error) {
+        row.state = "err";
+        row.text = error.message;
+      }
+      state.refresh.done += 1;
+      renderRefresh();
+    }
+    state.refresh.running = false;
+    renderRefresh();
+    // Die Pläne sollen auf den frischen Zahlen stehen, nicht auf den alten.
+    await load().catch(() => {});
+    renderRefresh();
+  }
+
   function render() {
     document.getElementById("offer-count").textContent = state.data.lines.reduce((sum, line) => sum + line.candidates.length, 0);
     document.getElementById("shop-count").textContent = new Set(state.data.lines.flatMap((line) => line.candidates.map((candidate) => candidate.shop_id))).size;
@@ -382,7 +602,50 @@
     fillDeltas();
   }
 
+  document.addEventListener("submit", (event) => {
+    const form = event.target.closest(".manualform");
+    if (!form) return;
+    event.preventDefault();
+    submitManual(form);
+  });
+
   document.addEventListener("click", async (event) => {
+    const addOpen = event.target.closest("[data-add-open]");
+    const addRun = event.target.closest("[data-add-run]");
+    const manual = event.target.closest("[data-manual]");
+    const checkPrices = event.target.closest("#check-prices");
+    const checkCancel = event.target.closest("#check-cancel");
+
+    if (addOpen) {
+      event.preventDefault();
+      const box = addState(addOpen.dataset.addOpen);
+      box.open = !box.open;
+      render();
+      return;
+    }
+    if (addRun) {
+      event.preventDefault();
+      await runAdd(Number(addRun.dataset.addRun));
+      return;
+    }
+    if (manual) {
+      event.preventDefault();
+      addState(manual.dataset.manual).results[Number(manual.dataset.idx)].manual = true;
+      render();
+      return;
+    }
+    if (checkCancel) {
+      event.preventDefault();
+      if (state.refresh) state.refresh.cancelled = true;
+      renderRefresh();
+      return;
+    }
+    if (checkPrices) {
+      event.preventDefault();
+      await runRefresh();
+      return;
+    }
+
     const select = event.target.closest("[data-select]");
     const fix = event.target.closest("[data-fix]");
     const row = event.target.closest("[data-row]");

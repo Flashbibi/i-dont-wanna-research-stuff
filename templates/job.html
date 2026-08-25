@@ -46,9 +46,13 @@
     <aside class="job-rail">
       <div class="card railpad" id="railsum"><h2>Gewählter Plan</h2><p class="note">Wird geladen …</p></div>
       <div class="card railpad" id="railorder"><h2>Bestellen</h2><p class="note">Wird geladen …</p></div>
-      <div class="card railpad"><div class="data">Datenstand: <span id="offer-count">{{ ns.offers }}</span> Angebote, <span id="shop-count">–</span> Shop-Profile belegt.<br>Overrides in diesem Job: <span id="ovcount">0</span></div></div>
+      <div class="card railpad">
+        <div class="data">Datenstand: <span id="offer-count">{{ ns.offers }}</span> Angebote, <span id="shop-count">–</span> Shop-Profile belegt.<br>Overrides in diesem Job: <span id="ovcount">0</span></div>
+        <button class="btn small" type="button" id="check-prices">Preise prüfen</button>
+        <div id="refresh-view" class="refreshbox" hidden></div>
+      </div>
     </aside>
   </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/job-matrix.js?v=6" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/job-matrix.js?v=7" defer></script>{% endblock %}

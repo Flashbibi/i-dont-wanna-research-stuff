@@ -960,7 +960,7 @@ def test_the_browser_shows_currency_evidence_pickup_and_no_quick_action_for_only
     assert "waehrung_beleg" in script
     assert '<div class="fx">' in script and ".fx {" in css
     assert 'id="currency-toggle"' in page
-    assert 'job-matrix.js?v=6' in page
+    assert 'job-matrix.js?v=7' in page
     assert "currencyMode" in script
     assert "versandOriginalText" in script
     assert "versand_kurs" in script
