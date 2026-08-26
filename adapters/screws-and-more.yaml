@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: screws-and-more
+domain: screwsandmore.de
+notes: >
+  Shopware product pages. Selectors target the primary product-detail panel;
+  recommendation-carousel products and prices are excluded.
+product:
+  url_pattern: "^https://(www\\.)?screwsandmore\\.de/[a-z0-9][a-z0-9.-]*/[0-9]+[a-z]{2}$"
+  fields:
+    produktname:
+      selector: "main h1.product-detail-name"
+    preis:
+      selector: "main p.product-detail-price"
+      parse: price
+    lager_text:
+      selector: "main .product-detail-delivery-information .delivery-information"
+      optional: true
+    artikelnummer:
+      selector: "main .product-detail-ordernumber"
+      optional: true

@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: modellmarkt24
+domain: modellmarkt24.ch
+notes: >
+  Product fields are scoped to the article-information region. The current
+  price selector excludes the separate hidden strike-through price.
+product:
+  url_pattern: "^https://(www\\.)?modellmarkt24\\.ch/de/produkt/[a-z0-9][a-z0-9-]*$"
+  fields:
+    produktname:
+      selector: "[aria-label='Artikelinformationen'] h1.heading-2"
+    preis:
+      selector: "[aria-label='Artikelinformationen'] #artikel_preis"
+      parse: price
+    artikelnummer:
+      selector: "[aria-label='Artikelinformationen'] #artikelnummer_wert"
+      attribute: "content"
+      optional: true

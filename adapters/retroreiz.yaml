@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: retroreiz
+domain: retroreiz.de
+notes: >
+  WooCommerce product pages. Sale products select only the price inside `ins`;
+  regular products select the direct amount child. Cross-sell card prices and
+  struck-through `del` prices are excluded.
+product:
+  url_pattern: "^https://(www\\.)?retroreiz\\.de/shop/[a-z0-9][a-z0-9/-]*/$"
+  fields:
+    produktname:
+      selector: "main h1.product_title"
+    preis:
+      selector: "main .single-product-page p.price ins .woocommerce-Price-amount, main .single-product-page p.price > .woocommerce-Price-amount"
+      parse: price

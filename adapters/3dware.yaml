@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: 3dware
+domain: 3dware.ch
+notes: >
+  Product detail pages use a dedicated quick-view detail container. All fields
+  are scoped there to avoid accessory and recommendation prices.
+product:
+  url_pattern: "^https://(www\\.)?3dware\\.ch/de/(?:[a-z0-9-]+/)+(?=[a-z0-9-]*[0-9]{8})[a-z0-9-]+$"
+  fields:
+    produktname:
+      selector: ".products-detail-section .quickview-product-detail h2.box-title"
+    preis:
+      selector: ".products-detail-section .quickview-product-detail h3.box-price"
+      parse: price
+    lager_text:
+      selector: ".products-detail-section .quickview-product-detail p.stock"
+      optional: true

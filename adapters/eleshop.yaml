@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: eleshop
+domain: eleshop.de
+notes: >
+  Product pages expose gross and net prices separately. Only the gross price
+  inside the primary order box is selected.
+product:
+  url_pattern: "^https://(www\\.)?eleshop\\.de/[a-z0-9][a-z0-9-]*\\.html$"
+  fields:
+    produktname:
+      selector: ".product-name.page-header h1"
+    preis:
+      selector: "#price-order-box .price-including-tax > .price"
+      parse: price

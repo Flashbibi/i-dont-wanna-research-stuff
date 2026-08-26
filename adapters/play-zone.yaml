@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: play-zone
+domain: play-zone.ch
+notes: >
+  Magento product pages. Price and availability are scoped to the primary
+  product offer; related-product prices are excluded.
+product:
+  url_pattern: "^https://(www\\.)?play-zone\\.ch/de/[a-z0-9][a-z0-9-]*\\.html$"
+  fields:
+    produktname:
+      selector: "h1[itemprop=name]"
+    preis:
+      selector: "[itemprop=offers] .price-box .price"
+      parse: price
+    lager_text:
+      selector: "[itemprop=offers] .availability"
+      optional: true
+    artikelnummer:
+      selector: ".product-shop .sku"
+      regex: "Artikelnummer:\\s*(.+)"
+      optional: true

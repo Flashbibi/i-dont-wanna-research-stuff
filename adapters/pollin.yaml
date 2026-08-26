@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: pollin
+domain: pollin.de
+notes: >
+  Shopware product pages. The current product-detail price excludes the
+  separate list-price wrapper used for crossed-out prices.
+product:
+  url_pattern: "^https://(www\\.)?pollin\\.de/p/[a-z0-9][a-z0-9-]*-[0-9]+$"
+  fields:
+    produktname:
+      selector: "h1.product-detail-name"
+    preis:
+      selector: ".product-detail-buy p.product-detail-price"
+      parse: price
+    lieferzeit_text:
+      selector: ".product-detail-buy .delivery-status-text"
+      optional: true
+    artikelnummer:
+      selector: ".product-detail-buy [itemprop=sku]"
+      optional: true

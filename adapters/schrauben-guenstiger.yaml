@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: schrauben-guenstiger
+domain: schrauben-guenstiger.de
+notes: >
+  Gambio product pages. The current-price container repeats the same amount as
+  a packaging-unit price; an anchored regex keeps only the first selling price.
+product:
+  url_pattern: "^https://(www\\.)?schrauben-guenstiger\\.de/[A-Za-z0-9][A-Za-z0-9/-]*\\.html$"
+  fields:
+    produktname:
+      selector: "h1.product-info-title-desktop"
+    preis:
+      selector: "form .current-price-container"
+      regex: "^\\s*([0-9.,]+\\s*EUR)"
+      parse: price
+    lieferzeit_text:
+      selector: ".products-shipping-time-value"
+      optional: true

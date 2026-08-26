@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: cnc-kitchen
+domain: cnckitchen.store
+notes: >
+  Shopify product pages. The current regular price is scoped to the main
+  product-information container; product-card and crossed-out prices are excluded.
+product:
+  url_pattern: "^https://cnckitchen\\.store/products/[a-z0-9][a-z0-9-]*$"
+  fields:
+    produktname:
+      selector: "product-info .product__info-container .product__title h1"
+    preis:
+      selector: "product-info .product__info-container .price__regular .price-item--regular"
+      parse: price

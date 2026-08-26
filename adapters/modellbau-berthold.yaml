@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: modellbau-berthold
+domain: modellbau-berthold.de
+notes: >
+  Product pages duplicate the price in an accessibility-only span. The selector
+  reads only the visible tested price element.
+product:
+  url_pattern: "^https://(www\\.)?modellbau-berthold\\.de/p/[a-z0-9][a-z0-9-]*$"
+  fields:
+    produktname:
+      selector: "main h1.product-info-title"
+    preis:
+      selector: "main [data-testid=product-price]"
+      parse: price
+    lieferzeit_text:
+      selector: "main .product-delivery"
+      optional: true
+    lager_text:
+      selector: "main .product-availability-info"
+      optional: true
+    artikelnummer:
+      selector: "meta[itemprop=sku]"
+      attribute: "content"
+      optional: true

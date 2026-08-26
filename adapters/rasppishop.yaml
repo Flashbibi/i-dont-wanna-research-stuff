@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: rasppishop
+domain: rasppishop.de
+notes: >
+  JTL product pages. Price selection is restricted to the large primary price;
+  recommendation-card prices are excluded.
+product:
+  url_pattern: "^https://(www\\.)?rasppishop\\.de/[A-Za-z0-9][A-Za-z0-9-]*$"
+  fields:
+    produktname:
+      selector: "main h1.product-title[itemprop=name]"
+    preis:
+      selector: "main .product-info .price.large > span"
+      parse: price
+    artikelnummer:
+      selector: "main [itemprop=sku]"
+      optional: true

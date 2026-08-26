@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: octopus-office
+domain: octopus-office.de
+notes: >
+  JTL product pages. Selectors stay within the primary product information area
+  and exclude unit prices and recommendation cards.
+product:
+  url_pattern: "^https://(www\\.)?octopus-office\\.de/shop/de/[a-z0-9][a-z0-9/-]*/[0-9]+/[a-z0-9][a-z0-9-]*$"
+  fields:
+    produktname:
+      selector: ".product-info h1.product-title"
+    preis:
+      selector: ".product-info .price_wrapper .price > span"
+      parse: price
+    lieferzeit_text:
+      selector: ".product-info .stock-information .estimated_delivery"
+      optional: true
+    lager_text:
+      selector: ".product-info .stock-information .status > span"
+      optional: true
+    artikelnummer:
+      selector: ".product-info [itemprop=sku]"
+      optional: true

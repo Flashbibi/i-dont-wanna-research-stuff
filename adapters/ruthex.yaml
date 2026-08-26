@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: ruthex
+domain: ruthex.de
+notes: >
+  Shopify product pages. The current single-pack price is selected from the
+  primary form; quantity-discount buttons are outside this selector.
+product:
+  url_pattern: "^https://(www\\.)?ruthex\\.de/products/[a-z0-9][a-z0-9-]*$"
+  fields:
+    produktname:
+      selector: "main h1.product-meta__title"
+    preis:
+      selector: "main .product-form__info-list .price-list > span.price"
+      parse: price

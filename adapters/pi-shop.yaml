@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: pi-shop
+domain: pi-shop.ch
+notes: >
+  Magento product pages. Price and availability selectors stay inside the
+  schema.org Offer block; the product number comes from product metadata.
+product:
+  url_pattern: "^https://(www\\.)?pi-shop\\.ch/[a-z0-9][a-z0-9-]*$"
+  fields:
+    produktname:
+      selector: "h1[itemprop=name]"
+    preis:
+      selector: "[itemprop=offers] .price-box .price"
+      parse: price
+    lager_text:
+      selector: "[itemprop=offers] p.availability"
+      optional: true
+    artikelnummer:
+      selector: "meta[itemprop=productID]"
+      attribute: "content"
+      regex: "sku:(.+)"
+      optional: true

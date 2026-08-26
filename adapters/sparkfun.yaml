@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: sparkfun
+domain: sparkfun.com
+notes: >
+  Magento product pages. Fields are scoped to the primary product-information
+  panel; recommendation-carousel prices are excluded.
+product:
+  url_pattern: "^https://(www\\.)?sparkfun\\.com/[a-z0-9][a-z0-9-]*\\.html$"
+  fields:
+    produktname:
+      selector: "main h1.page-title .base"
+    preis:
+      selector: ".product-info-main .price-box .price-wrapper .price"
+      parse: price
+    lager_text:
+      selector: ".product-info-main .stock.available > span"
+      optional: true
+    artikelnummer:
+      selector: ".product-info-main .product.attribute.sku .value"
+      optional: true
