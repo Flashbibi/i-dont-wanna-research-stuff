@@ -14,6 +14,27 @@ from psycopg.types.json import Jsonb
 from .jobs import BomInputLine
 
 
+#: Marker, an dem jede Zeile des E2E-Testgraphen als Testdatum erkennbar ist.
+E2E_MARKER = "[E2E-TEST]"
+
+#: Wegwerf-Shops, mit denen ein Testjob sich selbst versorgt, wenn die Instanz
+#: noch keine drei kennt. ``.invalid`` ist per RFC 2606 garantiert unauflösbar:
+#: kein Abruf kann versehentlich bei einem echten Shop landen.
+E2E_SHOP_DOMAIN_SUFFIX = ".invalid"
+E2E_SHOPS = (
+    (f"{E2E_MARKER} Shop A", f"e2e-a{E2E_SHOP_DOMAIN_SUFFIX}"),
+    (f"{E2E_MARKER} Shop B", f"e2e-b{E2E_SHOP_DOMAIN_SUFFIX}"),
+    (f"{E2E_MARKER} Shop C", f"e2e-c{E2E_SHOP_DOMAIN_SUFFIX}"),
+)
+
+#: Versandpauschale und Standard-Lieferzeit der Wegwerf-Shops. Zahlen, mit denen
+#: der Optimierer rechnen kann: gross genug, dass ein Plan mit zwei Shops teurer
+#: ist als einer mit einem, klein genug, dass die Preise der Testangebote noch
+#: etwas ausmachen.
+E2E_SHOP_VERSAND_CHF = Decimal("5.00")
+E2E_SHOP_LIEFERZEIT_TAGE = 5
+
+
 def decode_database_value(value):
     return value.decode("utf-8") if isinstance(value, bytes) else value
 
@@ -153,15 +174,7 @@ class PostgresRepository:
         """Create one isolated matrix/browser-test graph with no real-job writes."""
         with self._connect() as connection:
             with connection.transaction():
-                shops = connection.execute(
-                    """
-                    SELECT id FROM shop
-                    WHERE status <> 'gesperrt'
-                    ORDER BY id LIMIT 3
-                    """
-                ).fetchall()
-                if len(shops) < 3:
-                    raise ValueError("Für den Matrix-E2E-Test sind drei Shops erforderlich")
+                shop_ids, created_shop_ids = self._e2e_shops(connection)
                 job = connection.execute(
                     """
                     INSERT INTO job(quelltext, status, is_test)
@@ -213,7 +226,7 @@ class PostgresRepository:
                             """,
                             (
                                 lines[line_index]["id"],
-                                shops[shop_index]["id"],
+                                shop_ids[shop_index],
                                 f"[E2E-TEST] {product}",
                                 url,
                                 url,
@@ -228,8 +241,78 @@ class PostgresRepository:
                     "offer_id": int(offers[0]["id"]),
                     "offer_ids": [int(row["id"]) for row in offers],
                     "line_ids": [int(row["id"]) for row in lines],
+                    "shop_ids": shop_ids,
+                    "created_shop_ids": created_shop_ids,
                     "marker": "[E2E-TEST]",
                 }
+
+    @staticmethod
+    def _e2e_shops(connection) -> tuple[list[int], list[int]]:
+        """Drei nicht gesperrte Shops für den Testgraphen besorgen.
+
+        Auf einer befüllten Instanz sind sie längst da; dann liest diese Methode
+        nur und schreibt keine Zeile. Auf einer frischen Datenbank fehlen sie -
+        und ein Klickpfad, der daran scheitert, prüft nicht die Anwendung,
+        sondern den Füllstand der Datenbank. Also legt der Testjob die fehlenden
+        selbst an: im Namen als erfunden erkennbar, unter ``.invalid``
+        unerreichbar, und mit denselben Provenienzangaben, die die Datenbank von
+        jedem echten Shop verlangt.
+
+        Zurück kommen die IDs der drei benutzten Shops und, davon getrennt, die
+        der eben angelegten - Letztere räumt ``delete_e2e_test_job`` wieder ab.
+        """
+        vorhanden = connection.execute(
+            """
+            SELECT id FROM shop
+            WHERE status <> 'gesperrt'
+            ORDER BY id LIMIT 3
+            """
+        ).fetchall()
+        shop_ids = [int(row["id"]) for row in vorhanden]
+        if len(shop_ids) >= 3:
+            return shop_ids, []
+        # Ohne Ziel gilt im Optimierer Heimat; das CH-Ziel legt Migration 012 an.
+        ziel = connection.execute(
+            "SELECT id FROM lieferziel WHERE land = 'CH' ORDER BY id LIMIT 1"
+        ).fetchone()
+        angelegt: list[int] = []
+        for name, domain in E2E_SHOPS:
+            if len(shop_ids) >= 3:
+                break
+            # Name und Domain sind eindeutig. Wer schon dasteht, ist entweder
+            # oben mitgezählt oder gesperrt - beides lässt ihn hier in Ruhe.
+            if connection.execute(
+                "SELECT 1 FROM shop WHERE name = %s OR domain = %s", (name, domain)
+            ).fetchone():
+                continue
+            shop = connection.execute(
+                """
+                INSERT INTO shop(
+                    name, url, domain, land, status, lieferziel_id,
+                    versand_chf, versand_original, versand_waehrung, versand_kurs,
+                    lieferzeit_default_tage, versand_text, profil_quelle_url
+                ) VALUES (%s, %s, %s, 'CH', 'bestaetigt', %s,
+                          %s, %s, 'CHF', 1,
+                          %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    name,
+                    f"https://{domain}/",
+                    domain,
+                    None if ziel is None else int(ziel["id"]),
+                    E2E_SHOP_VERSAND_CHF,
+                    E2E_SHOP_VERSAND_CHF,
+                    E2E_SHOP_LIEFERZEIT_TAGE,
+                    f"{E2E_MARKER} Pauschale CHF {E2E_SHOP_VERSAND_CHF} - erfundener Testversand",
+                    f"https://e2e.invalid/shops/{domain}/versand",
+                ),
+            ).fetchone()
+            shop_ids.append(int(shop["id"]))
+            angelegt.append(int(shop["id"]))
+        if len(shop_ids) < 3:
+            raise ValueError("Für den Matrix-E2E-Test sind drei Shops erforderlich")
+        return shop_ids, angelegt
 
     def delete_e2e_test_job(self, job_id: int) -> dict[str, Any]:
         """Delete only a job carrying the database test marker and its artifacts."""
@@ -265,7 +348,26 @@ class PostgresRepository:
                 )
                 connection.execute("DELETE FROM bom_line WHERE job_id = %s", (job_id,))
                 connection.execute("DELETE FROM job WHERE id = %s AND is_test", (job_id,))
-                return {"job_id": job_id, "deleted": True}
+                # Die selbst angelegten Wegwerf-Shops hinterher, erkennbar an
+                # Marker UND ``.invalid``-Domain. Der Wächter ist bewusst
+                # strenger als «kein echtes Angebot mehr»: zeigt noch
+                # irgendein Angebot auf den Shop, benutzt ihn ein zweiter
+                # Testjob - der behält ihn dann.
+                shops = connection.execute(
+                    """
+                    DELETE FROM shop s
+                    WHERE starts_with(s.name, %s)
+                      AND s.domain LIKE %s
+                      AND NOT EXISTS (SELECT 1 FROM offer o WHERE o.shop_id = s.id)
+                    RETURNING s.id
+                    """,
+                    (E2E_MARKER, f"%{E2E_SHOP_DOMAIN_SUFFIX}"),
+                ).fetchall()
+                return {
+                    "job_id": job_id,
+                    "deleted": True,
+                    "deleted_shop_ids": [int(row["id"]) for row in shops],
+                }
 
     def get_job(self, job_id: int) -> dict[str, Any] | None:
         with self._connect() as connection:

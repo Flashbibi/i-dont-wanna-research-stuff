@@ -169,6 +169,12 @@ Der Browser-Klickpfad (`tests/e2e/decision_click.mjs`) legt sich über
 `/api/e2e/jobs` einen eigenen, als `[E2E-TEST]` markierten Wegwerf-Job an und
 räumt ihn wieder ab. Er fasst reale Jobs nicht an.
 
+Kennt eine Instanz noch keine drei Shops, legt `/api/e2e/jobs` auch die
+fehlenden selbst an — `[E2E-TEST] Shop A/B/C` unter `.invalid`, mit denselben
+Provenienzangaben wie jeder echte Shop. Der Cleanup nimmt sie wieder mit,
+sobald kein Angebot mehr auf sie zeigt. Auf einer befüllten Instanz ändert sich
+dadurch nichts.
+
 ## Shop adapters
 
 Ein Shop-Adapter ist eine YAML-Datei mit CSS-Selektoren; die Engine holt die
