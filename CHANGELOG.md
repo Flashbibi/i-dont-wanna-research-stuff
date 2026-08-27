@@ -44,6 +44,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already behaved. Provenance is evidence that cannot be re-derived later.
 - A URL carrying credentials is refused wherever a URL is validated, including
   the password-only form that used to slip through.
+- The fetch layer reads up to 5 MB of a page instead of 2 MB. The ceiling is
+  self-protection against a shop that never stops sending, and it was set too
+  tight: BerryBase serves product pages above 2 MB and was locked out by our
+  own guard, not by the shop.
+- A delivery time stated in weeks is read as days - "1-2 Wochen" is 14 days,
+  not "unknown", so the planner stops charging the unknown-delivery penalty for
+  a page that says it plainly. Where a page names both, the day figure still
+  wins. English patterns are deliberately still not read.
+
+### Fixed
+
+- The E2E setup endpoint supplies its own throwaway shops when an instance
+  knows fewer than three, so the click paths no longer fail on a fresh database
+  with an HTTP 422 about missing shops. The cleanup takes those shops back out
+  once no offer points at them.
 
 ## [0.1.0] - 2026-08-21
 
