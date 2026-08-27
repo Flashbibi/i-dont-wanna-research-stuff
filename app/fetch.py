@@ -58,7 +58,11 @@ DEFAULT_MIN_DELAY_S = 5.0
 TIMEOUT_S = 10.0
 
 #: Eine Produktseite ist kleiner. Alles darüber lesen wir nicht zu Ende.
-MAX_BYTES = 2_000_000
+#: Die Grenze ist Selbstschutz gegen einen Shop, der nicht aufhört zu senden -
+#: und war mit 2 MB zu eng gesteckt: BerryBase liefert seine Produktseiten
+#: darüber und wurde von unserem eigenen Schutz ausgesperrt, obwohl der Shop
+#: nichts dagegen hatte.
+MAX_BYTES = 5_000_000
 
 #: Eine Handvoll Weiterleitungen ist normal, eine Kette davon nicht. Gezählt
 #: werden sie hier selbst, denn jeder Sprung ist ein eigener Request und muss

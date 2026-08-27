@@ -431,7 +431,7 @@ def test_an_oversized_page_is_not_read_to_the_end(uhr, monkeypatch):
     with pytest.raises(fetch.FetchAbgelehnt) as fehler:
         fetch.hole_seite(PRODUKT_URL)
 
-    assert "Seite grösser als 2 MB" in str(fehler.value)
+    assert "Seite grösser als 5 MB" in str(fehler.value)
     # Abgebrochen wird im Stream, nicht nach dem vollständigen Herunterladen.
     assert sum(geliefert) <= fetch.MAX_BYTES + haeppchen
 

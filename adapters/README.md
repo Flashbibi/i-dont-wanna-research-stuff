@@ -201,7 +201,7 @@ there is no second way past it:
 - **An honest user agent**, naming the tool, its version and the URL where you
   can read what it does. A URL carrying credentials is refused outright — they
   would travel as a `Basic` header and end up stored in the offer row.
-- **At most 2 MB per page**, counted on the wire. Answers are requested
+- **At most 5 MB per page**, counted on the wire. Answers are requested
   uncompressed for exactly that reason: a compressed stream is only measurable
   after unpacking, and a shop could otherwise push unlimited bytes while the
   limit never moves. A response that arrives compressed anyway is refused.
