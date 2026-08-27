@@ -14,6 +14,9 @@ product:
     preis:
       selector: ".product-detail-buy .product-detail-price-container:not(.buybox-floating-inner-container) .product-detail-price"
       parse: price
+    lieferzeit_text:
+      selector: ".product-detail-buy .delivery-information"
+      optional: true
     lager_text:
       selector: ".product-detail-buy .delivery-information"
       optional: true
