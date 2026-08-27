@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Flashbibi
+schema: 1
+id: berrybase-ch
+domain: berrybase.ch
+notes: >
+  Shopware product pages. Fields are scoped to the primary buy box so accessory,
+  recommendation and floating-buy-box prices are excluded.
+product:
+  url_pattern: "^https://(www\\.)?berrybase\\.ch/(?!(?:search|checkout|account)$)[a-z0-9][a-z0-9-]*$"
+  fields:
+    produktname:
+      selector: ".product-detail-buy h1"
+    preis:
+      selector: ".product-detail-buy .product-detail-price-container:not(.buybox-floating-inner-container) .product-detail-price"
+      parse: price
+    lager_text:
+      selector: ".product-detail-buy .delivery-information"
+      optional: true
