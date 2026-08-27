@@ -52,6 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not "unknown", so the planner stops charging the unknown-delivery penalty for
   a page that says it plainly. Where a page names both, the day figure still
   wins. English patterns are deliberately still not read.
+- The BerryBase adapters read the delivery time as well, not only the stock
+  text. Both stand in one sentence in the buy box ("Sofort verfügbar · 100+
+  Stück · 1-3 Tage"), so the same element feeds both fields and the planner
+  gets a delivery figure instead of an unknown.
 
 ### Fixed
 
@@ -59,6 +63,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   knows fewer than three, so the click paths no longer fail on a fresh database
   with an HTTP 422 about missing shops. The cleanup takes those shops back out
   once no offer points at them.
+- The manual-capture click path no longer trips over the console echo of its
+  own expected 422. Chromium mirrors the engine's refusal as a console error,
+  and the path demanded of one and the same answer that it arrive and that it
+  not arrive; only that one echo is dropped now, every other console error
+  still turns the run red. Its evidence JSON is printed even when an assertion
+  aborts - which is precisely when it is needed.
 
 ## [0.1.0] - 2026-08-21
 
