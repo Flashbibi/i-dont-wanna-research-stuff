@@ -19,9 +19,23 @@ const profile = process.env.BROWSER_PROFILE || '/home/hermes/.local/share/bescha
 let testJob = null;
 let context = null;
 
+// Setup und Cleanup sind das Gerüst, nicht der Prüfgegenstand - und genau
+// deshalb müssen sie laut scheitern. Ein blosses «HTTP 422» hat einmal einen
+// halben Tag gekostet: die Antwort nannte den Grund, der Pfad druckte ihn nur
+// nicht. Also erst Status und Körper zeigen, dann abbrechen.
+async function erwarteAntwort(antwort, erwartet, was) {
+  if (!antwort.ok) {
+    const koerper = await antwort.text().catch(fehler => `<Körper nicht lesbar: ${fehler.message}>`);
+    console.error(`${was}: HTTP ${antwort.status} ${antwort.statusText}`);
+    console.error(`Antwortkörper: ${koerper}`);
+    assert.fail(`${was}: HTTP ${antwort.status} - ${koerper}`);
+  }
+  assert.equal(antwort.status, erwartet, `${was}: unerwarteter HTTP ${antwort.status}`);
+}
+
 try {
   const setup = await fetch(`${baseUrl}/api/e2e/jobs`, {method: 'POST', headers: markerHeaders});
-  assert.equal(setup.status, 201, `Test-Job konnte nicht angelegt werden: HTTP ${setup.status}`);
+  await erwarteAntwort(setup, 201, 'Test-Job konnte nicht angelegt werden');
   testJob = await setup.json();
   assert.equal(testJob.marker, '[E2E-TEST]');
   const {job_id: jobId, line_ids: lineIds} = testJob;
@@ -127,6 +141,6 @@ try {
   if (context) await context.close();
   if (testJob) {
     const cleanup = await fetch(`${baseUrl}/api/e2e/jobs/${testJob.job_id}`, {method: 'DELETE', headers: markerHeaders});
-    assert.equal(cleanup.status, 200, `Test-Job-Cleanup fehlgeschlagen: HTTP ${cleanup.status}`);
+    await erwarteAntwort(cleanup, 200, 'Test-Job-Cleanup fehlgeschlagen');
   }
 }
