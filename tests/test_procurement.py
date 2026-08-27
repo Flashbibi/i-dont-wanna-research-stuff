@@ -413,6 +413,30 @@ def test_delivery_text_parser_uses_conservative_range_upper_bound():
     assert parse_delivery_upper_days(None) is None
 
 
+@pytest.mark.parametrize(
+    "text, erwartet",
+    [
+        # Screws & More schreibt genau das, und es fiel bisher auf None.
+        # (Der gebündelte Adapter liest den Satz in den Lagertext - das ist
+        # eine Frage des Adapters, nicht des Parsers.)
+        ("Lieferzeit: 1-2 Wochen", 14),
+        ("1-2 Wochen", 14),
+        ("1 Woche", 7),
+        ("ca. 2 Wochen", 14),
+        ("Lieferung in 1 bis 3 Wochen", 21),
+        # Nennt ein Shop beides, ist die Tagesangabe die genauere.
+        ("2-3 Tage ab Lager, sonst 1-2 Wochen", 3),
+        ("1-2 Wochen, ab Lager 2 Tage", 2),
+        # Kein Wochenmuster: «Wochenende» ist keine Lieferdauer.
+        ("Versand ab 2 Wochenenden", None),
+        # Englisch bleibt ausdrücklich draussen.
+        ("2-3 weeks", None),
+    ],
+)
+def test_delivery_text_parser_reads_weeks_but_lets_days_win(text, erwartet):
+    assert parse_delivery_upper_days(text) == erwartet
+
+
 def test_record_offer_stores_literal_source_text_and_parsed_upper_bound():
     procurement = service()
 

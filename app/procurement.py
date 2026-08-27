@@ -169,20 +169,36 @@ def _deckt_domain(host: str, shop_domain: str) -> bool:
     return host == shop_domain or host.endswith("." + shop_domain)
 
 
-def parse_delivery_upper_days(text: str | None) -> int | None:
-    """Parse an explicit day count using the conservative range upper bound."""
-    if not text or not text.strip():
-        return None
-    day_word = r"(?:Arbeits|Werk)?tag(?:e|en)?"
+def _obere_grenze(text: str, einheit: str) -> int | None:
+    """Grösste genannte Zahl vor einer Zeiteinheit; Bereiche zählen nach oben."""
     range_match = re.search(
-        rf"\b(\d+)\s*(?:-|–|—|bis)\s*(\d+)\s*{day_word}\b",
+        rf"\b(\d+)\s*(?:-|–|—|bis)\s*(\d+)\s*{einheit}\b",
         text,
         re.IGNORECASE,
     )
     if range_match:
         return max(int(range_match.group(1)), int(range_match.group(2)))
-    single_match = re.search(rf"\b(\d+)\s*{day_word}\b", text, re.IGNORECASE)
+    single_match = re.search(rf"\b(\d+)\s*{einheit}\b", text, re.IGNORECASE)
     return int(single_match.group(1)) if single_match else None
+
+
+def parse_delivery_upper_days(text: str | None) -> int | None:
+    """Genannte Lieferdauer in Tagen lesen, Bereiche konservativ nach oben.
+
+    Tage werden zuerst gesucht und gewinnen: nennt ein Shop beides («2-3 Tage,
+    sonst 1-2 Wochen»), ist die Tagesangabe die genauere. Wochen werden mal
+    sieben genommen - «1-2 Wochen» sind hier 14 Tage, nicht «unbekannt». Bisher
+    fiel genau das durch und der Optimierer verhängte den Unbekannt-Malus,
+    obwohl die Auskunft auf der Seite stand. Englische Muster liest diese
+    Funktion bewusst nicht.
+    """
+    if not text or not text.strip():
+        return None
+    tage = _obere_grenze(text, r"(?:Arbeits|Werk)?tag(?:e|en)?")
+    if tage is not None:
+        return tage
+    wochen = _obere_grenze(text, r"Woche(?:n)?")
+    return None if wochen is None else wochen * 7
 
 
 class ProcurementService:
