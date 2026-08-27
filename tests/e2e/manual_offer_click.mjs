@@ -18,6 +18,7 @@ const executablePath = process.env.CHROME_BIN || '/home/hermes/.local/share/besc
 const profile = process.env.BROWSER_PROFILE || '/home/hermes/.local/share/beschaffung-browser/e2e-profile';
 let testJob = null;
 let context = null;
+let evidence = null;
 
 // Setup und Cleanup sind das Gerüst, nicht der Prüfgegenstand - und genau
 // deshalb müssen sie laut scheitern. Ein blosses «HTTP 422» hat einmal einen
@@ -56,12 +57,25 @@ try {
 
   context = await chromium.launchPersistentContext(profile, {headless: true, executablePath});
   const page = await context.newPage();
-  const evidence = {
+  evidence = {
     baseUrl, testJobId: jobId, marker: testJob.marker, produktUrl,
     consoleErrors: [], failedRequests: [], badResponses: [],
     fetchResponses: [], recordResponses: [],
   };
-  page.on('console', message => { if (message.type() === 'error') evidence.consoleErrors.push(message.text()); });
+  // Chromium spiegelt die erwartete 422 des Engine-Versuchs zusätzlich als
+  // Konsolenfehler («Failed to load resource: ... 422 ...»). Genau dieses eine
+  // Echo wird verworfen: die 422 ist weiter unten Prüfgegenstand, kein Befund -
+  // sie hier zusätzlich als Konsolenfehler zu zählen, verlangte von derselben
+  // Antwort gleichzeitig, dass sie kommt und dass sie nicht kommt. Jeder andere
+  // Konsolenfehler bleibt scharf.
+  const istErwartetesEcho = message =>
+    (message.location()?.url || '').endsWith('/offers/fetch')
+    && message.text().includes('422');
+  page.on('console', message => {
+    if (message.type() === 'error' && !istErwartetesEcho(message)) {
+      evidence.consoleErrors.push(message.text());
+    }
+  });
   page.on('pageerror', error => evidence.consoleErrors.push(error.message));
   page.on('requestfailed', request => evidence.failedRequests.push({url: request.url(), error: request.failure()?.errorText}));
   page.on('response', response => {
@@ -136,8 +150,11 @@ try {
   assert.deepEqual(evidence.badResponses, []);
   assert.deepEqual(evidence.fetchResponses, [422]);
   assert.deepEqual(evidence.recordResponses, [200]);
-  console.log(JSON.stringify(evidence));
 } finally {
+  // Genau einmal, und im finally: bricht eine Assertion ab, ist die Evidence
+  // das Einzige, woran sich der Lauf nachvollziehen lässt - im try gedruckt
+  // wäre sie in genau dem Fall weg, in dem man sie braucht.
+  if (evidence) console.log(JSON.stringify(evidence));
   if (context) await context.close();
   if (testJob) {
     const cleanup = await fetch(`${baseUrl}/api/e2e/jobs/${testJob.job_id}`, {method: 'DELETE', headers: markerHeaders});
