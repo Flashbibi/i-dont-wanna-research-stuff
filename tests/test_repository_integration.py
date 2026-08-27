@@ -36,6 +36,7 @@ DEV_URL = os.environ.get(
 )
 TEST_DB = "beschaffung_integration"
 MIGRATION_TEST_DB = "beschaffung_migration_016"
+E2E_TEST_DB = "beschaffung_e2e_shops"
 
 
 def _admin_url() -> str:
@@ -514,3 +515,131 @@ def test_deleting_a_stock_fulfilled_job_refunds_stock_and_preserves_history(serv
             (3, "rueckbuchung_job_geloescht", None, f"Rückbuchung: Job {job['job_id']} gelöscht"),
         ]
         _assert_stock_invariant(connection)
+
+
+@pytest.fixture
+def frische_datenbank():
+    """Eine eigene, frisch migrierte Datenbank pro Test.
+
+    Der Füllstand der Shoptabelle ist in den folgenden Tests der Prüfgegenstand.
+    Die Modul-Datenbank oben taugt dafür nicht: sie ist zu diesem Zeitpunkt
+    voller Shops aus den Tests davor, und «leer» wäre dort eine Frage der
+    Reihenfolge statt eine Zusicherung.
+    """
+    try:
+        with psycopg.connect(_admin_url(), connect_timeout=3, autocommit=True) as admin:
+            admin.execute(f'DROP DATABASE IF EXISTS "{E2E_TEST_DB}"')
+            admin.execute(f'CREATE DATABASE "{E2E_TEST_DB}"')
+    except Exception as error:  # noqa: BLE001 - ohne DB wird uebersprungen
+        pytest.skip(f"Kein erreichbares Postgres für Integrationstests: {error}")
+
+    run_migrations(_database_url(E2E_TEST_DB))
+    yield PostgresRepository(_database_url(E2E_TEST_DB))
+
+    with psycopg.connect(_admin_url(), connect_timeout=5, autocommit=True) as admin:
+        admin.execute(f'DROP DATABASE IF EXISTS "{E2E_TEST_DB}"')
+
+
+def test_a_test_job_supplies_its_own_shops_when_the_table_is_empty(frische_datenbank):
+    """Der Klickpfad endete auf frischer Datenbank in HTTP 422 - hier nicht mehr."""
+    repository = frische_datenbank
+    assert repository.list_shops() == []
+
+    testjob = repository.create_e2e_test_job()
+
+    shops = repository.list_shops()
+    assert [shop["name"] for shop in shops] == [
+        "[E2E-TEST] Shop A",
+        "[E2E-TEST] Shop B",
+        "[E2E-TEST] Shop C",
+    ]
+    assert [shop["domain"] for shop in shops] == [
+        "e2e-a.invalid",
+        "e2e-b.invalid",
+        "e2e-c.invalid",
+    ]
+    assert testjob["created_shop_ids"] == [shop["id"] for shop in shops]
+    for shop in shops:
+        # Provenienz gilt auch für Wegwerfdaten: wo ein Versandwert steht,
+        # stehen der wörtliche Text und seine Quelle daneben.
+        assert shop["status"] == "bestaetigt"
+        assert shop["versand_text"].startswith("[E2E-TEST]")
+        assert shop["profil_quelle_url"].startswith("https://e2e.invalid/")
+        assert shop["versand_chf"] == shop["versand_original"] == Decimal("5.00")
+        assert shop["versand_waehrung"] == "CHF"
+        assert shop["lieferziel_land"] == "CH"
+
+    # Und der Testgraph steht: der Optimierer rechnet mit diesen Shops, und die
+    # Pläne nennen die Shop-URL, an der der Klickpfad weitermacht.
+    plaene = ProcurementService(repository).plan_scenarios(testjob["job_id"], tempo=0.5)
+    urls = [shop["url"] for plan in plaene["scenarios"] for shop in plan["shops"]]
+    assert plaene["scenarios"] and urls
+    assert all(url.endswith(".invalid/") for url in urls)
+
+
+def test_deleting_a_test_job_takes_its_disposable_shops_with_it(frische_datenbank):
+    repository = frische_datenbank
+    testjob = repository.create_e2e_test_job()
+
+    ergebnis = repository.delete_e2e_test_job(testjob["job_id"])
+
+    assert ergebnis["deleted"] is True
+    assert sorted(ergebnis["deleted_shop_ids"]) == sorted(testjob["created_shop_ids"])
+    assert repository.list_shops() == []
+    assert repository.get_job(testjob["job_id"]) is None
+
+
+def test_a_second_test_job_keeps_the_shared_disposable_shops_alive(frische_datenbank):
+    """Zwei Testjobs teilen sich die Wegwerf-Shops; der erste Cleanup lässt sie stehen."""
+    repository = frische_datenbank
+    erster = repository.create_e2e_test_job()
+    zweiter = repository.create_e2e_test_job()
+
+    assert zweiter["created_shop_ids"] == []
+    assert zweiter["shop_ids"] == erster["shop_ids"]
+
+    assert repository.delete_e2e_test_job(erster["job_id"])["deleted_shop_ids"] == []
+    assert [shop["id"] for shop in repository.list_shops()] == erster["shop_ids"]
+
+    aufgeraeumt = repository.delete_e2e_test_job(zweiter["job_id"])
+    assert sorted(aufgeraeumt["deleted_shop_ids"]) == sorted(erster["created_shop_ids"])
+    assert repository.list_shops() == []
+
+
+def test_only_the_missing_shops_are_created_and_only_those_are_removed(frische_datenbank):
+    """Ein echter Shop steht schon da: dann kommen zwei dazu, nicht drei."""
+    repository = frische_datenbank
+    echter = _create_shop(ProcurementService(repository), "echt")
+
+    testjob = repository.create_e2e_test_job()
+
+    assert len(testjob["created_shop_ids"]) == 2
+    assert testjob["shop_ids"][0] == echter["id"]
+    assert [
+        shop["domain"] for shop in repository.list_shops()
+        if shop["domain"].endswith(".invalid")
+    ] == ["e2e-a.invalid", "e2e-b.invalid"]
+
+    ergebnis = repository.delete_e2e_test_job(testjob["job_id"])
+
+    assert sorted(ergebnis["deleted_shop_ids"]) == sorted(testjob["created_shop_ids"])
+    assert [shop["id"] for shop in repository.list_shops()] == [echter["id"]]
+
+
+def test_a_populated_shop_table_is_left_exactly_as_it_was(frische_datenbank):
+    """Drei echte Shops sind da: dann legt der Testjob keinen an und löscht keinen."""
+    repository = frische_datenbank
+    service = ProcurementService(repository)
+    for slug in ("alpha", "beta", "gamma"):
+        _create_shop(service, slug)
+    vorher = repository.list_shops()
+
+    testjob = repository.create_e2e_test_job()
+
+    assert testjob["created_shop_ids"] == []
+    assert testjob["shop_ids"] == sorted(shop["id"] for shop in vorher)
+
+    ergebnis = repository.delete_e2e_test_job(testjob["job_id"])
+
+    assert ergebnis["deleted_shop_ids"] == []
+    assert repository.list_shops() == vorher
