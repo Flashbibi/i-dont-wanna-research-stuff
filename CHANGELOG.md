@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-28
+
 ### Added
 
 - Offers can be added from the job page by pasting product URLs. The engine
@@ -103,5 +105,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the applied schema version and the running application version.
 - AGPL-3.0-only licensing, with the source link in the interface footer.
 
-[Unreleased]: https://github.com/Flashbibi/i-dont-wanna-research-stuff/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Flashbibi/i-dont-wanna-research-stuff/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Flashbibi/i-dont-wanna-research-stuff/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Flashbibi/i-dont-wanna-research-stuff/releases/tag/v0.1.0

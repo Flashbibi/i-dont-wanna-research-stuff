@@ -343,7 +343,7 @@ def test_footer_names_the_running_version_before_the_source_link():
     assert footer is not None
     text = " ".join(re.sub(r"<[^>]+>", " ", footer.group(1)).split())
     assert text == f"v{__version__} · Source (AGPL-3.0)"
-    assert text == "v0.1.0 · Source (AGPL-3.0)"
+    assert text == "v0.2.0 · Source (AGPL-3.0)"
 
 
 def test_stylesheet_changes_use_a_fresh_cache_version():
