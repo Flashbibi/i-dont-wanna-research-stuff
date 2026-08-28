@@ -11,12 +11,11 @@ from psycopg.types.json import Jsonb
 
 from .jobs import BomInputLine
 
-#: Marker, an dem jede Zeile des E2E-Testgraphen als Testdatum erkennbar ist.
+# Marker, an dem jede Zeile des E2E-Testgraphen als Testdatum erkennbar ist.
 E2E_MARKER = "[E2E-TEST]"
 
-#: Wegwerf-Shops, mit denen ein Testjob sich selbst versorgt, wenn die Instanz
-#: noch keine drei kennt. ``.invalid`` ist per RFC 2606 garantiert unauflösbar:
-#: kein Abruf kann versehentlich bei einem echten Shop landen.
+# Wegwerf-Shops für Testjobs auf einer Instanz ohne drei Shops; ``.invalid`` ist per
+# RFC 2606 unauflösbar, sodass kein Abruf bei einem echten Shop landen kann.
 E2E_SHOP_DOMAIN_SUFFIX = ".invalid"
 E2E_SHOPS = (
     (f"{E2E_MARKER} Shop A", f"e2e-a{E2E_SHOP_DOMAIN_SUFFIX}"),
@@ -24,10 +23,8 @@ E2E_SHOPS = (
     (f"{E2E_MARKER} Shop C", f"e2e-c{E2E_SHOP_DOMAIN_SUFFIX}"),
 )
 
-#: Versandpauschale und Standard-Lieferzeit der Wegwerf-Shops. Zahlen, mit denen
-#: der Optimierer rechnen kann: gross genug, dass ein Plan mit zwei Shops teurer
-#: ist als einer mit einem, klein genug, dass die Preise der Testangebote noch
-#: etwas ausmachen.
+# Bewusst so gewählt, dass ein Plan mit zwei Shops teurer ist als einer mit einem und
+# die Preise der Testangebote trotzdem noch etwas ausmachen.
 E2E_SHOP_VERSAND_CHF = Decimal("5.00")
 E2E_SHOP_LIEFERZEIT_TAGE = 5
 
@@ -37,12 +34,8 @@ def decode_database_value(value):
 
 
 def decoded_dict_row(cursor):
-    """Return dict rows and normalize SQL_ASCII text values to Unicode.
-
-    PostgreSQL databases using SQL_ASCII expose textual columns as bytes in
-    psycopg. The application schema has no binary columns, so decoding here
-    keeps validation and JSON serialization consistent at the DB boundary.
-    """
+    """Dict-Zeilen liefern und Text nach Unicode decodieren, den SQL_ASCII-Datenbanken
+    in psycopg als Bytes durchreichen."""
     make_row = dict_row(cursor)
 
     def decode_row(values):
@@ -86,7 +79,7 @@ class PostgresRepository:
         return job_id
 
     def delete_unstarted_job(self, job_id: int) -> dict[str, Any]:
-        """Delete exactly one untouched real job, failing closed after any work."""
+        """Genau einen unberührten echten Job löschen, nie einen angefangenen."""
         with self._connect() as connection:
             with connection.transaction():
                 job = connection.execute(
@@ -181,7 +174,8 @@ class PostgresRepository:
                 return {"job_id": job_id, "deleted": True}
 
     def create_e2e_test_job(self) -> dict[str, Any]:
-        """Create one isolated matrix/browser-test graph with no real-job writes."""
+        """Einen abgeschotteten Matrix- und Browsertest-Graphen anlegen, der nicht in
+        echte Jobs schreibt."""
         with self._connect() as connection:
             with connection.transaction():
                 shop_ids, created_shop_ids = self._e2e_shops(connection)
@@ -258,19 +252,8 @@ class PostgresRepository:
 
     @staticmethod
     def _e2e_shops(connection) -> tuple[list[int], list[int]]:
-        """Drei nicht gesperrte Shops für den Testgraphen besorgen.
-
-        Auf einer befüllten Instanz sind sie längst da; dann liest diese Methode
-        nur und schreibt keine Zeile. Auf einer frischen Datenbank fehlen sie -
-        und ein Klickpfad, der daran scheitert, prüft nicht die Anwendung,
-        sondern den Füllstand der Datenbank. Also legt der Testjob die fehlenden
-        selbst an: im Namen als erfunden erkennbar, unter ``.invalid``
-        unerreichbar, und mit denselben Provenienzangaben, die die Datenbank von
-        jedem echten Shop verlangt.
-
-        Zurück kommen die IDs der drei benutzten Shops und, davon getrennt, die
-        der eben angelegten - Letztere räumt ``delete_e2e_test_job`` wieder ab.
-        """
+        """Drei nicht gesperrte Shops besorgen und fehlende selbst anlegen, damit ein
+        Klickpfad die Anwendung prüft und nicht den Füllstand der Datenbank."""
         vorhanden = connection.execute(
             """
             SELECT id FROM shop
@@ -289,8 +272,8 @@ class PostgresRepository:
         for name, domain in E2E_SHOPS:
             if len(shop_ids) >= 3:
                 break
-            # Name und Domain sind eindeutig. Wer schon dasteht, ist entweder
-            # oben mitgezählt oder gesperrt - beides lässt ihn hier in Ruhe.
+            # Wer unter Name oder Domain schon dasteht, ist oben mitgezählt oder
+            # gesperrt - beides lässt ihn hier in Ruhe.
             if connection.execute(
                 "SELECT 1 FROM shop WHERE name = %s OR domain = %s", (name, domain)
             ).fetchone():
@@ -325,7 +308,7 @@ class PostgresRepository:
         return shop_ids, angelegt
 
     def delete_e2e_test_job(self, job_id: int) -> dict[str, Any]:
-        """Delete only a job carrying the database test marker and its artifacts."""
+        """Nur einen Job mit dem Testmarker der Datenbank samt Artefakten löschen."""
         with self._connect() as connection:
             with connection.transaction():
                 job = connection.execute(
@@ -360,11 +343,8 @@ class PostgresRepository:
                 connection.execute(
                     "DELETE FROM job WHERE id = %s AND is_test", (job_id,)
                 )
-                # Die selbst angelegten Wegwerf-Shops hinterher, erkennbar an
-                # Marker UND ``.invalid``-Domain. Der Wächter ist bewusst
-                # strenger als «kein echtes Angebot mehr»: zeigt noch
-                # irgendein Angebot auf den Shop, benutzt ihn ein zweiter
-                # Testjob - der behält ihn dann.
+                # Der Wächter ist bewusst strenger als «kein echtes Angebot mehr» -
+                # ein verbliebenes Angebot heisst, dass ein zweiter Testjob ihn nutzt.
                 shops = connection.execute(
                     """
                     DELETE FROM shop s
@@ -679,16 +659,8 @@ class PostgresRepository:
     def save_shop_platform(
         self, shop_id: int, plattform: str | None, plattform_beleg: str
     ) -> dict[str, Any]:
-        """Ergebnis einer ABGESCHLOSSENEN Plattform-Erkennung festhalten.
-
-        ``plattform=None`` ist ein gültiges Ergebnis und heisst "geprüft, nichts
-        Bekanntes gefunden" - zusammen mit ``plattform_geprueft_am`` macht das
-        den Unterschied zu "noch nie geprüft". Der Beleg ist immer Pflicht: er
-        hält fest, was gesehen wurde, auch im negativen Fall.
-
-        Der Aufrufer darf diese Methode nur nach einer abgeschlossenen Erkennung
-        aufrufen. Ein Timeout ist kein Ergebnis und schreibt nichts.
-        """
+        """Abgeschlossene Erkennung festhalten, wobei ``plattform=None`` mit dem
+        Zeitstempel «geprüft, nichts gefunden» heisst und nicht «nie geprüft»."""
         if not plattform_beleg or not plattform_beleg.strip():
             raise ValueError("Plattform darf nicht ohne Beleg gespeichert werden")
         with self._connect() as connection:
@@ -708,11 +680,8 @@ class PostgresRepository:
             return dict(row)
 
     def is_test_job(self, job_id: int) -> bool:
-        """Nur für Gatter um E2E-Wege.
-
-        Bewusst eine eigene schmale Abfrage statt is_test in get_job: das würde
-        die Antwortform von GET /api/jobs/{id} und des MCP-Tools get_job ändern.
-        """
+        """Bewusst eine eigene schmale Abfrage statt is_test in get_job, weil das die
+        Antwortform von GET /api/jobs/{id} und des MCP-Tools get_job ändern würde."""
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT is_test FROM job WHERE id = %s", (job_id,)
@@ -720,7 +689,7 @@ class PostgresRepository:
             return bool(row and row["is_test"])
 
     def save_offer_product_ids(self, produkt_ids: dict[int, str]) -> int:
-        """Shopinterne Produkt-IDs cachen. Quelle ist jeweils die Produktseite."""
+        """Shopinterne Produkt-IDs von der Produktseite cachen."""
         if not produkt_ids:
             return 0
         with self._connect() as connection:
@@ -829,11 +798,8 @@ class PostgresRepository:
             return dict(row)
 
     def save_offer_artikelnummern(self, artikelnummern: dict[int, str]) -> int:
-        """Shopinterne Artikelnummern cachen. Quelle ist die Produktseite.
-
-        Sie ist der sprachunabhängige Anker der Korb-Verifikation; die
-        produkt_url bleibt daneben als Provenienz stehen.
-        """
+        """Shopinterne Artikelnummern von der Produktseite cachen, den
+        sprachunabhängigen Anker der Korb-Verifikation."""
         if not artikelnummern:
             return 0
         with self._connect() as connection:
@@ -1181,13 +1147,8 @@ class PostgresRepository:
             return [dict(row) for row in rows]
 
     def get_offer(self, offer_id: int) -> dict[str, Any] | None:
-        """Ein Angebot samt der jüngsten Beobachtung derselben Zeile und URL.
-
-        Angebote sind tagesgenau (Migration 004): dieselbe Zeile×URL hat je
-        Beobachtungstag eine Zeile. Wer eine ältere ``offer_id`` in der Hand
-        hält, soll trotzdem den heute gültigen Stand sehen - deshalb liefert
-        der Getter nicht die angefragte Zeile, sondern die neueste ihrer Reihe.
-        """
+        """Nicht die angefragte Zeile, sondern die jüngste Beobachtung derselben Zeile
+        und URL, damit eine ältere ``offer_id`` den heute gültigen Stand zeigt."""
         with self._connect() as connection:
             row = connection.execute(
                 """

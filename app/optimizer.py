@@ -12,7 +12,7 @@ UNKNOWN_DELIVERY_RANK = 10_000
 
 
 def _delivery_rank(days: int | None) -> tuple[int, int]:
-    """Known delivery always ranks before unknown; unknown is never treated as zero."""
+    """Bekannte Lieferzeit steht immer vor unbekannter; unbekannt gilt nie als null."""
     if days is None:
         return (1, UNKNOWN_DELIVERY_RANK)
     return (0, days)
@@ -26,8 +26,7 @@ class ShopProfile:
     gratis_ab_chf: Decimal | None
     mindestbestellwert_chf: Decimal | None
     lieferzeit_default_tage: int | None
-    #: Lieferziel des Shops. Die Heimadresse kostet nichts extra; ein fremdes
-    #: Ziel kostet Linus eine Abholfahrt und Wartezeit.
+    # Ein fremdes Lieferziel kostet Abholfahrt und Wartezeit, die Heimadresse nichts.
     lieferziel_id: int | None = None
     lieferziel_name: str | None = None
     aufschlag_chf: Decimal = Decimal("0.00")
@@ -63,8 +62,8 @@ class OrderVariant:
     contains_unknown_delivery: bool = False
     contains_unknown_shipping: bool = False
     missing_line_ids: tuple[int, ...] = ()
-    #: (lieferziel_id, name, betrag) je beteiligtem Nicht-Heim-Ziel, einmal pro
-    #: Ziel und Plan - eine Abholfahrt, egal wie viele Shops dort liegen.
+    # (lieferziel_id, name, betrag) je beteiligtem Nicht-Heim-Ziel - eine Abholfahrt,
+    # egal wie viele Shops dort liegen.
     aufschlaege: tuple[tuple[int, str, Decimal], ...] = ()
 
     @property
@@ -147,8 +146,7 @@ def _build_variant(
             if free_from is not None and subtotals[shop_id] >= free_from
             else shop.versand_chf
         )
-    # Abhol-Aufschlag: einmal pro beteiligtem Nicht-Heim-Ziel, nicht pro Shop.
-    # Zwei deutsche Shops im selben Plan sind eine Fahrt, nicht zwei.
+    # Abhol-Aufschlag einmal pro beteiligtem Nicht-Heim-Ziel, nicht pro Shop.
     aufschlaege_nach_ziel: dict[int, tuple[str, Decimal]] = {}
     for shop_id in shop_ids:
         shop = shops_by_id[shop_id]
@@ -230,11 +228,8 @@ def _guenstigste_zuordnung(
     shops_by_id: dict[int, ShopProfile],
     obergrenze_tage: int | None,
 ) -> dict[int, Offer] | None:
-    """Pro Zeile das billigste Angebot innerhalb der Lieferzeit-Obergrenze.
-
-    ``obergrenze_tage=None`` heisst «keine Schranke» und lässt damit auch
-    Angebote mit unbekannter Lieferzeit zu.
-    """
+    """Pro Zeile das billigste Angebot innerhalb der Lieferzeit-Obergrenze, wobei
+    ``obergrenze_tage=None`` auch Angebote mit unbekannter Lieferzeit zulässt."""
     chosen: dict[int, Offer] = {}
     for line_id in ordered_lines:
         pool = kandidaten[line_id]
@@ -275,12 +270,7 @@ def _aufstocken(
     ziel: Decimal,
     obergrenze_tage: int | None,
 ) -> dict[int, Offer] | None:
-    """Bei einem Shop teurer einkaufen, bis seine Zwischensumme ``ziel`` erreicht.
-
-    Aufgestockt wird in der Reihenfolge der kleinsten Aufpreise, damit das Ziel
-    möglichst günstig erreicht wird. Reicht das Sortiment nicht aus, gibt es
-    ``None``.
-    """
+    """Bei einem Shop teurer einkaufen, bis seine Zwischensumme ``ziel`` erreicht."""
     aufgestockt = dict(zuordnung)
     fehlt = ziel - _subtotals(zuordnung).get(shop_id, Decimal("0.00"))
     if fehlt <= 0:
@@ -292,12 +282,8 @@ def _aufstocken(
         tage = _effektive_tage(offer, shops_by_id)
         return tage is not None and tage <= obergrenze_tage
 
-    # Mögliche Schritte, je Zeile. Zwei Arten, die Zwischensumme zu heben:
-    #   * teurere Variante innerhalb des Shops -> bringt die Preisdifferenz
-    #   * eine Zeile aus einem anderen Shop herholen -> bringt den vollen
-    #     Positionspreis und spart nebenbei womöglich einen zweiten Versand
-    # Sortiert wird nach Mehrkosten, damit das Ziel so günstig wie möglich
-    # erreicht wird.
+    # Zwei Wege, die Zwischensumme zu heben: teurere Variante im Shop oder eine Zeile
+    # aus einem anderen Shop.
     schritte: list[tuple[Decimal, Decimal, int, Offer]] = []
     for line_id, aktuell in zuordnung.items():
         for offer in kandidaten[line_id]:
@@ -333,12 +319,8 @@ def _konzentriert_auf(
     shop_id: int,
     obergrenze_tage: int | None,
 ) -> dict[int, Offer] | None:
-    """Möglichst viel bei einem Shop bündeln, den Rest wie gehabt.
-
-    Jede Zeile, die dieser Shop überhaupt führt, wandert zu ihm - dort zum
-    billigsten Angebot. Das spart einen zweiten Versand und hebt die
-    Zwischensumme, was schrittweises Aufstocken nicht immer erreicht.
-    """
+    """Möglichst viel bei einem Shop bündeln, was einen zweiten Versand spart und die
+    Zwischensumme hebt, wo schrittweises Aufstocken nicht reicht."""
     gebuendelt = dict(zuordnung)
     for line_id in zuordnung:
         pool = [
@@ -366,19 +348,8 @@ def _schwellen_varianten(
     shops_by_id: dict[int, ShopProfile],
     obergrenze_tage: int | None,
 ) -> list[dict[int, Offer]]:
-    """Kandidaten rund um die beiden Untergrenzen je Shop.
-
-    Die billigste Zuordnung minimiert den Warenwert - aber nicht zwingend das
-    Total, und sie ist nicht immer überhaupt zulässig:
-
-    * **Mindestbestellwert** ist eine harte Grenze. Wird sie unterschritten,
-      verwirft ``_build_variant`` den Plan; erst teurer einkaufen macht ihn
-      gültig. Ohne diese Reparatur verschwänden Pläne, die es gibt.
-    * **Gratisgrenze** ist eine lohnende Grenze: ein paar Franken mehr Ware
-      können den Versand komplett sparen.
-
-    Die Rückgabe *ergänzt* nur; ausgewählt wird am Ende weiterhin nach Total.
-    """
+    """Zusätzliche Kandidaten rund um Mindestbestellwert und Gratisgrenze; die Rückgabe
+    ergänzt nur, ausgewählt wird am Ende weiterhin nach Total."""
     varianten: list[dict[int, Offer]] = []
 
     # 1. Harte Grenze: fehlende Mindestbestellwerte reparieren.
@@ -404,9 +375,8 @@ def _schwellen_varianten(
             if grenze is None or subtotal >= grenze:
                 continue
             versand = shop.versand_chf
-            # Aufstocken über den Versandpreis hinaus lohnt nie. Bei unbekanntem
-            # Versand gibt es diese Schranke nicht: dort beseitigt die
-            # Gratisgrenze zugleich die Unbekannte im Total.
+            # Aufstocken über den Versandpreis hinaus lohnt nie, ausser bei unbekanntem
+            # Versand, wo die Gratisgrenze zugleich die Unbekannte im Total beseitigt.
             if versand is not None and grenze - subtotal > versand:
                 continue
             gratis = _aufstocken(
@@ -417,16 +387,13 @@ def _schwellen_varianten(
     return varianten
 
 
-#: Ab so vielen beteiligten Shops werden nicht mehr alle Teilmengen aufgezählt,
-#: sondern nur kleine plus die Gesamtmenge. 2^n wächst sonst über den Nutzen
-#: hinaus; realistische Jobs bleiben weit darunter.
+# Ab so vielen Shops wächst 2^n über den Nutzen hinaus; dann nur noch kleine Mengen
+# plus die Gesamtmenge.
 MAX_SHOPS_FUER_ALLE_TEILMENGEN = 14
 KLEINE_TEILMENGE = 4
 
-#: Bis hierhin wird vollständig aufgezählt - das ist exakt und bleibt unter
-#: einer halben Sekunde. Darüber übernimmt die Aufzählung über Shop-Mengen.
-#: Ein Seitenaufruf löst drei Aufzählungen aus, deshalb ist die Grenze eng
-#: gewählt; ein Alltagsjob mit sechs Positionen bleibt darunter und damit exakt.
+# Bis hierhin wird vollständig und damit exakt aufgezählt; die Grenze ist eng gewählt,
+# weil ein Seitenaufruf drei Aufzählungen auslöst.
 KOMBINATIONS_BUDGET = 5_000
 
 
@@ -459,33 +426,16 @@ def _complete_variants(
     required_line_ids: list[int],
     tempo: float,
 ) -> list[OrderVariant]:
-    """Kandidatenpläne aufzählen - über Shop-Mengen, nicht über Zeilen.
-
-    Früher lief hier das vollständige kartesische Produkt aller Kandidaten über
-    alle Zeilen, also K^N Kombinationen. Bei 13 Positionen mit je drei
-    Kandidaten sind das 1,6 Millionen Pläne, die alle gebaut und im Speicher
-    gehalten wurden - und das dreimal pro Seitenaufruf. Genau daran ist CT 104
-    erstickt.
-
-    Gebraucht wird das nie: die Aufrufer reduzieren anschliessend ohnehin auf
-    das beste Ergebnis *pro Shop-Menge* und auf wenige Minima. Also wird direkt
-    über Shop-Mengen aufgezählt und pro Menge die beste Zuordnung bestimmt.
-
-    Für eine feste Shop-Menge ist die beste Zuordnung exakt bestimmbar: pro
-    Lieferzeit-Obergrenze das billigste Angebot je Zeile. Über alle
-    vorkommenden Obergrenzen ergibt das die vollständige Pareto-Front aus Preis
-    und Lieferzeit - damit stimmen «am günstigsten», «am schnellsten» und
-    «ausgewogen» weiterhin. Ergänzt werden Varianten, die für Gratisversand
-    aufstocken.
-    """
+    """Kandidatenpläne über Shop-Mengen statt über Zeilen aufzählen; je Shop-Menge und
+    Obergrenze ergibt das billigste Angebot je Zeile die vollständige Pareto-Front."""
     ordered_lines = sorted(set(required_line_ids))
     if not ordered_lines or any(
         not offers_by_line.get(line_id) for line_id in ordered_lines
     ):
         return []
 
-    # Solange die vollständige Aufzählung bezahlbar ist, wird sie genommen -
-    # sie ist exakt. Nur darüber greift die Aufzählung über Shop-Mengen.
+    # Die vollständige Aufzählung ist exakt und wird genommen, solange sie ins
+    # Budget passt.
     kombinationen = 1
     for line_id in ordered_lines:
         kombinationen *= len(offers_by_line[line_id])
@@ -543,9 +493,8 @@ def _complete_variants(
             )
             if zuordnung is None:
                 continue
-            # Neben der billigsten Zuordnung auch je Shop eine, die möglichst
-            # viel dort bündelt. Konzentrieren spart einen zweiten Versand und
-            # erreicht Gratisgrenzen, was Stück für Stück nicht immer gelingt.
+            # Neben der billigsten Zuordnung je Shop eine gebündelte, weil
+            # Konzentrieren Versand spart und Gratisgrenzen erreicht.
             basen = [zuordnung]
             for shop_id in sorted(menge):
                 gebuendelt = _konzentriert_auf(
@@ -622,10 +571,8 @@ def optimize_orders(
 
 
 def filter_dominated_variants(variants: list[OrderVariant]) -> list[OrderVariant]:
-    """Hide complete plans that are no cheaper and no faster than another plan.
-
-    Partial one-shop compromises are intentionally incomparable with complete plans.
-    """
+    """Versteckt dominierte vollständige Pläne; unvollständige Ein-Shop-Kompromisse
+    bleiben absichtlich unvergleichbar."""
     result: list[OrderVariant] = []
     for candidate in variants:
         if candidate.missing_line_ids:
@@ -658,7 +605,7 @@ def plan_scenarios(
     pins: dict[int, int] | None = None,
     excludes: set[int] | None = None,
 ) -> dict[str, OrderVariant]:
-    """Return the four named presets, applying optional pin/exclude overrides."""
+    """Liefert die bis zu fünf Presets, jeweils nur wenn es dafür Kandidaten gibt."""
     shops_by_id, offers_by_line = _validated_inputs(offers, shops)
     filtered = _filter_overrides(offers_by_line, pins, excludes)
     complete = _complete_variants(filtered, shops_by_id, required_line_ids, tempo=0.5)
@@ -695,10 +642,8 @@ def plan_scenarios(
             ),
         )
 
-    # «Nur Schweiz»: identische Rechnung, eingeschränkt auf Shops mit
-    # Heim-Lieferziel. Deckt sich das Ergebnis mit dem Gesamtoptimum - solange
-    # es keine Auslandsangebote gibt, ist das der Normalfall - verschmelzen die
-    # Labels weiter oben über die gemeinsame Identität.
+    # «Nur Schweiz» rechnet dasselbe nur mit Heim-Shops; deckt sich das Ergebnis
+    # mit dem Gesamtoptimum, verschmelzen die Labels über die gemeinsame Identität.
     heimat_shops = {shop_id for shop_id, shop in shops_by_id.items() if shop.ist_heimat}
     nur_heimat = {
         line_id: [offer for offer in offers if offer.shop_id in heimat_shops]
@@ -721,10 +666,8 @@ def plan_scenarios(
     if heimat_komplett:
         scenarios["only_ch"] = bester_heimat(heimat_komplett)
     else:
-        # Deckt der Heimmarkt nicht jede Zeile ab, verschwindet das Preset
-        # nicht - es erscheint unvollständig wie «Ein Shop». Die Liste der
-        # offenen Zeilen ist genau die Auskunft, welche Positionen ins Ausland
-        # zwingen; die wäre weg, wenn der Plan stillschweigend entfiele.
+        # Das Preset verschwindet nicht, wenn der Heimmarkt eine Zeile nicht abdeckt -
+        # die offenen Zeilen sind die Auskunft, welche Positionen ins Ausland zwingen.
         abgedeckt = [line_id for line_id in required if nur_heimat.get(line_id)]
         fehlend = tuple(line_id for line_id in required if line_id not in abgedeckt)
         teilweise = _complete_variants(nur_heimat, shops_by_id, abgedeckt, tempo=0.5)

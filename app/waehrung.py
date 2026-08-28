@@ -1,14 +1,4 @@
-"""Fremdwährung mit Provenienz.
-
-Zwei Regeln tragen dieses Modul:
-
-* **Der Server rechnet, nie der Agent.** Umrechnung ist Arithmetik und damit
-  deterministisch - sie gehört in Code, genau wie der Optimierer. Ein Modell
-  liefert den Originalpreis, nichts weiter.
-* **Kein CHF-Wert ohne belegte Umrechnung.** Zu jedem umgerechneten Preis
-  gehören Originalbetrag, Kurs, Kursdatum und Quelle. Dieselbe Disziplin wie
-  bei Lieferzeiten, Versandprofilen und Plattformen.
-"""
+"""Fremdwährung rechnet der Server, nicht der Agent, und kein CHF-Wert ohne Beleg."""
 
 from __future__ import annotations
 
@@ -21,21 +11,21 @@ from typing import Any, Protocol
 
 HOME_CURRENCY = "CHF"
 
-#: Freie, schlüssellose Quelle für EZB-Referenzkurse.
+# Freie, schlüssellose Quelle für EZB-Referenzkurse.
 KURS_API = "https://api.frankfurter.app/latest"
 
-#: Ab hier gilt ein Kurs als veraltet und die Oberfläche zeigt ein Badge.
+# Ab hier gilt ein Kurs als veraltet und die Oberfläche zeigt ein Badge.
 KURS_MAX_ALTER_TAGE = 7
 
 RATE_TIMEOUT = 15
 
-#: Die Quelle blockt anonyme Bibliotheks-Clients; ein benannter Agent ist höflich
-#: und funktioniert.
+# Die Quelle blockt anonyme Bibliotheks-Clients; ein benannter Agent ist höflich
+# und funktioniert.
 KURS_USER_AGENT = "beschaffung/1.0 (LAN-Beschaffungstool)"
 
 
-#: Währung folgt dem Land des Lieferziels, ist aber überschreibbar - deshalb
-#: eine Ableitung und keine Regel.
+# Währung folgt dem Land des Lieferziels, ist aber überschreibbar - deshalb
+# eine Ableitung und keine Regel.
 LAND_WAEHRUNG = {
     "CH": "CHF",
     "LI": "CHF",
@@ -65,7 +55,7 @@ class Kurs:
     kurs: Decimal
     geholt_am: date
     quelle_url: str
-    #: True, wenn der Tagesabruf scheiterte und ein älterer Kurs einspringt.
+    # True, wenn der Tagesabruf scheiterte und ein älterer Kurs einspringt.
     ersatzweise: bool = False
 
     def alter_tage(self, heute: date) -> int:
@@ -75,7 +65,7 @@ class Kurs:
         return self.alter_tage(heute) > KURS_MAX_ALTER_TAGE
 
     def beleg(self) -> str:
-        """Kurzer Nachweis für die Oberfläche: «Kurs 0.9400 (EZB, 11.08.)»."""
+        """Kurzer Nachweis für die Oberfläche."""
         quelle = "EZB" if "frankfurter" in self.quelle_url else self.quelle_url
         return f"Kurs {self.kurs:.4f} ({quelle}, {self.geholt_am:%d.%m.})"
 
@@ -90,18 +80,14 @@ class KursRepository(Protocol):
 def fetch_kurs(
     waehrung: str, *, opener: Callable[[str], str] | None = None
 ) -> tuple[Decimal, str]:
-    """Tageskurs <waehrung> -> CHF abrufen.
-
-    Liefert Kurs und die konkrete Abruf-URL als Beleg. Netzwerkfehler werden
-    nicht geschluckt - der Aufrufer entscheidet, ob ein älterer Kurs einspringt.
-    """
+    """Tageskurs mit Abruf-URL als Beleg; Netzwerkfehler fliegen weiter, damit der
+    Aufrufer über einen älteren Kurs entscheidet."""
     url = f"{KURS_API}?from={waehrung}&to={HOME_CURRENCY}"
     if opener is None:
 
         def opener(target: str) -> str:
-            # httpx statt urllib: die Quelle weist urllibs Default-User-Agent
-            # mit HTTP 403 ab. Gemockte Tests sehen das nicht, der erste echte
-            # Abruf schon - deshalb hier derselbe Weg wie im Cart-Adapter.
+            # httpx statt urllib: die Quelle weist urllibs Default-User-Agent mit
+            # HTTP 403 ab, was gemockte Tests nie sehen.
             import httpx
 
             response = httpx.get(
@@ -130,12 +116,8 @@ def aktueller_kurs(
     *,
     opener: Callable[[str], str] | None = None,
 ) -> Kurs:
-    """Kurs für heute besorgen: Cache, sonst Abruf, sonst letzter bekannter.
-
-    Der Abruf passiert bei Erstbedarf am Tag, nicht auf Vorrat. Scheitert er,
-    springt der letzte bekannte Kurs ein und wird als ``ersatzweise`` markiert -
-    sichtbar in der Oberfläche, nicht still.
-    """
+    """Kurs für heute aus dem Cache oder per Abruf bei Erstbedarf; scheitert der
+    Abruf, springt der letzte bekannte Kurs sichtbar markiert ein."""
     if waehrung == HOME_CURRENCY:
         return Kurs(HOME_CURRENCY, Decimal("1"), heute, "Heimwährung")
 

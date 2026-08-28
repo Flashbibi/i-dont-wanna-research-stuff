@@ -1,22 +1,4 @@
-"""Deklarative Shop-Adapter: Schema, Registry, Extraktion, Preis-Parser.
-
-Ein Adapter ist eine YAML-Datei mit CSS-Selektoren. Er beschreibt, **wo** auf
-einer Produktseite Name, Preis, Lieferzeit, Lagertext und Artikelnummer stehen -
-und sonst nichts. Gelesen wird deterministisch: dieselbe Seite ergibt zweimal
-dasselbe Ergebnis, ohne Modell dazwischen. Damit sind ``lieferzeit_text`` und
-``lager_text`` wieder das, was sie sein sollen: wörtlicher Seitentext.
-
-Die Rollenverteilung bleibt: die KI findet und ordnet zu (URL -> Zeile), die
-Engine liest und schreibt.
-
-Zwei Grenzen, die hier hart sind:
-
-* **Streng beim Laden.** Ein unbekannter Schlüssel, ein falscher Typ oder ein
-  Regex ohne Capture-Group ist ein Ladefehler mit Dateinamen - kein stilles
-  Ignorieren. Eine defekte Datei nimmt aber nur sich selbst mit, nicht den Start.
-* **Streng beim Lesen.** Fehlt ein Pflichtfeld, wird gar nichts geschrieben.
-  Ein halb gelesenes Angebot wäre schlimmer als keines.
-"""
+"""Deklarative Shop-Adapter aus YAML: deterministisch gelesen, streng geprüft."""
 
 from __future__ import annotations
 
@@ -32,26 +14,26 @@ from urllib.parse import urlsplit
 import yaml
 from bs4 import BeautifulSoup
 
-#: Diagnose-Logging der Registry: laut bei defekten Dateien, aber nie tödlich.
+# Diagnose-Logging der Registry: laut bei defekten Dateien, aber nie tödlich.
 log = logging.getLogger("beschaffung.adapter")
 
-#: Einzige bisher gültige Schema-Fassung.
+# Einzige bisher gültige Schema-Fassung.
 SCHEMA_VERSION = 1
 
-#: Gebündelte Adapter reisen im Repository und im Image mit.
+# Gebündelte Adapter reisen im Repository und im Image mit.
 GEBUENDELT_DIR = Path(__file__).resolve().parent.parent / "adapters"
 
-#: Eigene Adapter, ohne den Fork: ein Verzeichnis aus der Umgebung.
+# Eigene Adapter, ohne den Fork: ein Verzeichnis aus der Umgebung.
 ENV_ADAPTER_DIR = "BESCHAFFUNG_ADAPTER_DIR"
 
 QUELLE_GEBUENDELT = "gebuendelt"
 QUELLE_NUTZER = "nutzer"
 
-#: Genau diese fünf Felder kennt Schema 1 - in dieser Reihenfolge, damit jede
-#: Ausgabe deterministisch ist.
+# Genau diese fünf Felder kennt Schema 1 - in dieser Reihenfolge, damit jede
+# Ausgabe deterministisch ist.
 FELDNAMEN = ("produktname", "preis", "lieferzeit_text", "lager_text", "artikelnummer")
 
-#: Ohne diese beiden gibt es kein Angebot.
+# Ohne diese beiden gibt es kein Angebot.
 PFLICHTFELDER = ("produktname", "preis")
 
 WURZEL_SCHLUESSEL = {"schema", "id", "domain", "notes", "fetch", "product"}
@@ -64,9 +46,8 @@ DOMAIN_MUSTER = re.compile(
     r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
 )
 
-#: Wie eine Währung im Preistext auftauchen darf. Ein Buchstabencode darf keine
-#: Buchstaben neben sich haben - sonst täuschte ein «Neuromodul» einen Euro-Preis
-#: vor -, wohl aber eine Ziffer: «USD12.90» ist genauso gemeint wie «USD 12.90».
+# Ein Buchstabencode darf keine Buchstaben neben sich haben, wohl aber eine Ziffer,
+# sonst wäre «Neuromodul» ein Euro-Preis.
 WAEHRUNGS_MARKER: dict[str, str] = {
     "CHF": r"(?<![a-z])chf(?![a-z])|(?<![a-z])s?fr\.",
     "EUR": r"(?<![a-z])euro?(?![a-z])|€",
@@ -74,8 +55,8 @@ WAEHRUNGS_MARKER: dict[str, str] = {
     "GBP": r"(?<![a-z])gbp(?![a-z])|£",
 }
 
-#: Trennzeichen sind pro erwarteter Währung fest verdrahtet. Hier wird nichts
-#: geraten: was nicht zur Regel der Shopwährung passt, gilt als unlesbar.
+# Trennzeichen sind pro erwarteter Währung fest verdrahtet - was nicht zur Regel der
+# Shopwährung passt, gilt als unlesbar statt geraten.
 TRENNZEICHEN: dict[str, tuple[tuple[str, ...], str]] = {
     "CHF": (("'", "’"), "."),
     "EUR": ((".",), ","),
@@ -83,16 +64,12 @@ TRENNZEICHEN: dict[str, tuple[tuple[str, ...], str]] = {
     "GBP": ((",",), "."),
 }
 
-#: Unsichtbare Zeichen: weiches Trennzeichen, Nullbreiten und Steuerzeichen der
-#: Textrichtung. Shops streuen sie in Preise, und für ``str.split`` sind sie
-#: kein Whitespace - aus «1<U+200B>234.50» würde sonst stillschweigend eine 1.
+# Shops streuen unsichtbare Zeichen in Preise, und für str.split sind sie kein
+# Whitespace - ungefiltert würde aus einem gruppierten Preis stillschweigend eine 1.
 _UNSICHTBAR = re.compile(r"[\u00ad\u200b-\u200f\u2028\u2029\u2060-\u2064\ufeff]")
 
-#: Erster zusammenhängender Zahlenlauf im Text, Trennzeichen eingeschlossen -
-#: das Leerzeichen ausdrücklich mit. Schweizer Bundesschreibweise gruppiert mit
-#: Leerzeichen, und ein in Spans zerlegter Preis kommt als «19 ,99» aus der
-#: Extraktion. Beides muss vollständig in den Lauf, sonst gewänne die erste
-#: Gruppe und aus 1 234.50 würde stillschweigend 1.
+# Das Leerzeichen gehört in den Zahlenlauf: Schweizer Preise gruppieren damit, und ein
+# in Spans zerlegter Preis kommt mit Leerzeichen aus der Extraktion.
 _ZAHLENLAUF = re.compile(r"\d[\d.,'’ ]*\d|\d")
 
 
@@ -109,7 +86,7 @@ class AdapterFehlt(AdapterFehler):
 
 
 class ExtraktionFehlt(AdapterFehler):
-    """Ein Pflichtfeld war auf der Seite nicht zu finden. Es wird nichts geschrieben."""
+    """Ein Pflichtfeld war nicht zu finden; es wird nichts geschrieben."""
 
 
 class WaehrungWiderspricht(AdapterFehler):
@@ -147,7 +124,7 @@ class Registry:
     """Alle geladenen Adapter - und alles, was dabei liegen geblieben ist."""
 
     adapter: dict[str, Adapter]
-    #: (Datei, Grund) je übersprungener Datei. Laut, aber nicht tödlich.
+    # (Datei, Grund) je übersprungener Datei - laut, aber nicht tödlich.
     fehler: tuple[tuple[str, str], ...] = ()
 
 
@@ -344,12 +321,7 @@ def _nur_bekannte(
 
 
 def extrahiere(adapter: Adapter, html: str) -> dict[str, str | None]:
-    """Alle Felder des Adapters aus der Seite lesen - Rohtext, sonst nichts.
-
-    Geparst wird hier noch nicht; der Preis kommt als Text zurück und geht
-    danach durch :func:`parse_preis`. So sieht der Aufrufer, was die Seite
-    wörtlich gesagt hat.
-    """
+    """Alle Felder als Rohtext lesen; geparst wird erst in parse_preis."""
     suppe = BeautifulSoup(html, "html.parser")
     return {name: _feldwert(suppe, feld) for name, feld in adapter.felder.items()}
 
@@ -391,12 +363,7 @@ def _fehlt(feld: Feld, grund: str) -> None:
 
 
 def _normalisiere(text: str) -> str:
-    """Whitespace jeder Art auf einzelne Leerzeichen.
-
-    ``str.split`` zählt auch geschützte Leerzeichen als Whitespace - genau die
-    stehen in Preisen wie «CHF 12.90» oft statt eines normalen. Unsichtbare
-    Zeichen fallen ganz weg, statt eine Zahl zu zerteilen.
-    """
+    """Whitespace auf einzelne Leerzeichen, unsichtbare Zeichen ersatzlos weg."""
     return " ".join(_UNSICHTBAR.sub("", text).split())
 
 
@@ -404,17 +371,7 @@ def _normalisiere(text: str) -> str:
 
 
 def parse_preis(text: str, erwartete_waehrung: str) -> Decimal:
-    """Einen Preistext in einen Betrag der erwarteten Shopwährung überführen.
-
-    Nennt der Text eine andere Währung, wird nichts umgedeutet und nichts
-    geschrieben. Passt die Zahl nicht zu den Trennzeichen dieser Währung, gilt
-    sie als unlesbar - lieber ein Klartextfehler als ein Faktor 100 daneben.
-
-    Stehen mehrere Zahlen im Text, gewinnt die erste - aber nur, wenn zwischen
-    ihnen etwas steht, das keine Zahl sein kann. «12.90 19.90» ist kein Preis,
-    sondern zwei, und wird abgelehnt. Der Selektor soll den Preis treffen; wo das
-    nicht reicht, engt ``regex`` im Adapter ein.
-    """
+    """Preistext als Betrag der Shopwährung lesen, ohne umzudeuten oder zu raten."""
     code = (erwartete_waehrung or "").strip().upper()
     regel = TRENNZEICHEN.get(code)
     if regel is None:
@@ -447,8 +404,8 @@ def parse_preis(text: str, erwartete_waehrung: str) -> Decimal:
     if betrag <= 0:
         raise ExtraktionFehlt(f"Preis muss grösser als 0 sein: «{roh}»")
     if betrag != betrag.quantize(Decimal("0.01")):
-        # Die Preisspalten sind NUMERIC(12,2); Postgres rundete beim Schreiben
-        # ohne ein Wort. Lieber ein Klartextfehler als ein anderer Betrag.
+        # Die Preisspalten sind NUMERIC(12,2); lieber ein Klartextfehler als ein
+        # Betrag, den Postgres beim Schreiben stillschweigend rundet.
         raise ExtraktionFehlt(
             f"Preis hat mehr als zwei Nachkommastellen und würde beim Speichern "
             f"gerundet: «{roh}»"
@@ -472,12 +429,7 @@ def _erkannte_waehrungen(text: str) -> set[str]:
 
 
 def _passt_zur_regel(zahl: str, gruppen: tuple[str, ...], dezimal: str) -> bool:
-    """Gruppiert wird in Dreiergruppen, oder gar nicht.
-
-    Damit fällt «12.90» bei einem EUR-Shop durch statt als 1290 in die Datenbank
-    zu wandern: ein Gruppierungszeichen mit zwei Nachkommastellen ist keine
-    Gruppierung.
-    """
+    """Gruppiert wird in Dreiergruppen oder gar nicht, sonst würde «12.90» zu 1290."""
     klasse = "".join(re.escape(zeichen) for zeichen in gruppen)
     muster = rf"(?:\d{{1,3}}(?:[{klasse}]\d{{3}})+|\d+)(?:{re.escape(dezimal)}\d+)?"
     return re.fullmatch(muster, zahl) is not None
@@ -485,9 +437,8 @@ def _passt_zur_regel(zahl: str, gruppen: tuple[str, ...], dezimal: str) -> bool:
 
 # -- Registry ----------------------------------------------------------------
 
-#: Einmal geladen, danach gemerkt. Kein Hot-Reload in Fassung 1 - ein Neustart
-#: liest neu, und ein halb getauschter Adapter unter laufendem Betrieb wäre
-#: schlimmer als eine Minute Ausfall.
+# Kein Hot-Reload in Fassung 1 - ein halb getauschter Adapter unter laufendem Betrieb
+# wäre schlimmer als eine Minute Ausfall.
 _registry: Registry | None = None
 
 
@@ -551,12 +502,7 @@ def _verzeichnisse(fehler: list[tuple[str, str]]) -> list[tuple[Path, str]]:
 
 
 def finde_adapter(url: str) -> Adapter:
-    """Adapter für diese Produkt-URL suchen.
-
-    Erst muss die Domain passen (exakt oder als Subdomain), dann das
-    ``url_pattern``. Ohne Treffer ein Klartextfehler - der manuelle Weg über
-    ``record_offer`` bleibt offen.
-    """
+    """Adapter für diese Produkt-URL suchen: erst Domain, dann url_pattern."""
     domain = _url_domain(url)
     kandidaten = sorted(
         (

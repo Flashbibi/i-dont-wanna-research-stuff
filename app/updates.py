@@ -1,13 +1,5 @@
-"""Update-Check gegen die Releases-API von GitHub.
-
-Nur Standardbibliothek, und still im Fehlerfall. Der Check hängt im
-Seitenaufbau, also darf er ihn nie aufhalten: kein Netz, Rate-Limit, kaputtes
-JSON, fremdes Tag-Format - alles endet gleich, nämlich als "kein Banner".
-
-Gefragt wird höchstens einmal am Tag; der Prozess merkt sich die Antwort.
-Ein Fehlschlag wird kürzer gemerkt, damit sich eine Instanz nach einer
-Netzstörung nicht einen ganzen Tag lang blind stellt.
-"""
+"""Update-Check gegen die Releases-API von GitHub, der im Seitenaufbau hängt und ihn nie
+aufhalten darf - jeder Fehler endet still als "kein Banner"."""
 
 from __future__ import annotations
 
@@ -37,8 +29,8 @@ class Release(NamedTuple):
     url: str
 
 
-# (Ablauf, Ergebnis) - prozessweit, absichtlich ohne Sperre: zwei parallele
-# Abfragen kosten schlimmstenfalls einen zweiten GET.
+# Absichtlich ohne Sperre, weil zwei parallele Abfragen schlimmstenfalls einen zweiten
+# GET kosten.
 _cache: tuple[float, Release | None] | None = None
 
 
@@ -47,7 +39,7 @@ def _aktiviert() -> bool:
 
 
 def _parse_tag(tag: object) -> tuple[int, int, int] | None:
-    """``vX.Y.Z`` als Tupel. Alles andere ist kein Tag, das wir vergleichen."""
+    """``vX.Y.Z`` als Tupel; alles andere ist kein Tag, das wir vergleichen."""
     if not isinstance(tag, str):
         return None
     treffer = TAG_PATTERN.match(tag.strip())
@@ -86,7 +78,8 @@ def _read_release() -> Release | None:
 
 
 def latest_release() -> Release | None:
-    """Neuestes Release laut GitHub, aus dem Cache oder frisch geholt."""
+    """Neuestes Release laut GitHub, wobei auch der Fehlschlag kurz im Cache bleibt,
+    damit ein ausgefallenes GitHub nicht jeden Seitenaufbau blockiert."""
     global _cache
     if not _aktiviert():
         return None

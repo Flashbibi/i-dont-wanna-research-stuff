@@ -55,7 +55,6 @@ def relative_time(value: datetime | str) -> str:
 
 
 def extension_files() -> list[Path]:
-    """Dateien der Extension in stabiler Reihenfolge."""
     return sorted(path for path in EXTENSION_DIR.rglob("*") if path.is_file())
 
 
@@ -65,12 +64,8 @@ def extension_version() -> str:
 
 
 def build_extension_zip() -> bytes:
-    """Das deployte extension/-Verzeichnis zippen - deterministisch.
-
-    Feste Zeitstempel und sortierte Reihenfolge, damit zweimal Herunterladen
-    byte-identisch ist. Gebaut wird aus dem ausgecheckten Stand, deshalb liefert
-    jeder Push automatisch den passenden Download, ohne Hook oder CI.
-    """
+    """Feste Zeitstempel und sortierte Reihenfolge, damit zweimal Herunterladen
+    byte-identisch ist."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in extension_files():
@@ -129,7 +124,7 @@ class OfferFetchRequest(BaseModel):
 
 
 class ManualOfferRequest(BaseModel):
-    """Ein abgetipptes Angebot. Die Texte kommen wörtlich von der Seite."""
+    """Ein abgetipptes Angebot, dessen Texte wörtlich von der Seite kommen."""
 
     produkt_url: str
     produktname: str
@@ -495,12 +490,8 @@ def create_app(
             raise HTTPException(422, str(error)) from error
 
     def line_of_job(job_id: int, line_id: int) -> dict[str, Any]:
-        """Die Zeile muss zu diesem Job gehören.
-
-        Ohne diese Prüfung liesse sich über die Job-URL ein Angebot an eine
-        fremde Zeile hängen - die Zuordnung ist der einzige Teil, den die
-        Engine nicht selbst nachprüfen kann.
-        """
+        """Ohne diese Prüfung liesse sich über die Job-URL ein Angebot an eine fremde
+        Zeile hängen - die Engine prüft die Zuordnung nicht selbst."""
         job = active_repository.get_job(job_id)
         if job is None:
             raise HTTPException(404, f"Job {job_id} ist unbekannt")
@@ -596,16 +587,8 @@ def create_app(
         stub: str | None = None,
         x_e2e_marker: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        """Gast-Warenkorb füllen und nach Rückverifikation übergeben.
-
-        Die Statuscodes trennen die Ausgänge, die die Oberfläche unterschiedlich
-        darstellen muss: 503 ist wiederholbar, 409 ist ein belegter Unterschied
-        zwischen Erfassung und Korb.
-
-        ``stub`` ist ausschliesslich für den E2E-Klickpfad und nur mit gültigem
-        Marker erreichbar, damit kein Aufruf von aussen einen erfundenen Korb
-        bestätigt bekommt.
-        """
+        """503 ist wiederholbar, 409 ein belegter Unterschied zwischen Erfassung und
+        Korb - die Oberfläche muss beide unterschiedlich darstellen."""
         if stub is not None:
             require_e2e_marker(x_e2e_marker)
             if stub not in {"ok", "mismatch"}:

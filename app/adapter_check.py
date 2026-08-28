@@ -1,24 +1,5 @@
-"""Adapter bauen und sofort sehen, was er liest.
-
-Die Schleife beim Bauen eines Shop-Adapters ist immer dieselbe: Seite ansehen,
-Selektoren in eine YAML-Datei schreiben, prüfen, Ausgabe mit der Seite
-vergleichen. Dieses Modul ist der dritte Schritt - und der Vergleich bleibt beim
-Menschen, deshalb steht hier zu jedem Feld der **Rohtext** neben dem geparsten
-Wert.
-
-::
-
-    python -m app.adapter_check <adapter.yaml> <produkt-url> [--waehrung CHF]
-    python -m app.adapter_check <adapter.yaml> --fixture <seite.html> [--waehrung CHF]
-
-Der Live-Modus geht durch dieselbe Tür wie die Engine (``app/fetch.py``), mit
-denselben Regeln: robots.txt, Mindestabstand, ehrlicher User-Agent. Der
-Fixture-Modus liest eine Datei und fasst das Netz überhaupt nicht an.
-
-Geprüft wird genau eine Datei; die Registry bleibt aussen vor. Und weder
-``procurement`` noch eine Datenbank werden angefasst - dieses Werkzeug schreibt
-nichts, nirgendwo.
-"""
+"""Prüft einen Adapter gegen eine Seite und zeigt zu jedem Feld den Rohtext neben dem
+geparsten Wert, weil der Vergleich beim Menschen bleibt."""
 
 from __future__ import annotations
 

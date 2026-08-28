@@ -1,16 +1,5 @@
-"""Warenkorb-Übergabe: deterministische Adapter pro Shop-Plattform.
-
-Reines HTTP, kein Browser und kein Modell - Warenkorb-Füllen ist so
-deterministisch wie der Optimierer und gehört deshalb in Code.
-
-Grenzen, die hier bewusst hart sind:
-
-* Nur Gast-Sessions. Keine Logins, keine Kontoerstellung, kein Kaufabschluss.
-* Session-Cookies werden nie geloggt und tauchen in keiner Fehlermeldung auf.
-* Eine Session pro Füllvorgang, wenige Requests, normale Browser-Header.
-* Nach dem Füllen wird der Korb zurückgelesen und gegen die Szenario-Zuordnung
-  geprüft. Ohne exakte Übereinstimmung wird nichts übergeben.
-"""
+"""Warenkorb-Übergabe per HTTP: nur Gast-Sessions ohne Login und Kaufabschluss, und
+übergeben wird nur ein zurückgelesener und geprüfter Korb."""
 
 from __future__ import annotations
 
@@ -23,7 +12,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 from urllib.parse import urljoin, urlparse
 
-#: Diagnose-Logging des Füllpfads. Enthält bewusst nie Cookie-Werte.
+# Diagnose des Füllpfads; Cookie-Werte gehören bewusst nie hinein.
 log = logging.getLogger("beschaffung.cart")
 
 _ADDED_LINK = re.compile(r"<a\s+href=[\"']([^\"']+)[\"']", re.IGNORECASE)
@@ -34,8 +23,7 @@ PLATFORM_SHOPIFY = "shopify"
 
 KNOWN_PLATFORMS = (PLATFORM_OPENCART, PLATFORM_WOOCOMMERCE, PLATFORM_SHOPIFY)
 
-#: Plattformen, für die es einen ausgeführten Adapter gibt. Alles andere fällt
-#: auf die bestehende Linkliste zurück.
+# Plattformen mit ausgeführtem Adapter; alles andere fällt auf die Linkliste zurück.
 SUPPORTED_PLATFORMS = (PLATFORM_OPENCART,)
 
 BROWSER_HEADERS = {
@@ -57,12 +45,8 @@ class CartUnsupported(CartError):
 
 
 class CartTemporaryError(CartError):
-    """Netzwerk- oder Zeitfehler - wiederholbar, und es wird nichts persistiert.
-
-    Wichtig für die Plattform-Erkennung: ein Timeout darf niemals als
-    "unbekannte Plattform" festgeschrieben werden, sonst wäre ein
-    unterstützter Shop dauerhaft stummgeschaltet.
-    """
+    """Wiederholbarer Netz- oder Zeitfehler ohne Persistenz - ein Timeout darf nie als
+    "unbekannte Plattform" festgeschrieben werden."""
 
 
 class CartVerificationError(CartError):
@@ -84,8 +68,8 @@ class CartItem:
     menge: int
     einzelpreis_chf: Decimal
     shop_produkt_id: str | None = None
-    #: Shopinterne Artikelnummer. Wenn gesetzt, ankert der Positionsvergleich
-    #: auf ihr statt auf dem sprachabhängigen URL-Slug.
+    # Wenn gesetzt, ankert der Positionsvergleich auf ihr statt auf dem
+    # sprachabhängigen URL-Slug.
     artikelnummer: str | None = None
 
     @property
@@ -101,7 +85,7 @@ class PlatformEvidence:
 
 @dataclass
 class CartFill:
-    """Ergebnis eines Füllvorgangs. Enthält nie mehr als nötig."""
+    """Ergebnis eines Füllvorgangs; enthält bewusst nie mehr als nötig."""
 
     plattform: str
     verifiziert: bool
@@ -111,12 +95,12 @@ class CartFill:
     cookie_name: str | None = None
     cookie_wert: str | None = None
     cart_url: str | None = None
-    #: Wohin der Ein-Klick-Weg den Tab öffnet, nachdem das Cookie sitzt.
+    # Wohin der Ein-Klick-Weg den Tab öffnet, nachdem das Cookie sitzt.
     uebergabe_url: str | None = None
     plattform_beleg: str | None = None
-    #: offer_id -> shopinterne Produkt-ID, zum Cachen durch den Aufrufer.
+    # offer_id -> shopinterne Produkt-ID, zum Cachen durch den Aufrufer.
     produkt_ids: dict[int, str] = field(default_factory=dict)
-    #: offer_id -> shopinterne Artikelnummer, ebenfalls zum Cachen.
+    # offer_id -> shopinterne Artikelnummer, ebenfalls zum Cachen.
     artikelnummern: dict[int, str] = field(default_factory=dict)
 
 
@@ -128,7 +112,7 @@ class Response(Protocol):
 
 
 class Session(Protocol):
-    """Minimale HTTP-Sitzung. In Tests durch eine Attrappe ersetzt."""
+    """Minimale HTTP-Sitzung, die in Tests durch eine Attrappe ersetzt wird."""
 
     @property
     def cookies(self) -> Mapping[str, str]: ...
@@ -138,9 +122,7 @@ class Session(Protocol):
     def post(self, url: str, data: Mapping[str, Any]) -> Response: ...
 
 
-# ---------------------------------------------------------------------------
 # Betragsformate
-# ---------------------------------------------------------------------------
 
 # Muss mit einer Ziffer beginnen und enden, sonst verschluckt der Ausdruck den
 # Punkt in "Fr." oder einen Satzpunkt hinter dem Betrag.
@@ -148,12 +130,8 @@ _AMOUNT = re.compile(r"-?\d(?:[\d'’.,]*\d)?")
 
 
 def parse_chf(text: str | None) -> Decimal:
-    """Betrag aus Shop-Markup lesen.
-
-    Deckt die real vorkommenden Schreibweisen ab: ``CHF 5.90``, ``CHF5,90``
-    und ``CHF 1'234.55``. Der Apostroph ist Tausendertrennung, das *letzte*
-    Komma oder der letzte Punkt trennt die Rappen.
-    """
+    """Betrag aus Shop-Markup lesen, wobei der Apostroph Tausender gruppiert und das
+    letzte Komma oder der letzte Punkt die Rappen trennt."""
     if text is None:
         raise CartError("Betrag fehlt im Shop-Markup")
     match = _AMOUNT.search(text.replace("\xa0", " "))
@@ -179,18 +157,12 @@ def format_chf(value: Decimal) -> str:
     return f"CHF {value.quantize(Decimal('0.01'))}"
 
 
-# ---------------------------------------------------------------------------
 # Plattform-Erkennung
-# ---------------------------------------------------------------------------
 
 
 def detect_platform(html: str, cookie_names: list[str]) -> PlatformEvidence | None:
-    """Plattform on demand erkennen und einen kurzen Nachweis mitliefern.
-
-    Kein Wert ohne Beleg - dieselbe Disziplin wie bei Lieferzeiten und
-    Versandprofilen. Ohne belastbaren Treffer wird ``None`` zurückgegeben,
-    nicht geraten.
-    """
+    """Plattform on demand erkennen und belegen - ohne belastbaren Treffer kommt
+    ``None`` zurück statt eines Rateversuchs."""
     names = {name.upper() for name in cookie_names}
     markup = html or ""
 
@@ -221,18 +193,8 @@ def detect_platform(html: str, cookie_names: list[str]) -> PlatformEvidence | No
 
 
 def start_guest_session(session: Session, base_url: str) -> PlatformEvidence | None:
-    """Gast-Session eröffnen und dabei die Plattform erkennen.
-
-    Trennt zwei Ausgänge sauber voneinander:
-
-    * **Abgeschlossene Erkennung** - der Shop hat geantwortet und wurde
-      ausgewertet. Ergebnis ist eine Plattform oder ``None`` ("nichts Bekanntes
-      gefunden"). Nur dieser Ausgang darf persistiert werden.
-    * **Kein Ergebnis** - Timeout, Verbindungsabbruch oder eine Fehlerantwort.
-      Das ist ``CartTemporaryError``: wiederholbar, und der Aufrufer schreibt
-      nichts. Sonst würde ein einzelner Netzwerkhänger einen unterstützten Shop
-      dauerhaft als "nicht unterstützt" festnageln.
-    """
+    """Gast-Session eröffnen und die Plattform erkennen; nur ein abgeschlossener
+    Abruf darf persistiert werden, ein Transportfehler nie."""
     try:
         response = session.get(base_url)
     except Exception as error:  # noqa: BLE001 - jeder Transportfehler ist wiederholbar
@@ -248,9 +210,7 @@ def start_guest_session(session: Session, base_url: str) -> PlatformEvidence | N
     return detect_platform(response.text, list(session.cookies))
 
 
-# ---------------------------------------------------------------------------
 # OpenCart
-# ---------------------------------------------------------------------------
 
 _INPUT_TAG = re.compile(r"<input\b[^>]*>", re.IGNORECASE)
 _TABLE_ROW = re.compile(r"<tr\b[^>]*>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
@@ -271,13 +231,8 @@ def _text(fragment: str) -> str:
 
 
 def extract_opencart_product_id(html: str, produkt_url: str) -> str:
-    """``product_id`` aus der Produktseite lesen.
-
-    Quelle ist die Produktseite selbst. Es muss genau einen Kandidaten geben:
-    OpenCart rendert die ID einmal im Add-to-Cart-Formular, während verwandte
-    Produkte ihre IDs nur in ``wishlist.add(...)``/``compare.add(...)`` tragen.
-    Bei null oder mehreren Treffern wird abgebrochen statt geraten.
-    """
+    """``product_id`` aus der Produktseite lesen, wobei nur genau ein Kandidat gilt
+    und bei null oder mehreren abgebrochen statt geraten wird."""
     found: set[str] = set()
     for tag in _INPUT_TAG.findall(html or ""):
         if (_attr(tag, "name") or "").strip().lower() != "product_id":
@@ -306,16 +261,8 @@ _JSONLD = re.compile(
 
 
 def extract_opencart_artikelnummer(html: str) -> str | None:
-    """Shopinterne Artikelnummer aus den strukturierten Produktdaten lesen.
-
-    Anker ist ``"model"`` im JSON-LD-Product-Block. Sprachunabhängig - anders als
-    die sichtbare Zeile, die je nach Sprache "Product Code" oder
-    "Artikelnummer" heisst, und anders als der URL-Slug, an dem sich der
-    Sprach-Vorfall entzündet hat.
-
-    Kein eindeutiger Treffer -> ``None``. Die Artikelnummer ist eine Zugabe;
-    fehlt sie, bleibt der strikte URL-Vergleich zuständig.
-    """
+    """Artikelnummer aus dem JSON-LD-Product-Block lesen - sprachunabhängig, und ohne
+    eindeutigen Treffer bleibt es bei ``None`` und dem strikten URL-Vergleich."""
     gefunden: set[str] = set()
     for block in _JSONLD.findall(html or ""):
         try:
@@ -343,15 +290,8 @@ class CartEntry:
 
 
 def parse_opencart_cart(html: str) -> tuple[list[CartEntry], dict[str, Decimal]]:
-    """Korbseite zurücklesen: Positionen und der Summenblock.
-
-    Die Zeilenpreise sind die **Brutto**-Beträge und damit dieselbe Basis wie
-    unsere Erfassung von der Produktseite. Der Summenblock wird nur zur
-    Diagnose zurückgegeben und ist ausdrücklich **keine** Vergleichsgrundlage:
-    Bastelgarage weist ``Sub-Total`` netto aus (CHF 17.30 bei CHF 18.70 brutto,
-    8.1 % MWST). Wer dagegen prüft, vergleicht Netto gegen Brutto und meldet
-    einen Preiswechsel, den es nie gab.
-    """
+    """Korbseite zurücklesen - die Zeilenpreise sind brutto und vergleichbar, der
+    Summenblock bei Bastelgarage aber netto und deshalb nur Diagnose."""
     entries: list[CartEntry] = []
     for row in _TABLE_ROW.findall(html or ""):
         quantity: int | None = None
@@ -439,12 +379,8 @@ class OpenCartAdapter:
 
     # -- Ablauf ------------------------------------------------------------
     def fill(self, base_url: str, items: list[CartItem]) -> CartFill:
-        """Korb füllen und zurücklesen.
-
-        Setzt voraus, dass die Gast-Session bereits über
-        :func:`start_guest_session` eröffnet und die Plattform dabei bestätigt
-        wurde - Erkennung und Füllen sind ein Knopfdruck, aber zwei Schritte.
-        """
+        """Korb füllen und zurücklesen; setzt eine bereits über
+        :func:`start_guest_session` eröffnete Gast-Session voraus."""
         if not items:
             raise CartError("Für diesen Shop enthält der gewählte Plan keine Position")
 
@@ -470,8 +406,7 @@ class OpenCartAdapter:
                 if nummer and not item.artikelnummer:
                     artikelnummern[item.offer_id] = nummer
             hinzugefuegt = self._add(base_url, item, product_id)
-            # Die Add-Antwort nennt das tatsächlich eingelegte Produkt. Zeigt eine
-            # gecachte ID auf ein anderes Produkt, steht der Beleg genau hier.
+            # Zeigt eine gecachte ID auf ein anderes Produkt, steht der Beleg hier.
             log.info(
                 "cart-fill offer=%s product_id=%s quelle=%s erwartet=%s eingelegt=%s",
                 item.offer_id,
@@ -481,24 +416,15 @@ class OpenCartAdapter:
                 hinzugefuegt,
             )
 
-        # Der Sprachkontext zählt nur für den URL-Vergleich. Trägt jede Position
-        # eine Artikelnummer, ankert der Vergleich sprachunabhängig und der
-        # zusätzliche Abruf entfällt.
+        # Der Sprachkontext zählt nur für den URL-Vergleich, der bei durchgehender
+        # Artikelnummer entfällt.
         braucht_slugvergleich = any(
             not (item.artikelnummer or artikelnummern.get(item.offer_id))
             for item in items
         )
         if not produktseite_besucht and braucht_slugvergleich:
-            # Sprachkontext festlegen, bevor der Korb gelesen wird.
-            #
-            # Bastelgarage ist zweisprachig und rendert die Korb-Links in der
-            # Sprache der Session. Die Landing-Seite setzt den Shop-Default
-            # (de-de), unsere erfassten produkt_url sind aber die Slugs der
-            # Sprache, in der sie aufgenommen wurden. Solange IDs frisch von den
-            # Produktseiten kamen, hat genau dieser Abruf die Session mitgezogen
-            # und die Slugs passten. Bei vollständig warmem Cache entfällt er -
-            # dann meldet der Korb fremdsprachige Slugs und jede Position gilt
-            # als fehlend. Ein Abruf einer erfassten URL stellt den Kontext her.
+            # Bastelgarage rendert Korb-Links in der Session-Sprache; ein Abruf
+            # einer erfassten URL setzt sie.
             page = self.session.get(items[0].produkt_url)
             log.info(
                 "cart-language pinned via=%s status=%s",
@@ -607,27 +533,14 @@ class OpenCartAdapter:
         items: list[CartItem],
         entries: list[CartEntry],
     ) -> None:
-        """Artikelzahl und Preise gegen die Zuordnung prüfen - Position für Position.
-
-        Verglichen wird **brutto gegen brutto**: die Zeilensummen des Korbs
-        gegen die erfassten Positionspreise von der Produktseite. Bewusst nicht
-        gegen den Summenblock - ``Sub-Total`` ist bei Bastelgarage netto, und
-        ein Vergleich dagegen meldete einen Preiswechsel, den es nie gab.
-
-        Positionsweise statt als eine Summe, damit eine echte Abweichung auch
-        zeigt, *welche* Position betroffen ist.
-
-        Fängt weiterhin die zwei realen Fälle ab: der Shop-Preis hat sich seit
-        ``gesehen_am`` geändert, und Produkte mit Pflichtoptionen landen nicht
-        wie erwartet im Korb. Ohne Toleranz - exakt oder gar nicht.
-        """
+        """Positionsweise brutto gegen brutto prüfen - nie gegen den Netto-Summenblock
+        und ohne Toleranz."""
         abweichungen: list[str] = []
 
         for item in items:
             if item.artikelnummer:
-                # Artikelnummer schlägt den Slug: sie ist sprachunabhängig,
-                # die URL bleibt Provenienz. Kein Rückfall auf die URL, wenn die
-                # Nummer nicht trifft - sonst wäre es doch wieder Aliasing.
+                # Kein Rückfall auf den Slug, wenn die Artikelnummer nicht trifft -
+                # sonst wäre es wieder Aliasing.
                 matching = [
                     entry
                     for entry in entries
@@ -672,13 +585,8 @@ class OpenCartAdapter:
 
 
 def build_adapter(plattform: str | None, session: Session) -> OpenCartAdapter:
-    """Adapter zur Plattform wählen.
-
-    ``woocommerce`` und ``shopify`` brauchen keine Session-Übergabe - dort füllt
-    eine Cart-URL den Korb direkt im Browser. Das Interface ist vorbereitet,
-    aber bewusst nicht ausgeführt: derzeit hat kein erfasster Shop diese
-    Plattform, und auf Vorrat wird nichts gebaut.
-    """
+    """Adapter zur Plattform wählen; ``woocommerce`` und ``shopify`` bleiben bewusst
+    unausgeführt, solange kein erfasster Shop sie nutzt."""
     if plattform == PLATFORM_OPENCART:
         return OpenCartAdapter(session)
     if plattform in (PLATFORM_WOOCOMMERCE, PLATFORM_SHOPIFY):
@@ -692,17 +600,8 @@ def build_adapter(plattform: str | None, session: Session) -> OpenCartAdapter:
 
 
 def build_stub_session(items: list[CartItem], *, mismatch: bool = False) -> Session:
-    """OpenCart-Attrappe für den E2E-Klickpfad.
-
-    Stellt einen Shop im Prozess nach, damit der Klickpfad den echten
-    Adaptercode inklusive Parsing und Rückverifikation durchläuft, ohne einen
-    realen Shop anzufassen. Wird ausschliesslich über den E2E-Marker erreicht
-    und schreibt nichts in die Datenbank.
-
-    Mit ``mismatch=True`` liefert der Korb einen um 30 Rappen höheren Preis
-    pro Position - das stellt den realen Fall "Shop-Preis hat sich seit
-    gesehen_am geändert" nach.
-    """
+    """Attrappe eines Shops, damit der E2E-Klickpfad den echten Adaptercode samt
+    Parsing und Rückverifikation durchläuft, ohne einen realen Shop anzufassen."""
     home = (
         '<html><head><link href="catalog/view/theme/stub/stylesheet.css"></head>'
         '<body><a href="index.php?route=checkout/cart">Warenkorb</a></body></html>'

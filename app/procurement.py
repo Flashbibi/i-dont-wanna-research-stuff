@@ -49,11 +49,11 @@ class ValidationError(ValueError):
     pass
 
 
-#: Schweizer Wertfreigrenze pro Person und Tag. Nur Anzeige - es wird nie eine
-#: Steuer berechnet und nichts davon fliesst in ein Total.
+# Schweizer Wertfreigrenze pro Person und Tag - reine Anzeige, die weder in ein Total
+# fliesst noch eine Steuer berechnet.
 WERTFREIGRENZE_CHF = Decimal("150")
 
-#: Deutscher MwSt-Satz, um aus Bruttopreisen den Nettowert zu naehern.
+# Deutscher MwSt-Satz, um aus Bruttopreisen den Nettowert zu naehern.
 AUSLAND_MWST = Decimal("1.19")
 
 
@@ -128,8 +128,8 @@ def _decimal(value: Any, field: str, *, positive: bool = False) -> Decimal:
 
 def _hostname(url: str, field: str) -> str:
     parsed = urlparse(url)
-    # username allein reicht nicht: «https://:geheim@shop.ch/» hat einen leeren
-    # Benutzernamen und trotzdem ein Passwort, das sonst im Angebot landete.
+    # username allein reicht nicht: ein leerer Benutzername mit gesetztem Passwort
+    # landete sonst im Angebot.
     if (
         parsed.scheme not in {"http", "https"}
         or not parsed.hostname
@@ -153,11 +153,8 @@ def _adapter_deckt(url: Any) -> bool:
 
 
 def _gleicher_wert(alt: Any, neu: Any) -> bool:
-    """Vergleich über die Grenze Datenbank/Antwort hinweg.
-
-    Preise kommen als ``Decimal``, Texte mal mit und mal ohne Rand-Leerzeichen;
-    ein Vergleich der Roh-Objekte meldete Änderungen, die keine sind.
-    """
+    """Vergleich über die Grenze Datenbank/Antwort hinweg, weil ein Vergleich der
+    Roh-Objekte Änderungen meldete, die keine sind."""
     if alt is None or neu is None:
         return alt is None and neu is None
     if isinstance(alt, Decimal) or isinstance(neu, Decimal):
@@ -171,7 +168,6 @@ def _gleicher_wert(alt: Any, neu: Any) -> bool:
 
 
 def _deckt_domain(host: str, shop_domain: str) -> bool:
-    """Produkt-URL und Shop-Domain vergleichen: exakt oder als Subdomain."""
     return host == shop_domain or host.endswith("." + shop_domain)
 
 
@@ -189,15 +185,8 @@ def _obere_grenze(text: str, einheit: str) -> int | None:
 
 
 def parse_delivery_upper_days(text: str | None) -> int | None:
-    """Genannte Lieferdauer in Tagen lesen, Bereiche konservativ nach oben.
-
-    Tage werden zuerst gesucht und gewinnen: nennt ein Shop beides («2-3 Tage,
-    sonst 1-2 Wochen»), ist die Tagesangabe die genauere. Wochen werden mal
-    sieben genommen - «1-2 Wochen» sind hier 14 Tage, nicht «unbekannt». Bisher
-    fiel genau das durch und der Optimierer verhängte den Unbekannt-Malus,
-    obwohl die Auskunft auf der Seite stand. Englische Muster liest diese
-    Funktion bewusst nicht.
-    """
+    """Genannte Lieferdauer in Tagen lesen, Bereiche konservativ nach oben und Wochen
+    mal sieben statt als unbekannt - englische Muster bleiben bewusst ungelesen."""
     if not text or not text.strip():
         return None
     tage = _obere_grenze(text, r"(?:Arbeits|Werk)?tag(?:e|en)?")
@@ -403,13 +392,8 @@ class ProcurementService:
         aufschlag_chf: Any = 0,
         zuschlag_tage: int = 0,
     ) -> dict[str, Any]:
-        """Eine Lieferadresse anlegen.
-
-        Semantik, bewusst eng: eine Adresse eröffnet den **Heimmarkt ihres
-        Landes**. Eine deutsche Adresse heisst innerdeutscher Versand dorthin -
-        nichts weiter. Kein Cross-Border, keine Shop-mal-Adresse-Matrix; was ein
-        Shop liefert, beantwortet weiterhin sein belegtes Versandprofil.
-        """
+        """Eine Lieferadresse anlegen, die bewusst nur den Heimmarkt ihres Landes
+        eröffnet - kein Cross-Border, keine Shop-mal-Adresse-Matrix."""
         if not name.strip():
             raise ValidationError("Name der Lieferadresse fehlt")
         if not adresse.strip():
@@ -566,12 +550,8 @@ class ProcurementService:
         provenienz_text: str | None = None,
         erfasst_via: str | None = None,
     ) -> dict[str, Any]:
-        """Ein Angebot erfassen - der einzige Schreibpfad für Angebote.
-
-        ``erfasst_via`` wird nur durchgereicht und ausschliesslich von
-        :meth:`fetch_offer` gesetzt. Das MCP-Tool ``record_offer`` reicht den
-        Parameter nicht durch: die KI kann sich nicht als Adapter ausgeben.
-        """
+        """Der einzige Schreibpfad für Angebote; ``erfasst_via`` setzt allein
+        fetch_offer, damit die KI sich nicht als Adapter ausgeben kann."""
         if self.repository.get_line(line_id) is None:
             raise ValidationError(f"Zeile {line_id} ist unbekannt")
         shop = self.repository.get_shop(shop_id)
@@ -619,18 +599,8 @@ class ProcurementService:
         )
 
     def fetch_offer(self, line_id: int, produkt_url: str) -> dict[str, Any]:
-        """Produktseite deterministisch lesen und das Angebot daraus erfassen.
-
-        Der Unterschied zu :meth:`record_offer` ist, wer liest: hier holt die
-        Engine die Seite selbst und wendet die Selektoren des Adapters an.
-        ``lieferzeit_text`` und ``lager_text`` sind danach wörtlicher
-        Seitentext statt einer Behauptung.
-
-        Geschrieben wird trotzdem ausschliesslich über ``record_offer`` - mit
-        Originalbetrag und Shopwährung. Damit laufen dieselben Validierungen,
-        dieselbe Kursumrechnung und derselbe Lieferzeit-Parser wie beim
-        manuellen Weg; einen zweiten Schreibpfad gibt es nicht.
-        """
+        """Produktseite deterministisch lesen und über ``record_offer`` erfassen -
+        einen zweiten Schreibpfad gibt es bewusst nicht."""
         if self.repository.get_line(line_id) is None:
             raise ValidationError(f"Zeile {line_id} ist unbekannt")
         domain = _hostname(produkt_url, "Produkt-URL")
@@ -696,14 +666,7 @@ class ProcurementService:
     def _pruefe_shopwaehrung(
         shop: Mapping[str, Any], waehrung: str, preistext: str
     ) -> None:
-        """Eine Shopwährung, die dem Shopland widerspricht, braucht einen Beleg.
-
-        ``record_shop`` setzt CHF, wenn keine Währung angegeben wird. Bei einem
-        Shop ausserhalb des CHF-Raums ist CHF deshalb genauso oft ein Versehen
-        wie eine Tatsache - und ein als CHF verbuchter Europreis wäre still
-        falsch, mit Kurs 1 und ohne jeden Beleg. Sagt die Seite die Währung
-        selbst, ist die Sache entschieden; sonst wird nichts erfasst.
-        """
+        """Eine Shopwährung, die dem Shopland widerspricht, braucht einen Beleg."""
         land = str(shop.get("land") or "").strip().upper()
         landeswaehrung = waehrung_fuer_land(land)
         if landeswaehrung is None or landeswaehrung == waehrung:
@@ -728,14 +691,8 @@ class ProcurementService:
         lager_text: str | None = None,
         artikelnummer: str | None = None,
     ) -> dict[str, Any]:
-        """Ein von Hand abgetipptes Angebot erfassen - der «ungeprüft»-Weg.
-
-        Der Shop wird über die Domain der URL gefunden, genau wie bei
-        :meth:`fetch_offer`. ``erfasst_via`` bleibt leer: hier hat niemand
-        ausser dem Menschen die Seite gelesen, und die Oberfläche weist das
-        auch so aus. Ist der Shop unbekannt, kommt derselbe Klartexthinweis
-        wie beim Abruf - erfasst wird nichts.
-        """
+        """Ein von Hand abgetipptes Angebot erfassen - der «ungeprüft»-Weg, auf dem
+        ``erfasst_via`` leer bleibt."""
         shop = self._shop_fuer_domain(_hostname(produkt_url, "Produkt-URL"))
         return self.record_offer(
             line_id,
@@ -750,21 +707,8 @@ class ProcurementService:
         )
 
     def refresh_offer(self, offer_id: int) -> dict[str, Any]:
-        """Ein bestehendes Angebot noch einmal von der Produktseite lesen.
-
-        Kein Sonderpfad: gelesen und geschrieben wird über
-        :meth:`fetch_offer`, mit denselben Prüfungen - Adapter, robots.txt,
-        Mindestabstand, Shopwährung, Weiterleitungsregel.
-
-        Die Historie ist **tagesgenau** (Migration 004). Ein zweiter Refresh am
-        selben Tag überschreibt die heutige Beobachtung; ``vorher`` in der
-        Antwort ist dann der einzige Ort, an dem der frühere Wert noch steht.
-        Eine Historie innerhalb eines Tages gibt es nicht.
-
-        Scheitert der Abruf, bleibt die Datenbank unangetastet: die alte
-        Beobachtung steht weiter, wird älter und fällt irgendwann ehrlich aus
-        dem 14-Tage-Fenster. Ein gescheiterter Refresh entwertet nie Daten.
-        """
+        """Ein bestehendes Angebot neu lesen - die Historie ist tagesgenau, sodass ein
+        zweiter Refresh am selben Tag die heutige Beobachtung überschreibt."""
         vorher = self.repository.get_offer(offer_id)
         if vorher is None:
             raise ValidationError(f"Angebot {offer_id} ist unbekannt")
@@ -789,13 +733,8 @@ class ProcurementService:
         }
 
     def refreshable_offers(self, job_id: int) -> list[dict[str, Any]]:
-        """Die Angebote, die ein «Preise prüfen» anfassen würde.
-
-        Genau die Menge, mit der auch der Optimierer rechnet: jüngste
-        Beobachtung je Zeile×URL, Zeile noch offen, Shop nicht gesperrt. Ob ein
-        Adapter greift, wird ohne jeden Netzzugriff beantwortet - die Liste
-        selbst ruft nirgends an.
-        """
+        """Die Angebote, die ein «Preise prüfen» anfassen würde - beantwortet ohne
+        jeden Netzzugriff."""
         data = self.repository.optimization_input(job_id)
         offen = {int(value) for value in data.get("required_line_ids", [])}
         eintraege = [
@@ -837,12 +776,8 @@ class ProcurementService:
         )[0]
 
     def _umrechnung(self, waehrung: str, preis_original: Decimal) -> dict[str, Any]:
-        """Originalpreis in CHF überführen und die Umrechnung belegen.
-
-        Bei CHF ist das ein No-op mit Kurs 1. Bei Fremdwährung holt der Server
-        den Tageskurs und legt Kurs, Kursdatum und Quelle zum Angebot - ohne
-        diese vier Felder lässt die Datenbank die Zeile ohnehin nicht zu.
-        """
+        """Originalpreis in CHF überführen und die Umrechnung belegen - ohne Kurs,
+        Kursdatum und Quelle lässt die Datenbank die Zeile ohnehin nicht zu."""
         code = (waehrung or HOME_CURRENCY).strip().upper()
         if code == HOME_CURRENCY:
             return {
@@ -1239,8 +1174,6 @@ class ProcurementService:
                 "erfasst_via": row.get("erfasst_via"),
                 "pinned": row.get("override_status") == "pin",
                 "excluded": offer_id in excludes,
-                # Auch die Kandidatenzeilen tragen Originalbetrag, Umrechnung
-                # und Beleg - dort schaut man beim Vergleichen hin.
                 "lieferziel_name": shop.get("lieferziel_name"),
                 "abholung": str(shop.get("lieferziel_land") or "CH").upper() != "CH",
                 **cls._waehrungs_felder(row),
@@ -1354,9 +1287,7 @@ class ProcurementService:
                     "shop_url": shop.get("url"),
                     "plattform": plattform,
                     "plattform_geprueft": geprueft,
-                    # Der Knopf erscheint, solange die Plattform unterstützt ist
-                    # oder noch nie abschliessend geprüft wurde. Ein geprüfter,
-                    # nicht unterstützter Shop bekommt keinen toten Knopf.
+                    # Kein toter Knopf für einen geprüften, nicht unterstützten Shop.
                     "kann_fuellen": plattform in SUPPORTED_PLATFORMS or not geprueft,
                 }
             )
@@ -1371,16 +1302,8 @@ class ProcurementService:
         session_factory: Any = None,
         stub: str | None = None,
     ) -> dict[str, Any]:
-        """Gast-Warenkorb für genau einen Shop des gewählten Plans füllen.
-
-        Ein Knopfdruck deckt beides ab: ergibt die Erkennung eine unterstützte
-        Plattform, läuft derselbe Versuch direkt in Füllen und Rückverifikation
-        weiter. Ein zweiter Klick ist nicht nötig.
-
-        ``stub`` schaltet auf eine Shop-Attrappe für den E2E-Klickpfad um. Dieser
-        Weg schreibt bewusst nichts: der Testlauf soll weder eine Plattform
-        festschreiben noch Produkt-IDs echter Angebote überschreiben.
-        """
+        """Gast-Warenkorb für genau einen Shop des gewählten Plans füllen - ``stub``
+        schaltet auf eine Shop-Attrappe um, die bewusst nichts schreibt."""
         shop = self.repository.get_shop(shop_id)
         if shop is None:
             raise ValidationError(f"Shop {shop_id} ist unbekannt")
@@ -1465,8 +1388,8 @@ class ProcurementService:
                 else {"name": fill.cookie_name, "wert": fill.cookie_wert}
             ),
             "cart_url": fill.cart_url,
-            # Ziel der Ein-Klick-Übergabe, plattformspezifisch. Bei OpenCart die
-            # Korbseite, damit der gefüllte Korb sofort sichtbar ist.
+            # Plattformspezifisch - bei OpenCart die Korbseite, damit der gefüllte Korb
+            # sofort sichtbar ist.
             "uebergabe_url": fill.uebergabe_url,
         }
 
@@ -1516,16 +1439,12 @@ class ProcurementService:
             if int(line["shop_id"]) == shop_id
         ]
 
-    #: Symbole für die Originalbeträge; unbekannte Währungen zeigen ihren Code.
+    # Symbole für die Originalbeträge; unbekannte Währungen zeigen ihren Code.
     WAEHRUNGSSYMBOLE = {"EUR": "€", "USD": "$", "GBP": "£", "CHF": "CHF"}
 
     @staticmethod
     def _waehrungs_felder(row: Mapping[str, Any]) -> dict[str, Any]:
-        """Originalbetrag und Umrechnung mit Beleg, wie bei Lieferzeit-Texten.
-
-        Bei CHF gibt es nichts zu zeigen - dann bleibt die Zeile so knapp wie
-        bisher.
-        """
+        """Originalbetrag und Umrechnung mit Beleg, wie bei Lieferzeit-Texten."""
         code = str(row.get("waehrung") or HOME_CURRENCY).upper()
         if code == HOME_CURRENCY or row.get("preis_original") is None:
             return {
@@ -1737,8 +1656,8 @@ class ProcurementService:
         variant["max_delivery_only_estimated"] = bool(max_lines) and all(
             row["lieferzeit_geschaetzt"] for row in max_lines
         )
-        # Wertfreigrenzen-Indikator pro Nicht-Heim-Ziel. Reine Anzeige: der Wert
-        # fliesst nirgends in ein Total ein, und es wird keine Steuer berechnet.
+        # Wertfreigrenzen-Indikator pro Nicht-Heim-Ziel, reine Anzeige ohne jede
+        # Steuerberechnung und ohne Beitrag zu einem Total.
         einfuhr: list[dict[str, Any]] = []
         for shop_id in variant["shop_ids"]:
             shop_row = shop_rows[int(shop_id)]
@@ -1856,8 +1775,8 @@ class ProcurementService:
                     str(row.get("lieferziel_aufschlag_chf") or "0.00")
                 ),
                 zuschlag_tage=int(row.get("lieferziel_zuschlag_tage") or 0),
-                # Ohne Zielangabe gilt Heimat - so verhalten sich Bestandsdaten
-                # wie vor der Einfuehrung der Lieferziele.
+                # Ohne Zielangabe gilt Heimat, damit Shops ohne Lieferziel keinen
+                # Abhol-Aufschlag erben.
                 ist_heimat=str(row.get("lieferziel_land") or "CH").upper() == "CH",
             )
             for row in data.get("shops", [])
