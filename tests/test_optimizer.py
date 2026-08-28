@@ -138,8 +138,7 @@ def test_builds_complete_plan_when_four_shops_are_required():
         for shop_id in range(1, 5)
     ]
     offers = [
-        Offer(shop_id, shop_id, shop_id, Decimal("10"), 1, 1)
-        for shop_id in range(1, 5)
+        Offer(shop_id, shop_id, shop_id, Decimal("10"), 1, 1) for shop_id in range(1, 5)
     ]
 
     variants = optimize_orders(offers, shops, tempo=0)
@@ -242,7 +241,9 @@ def test_one_shop_scenario_reports_missing_lines_when_no_shop_covers_all():
         Offer(31, 103, 2, Decimal("1"), 1, 1),
     ]
 
-    one_shop = plan_scenarios(offers, shops, required_line_ids=[101, 102, 103])["one_shop"]
+    one_shop = plan_scenarios(offers, shops, required_line_ids=[101, 102, 103])[
+        "one_shop"
+    ]
 
     assert one_shop.shop_ids == (1,)
     assert one_shop.assignments == {101: 11, 102: 21}
@@ -275,9 +276,9 @@ def test_pin_selects_product_not_shop_offer_when_product_key_matches():
         Offer(3, 101, 1, Decimal("5"), 1, 2, "other-product"),
     ]
 
-    cheapest = plan_scenarios(
-        offers, shops, required_line_ids=[101], pins={101: 1}
-    )["cheapest"]
+    cheapest = plan_scenarios(offers, shops, required_line_ids=[101], pins={101: 1})[
+        "cheapest"
+    ]
 
     assert cheapest.assignments == {101: 2}
 
@@ -303,4 +304,3 @@ def test_dominance_filter_removes_costlier_slower_and_unknown_complete_plans():
     assert filter_dominated_variants(
         [best, slower_and_costlier, equally_priced_unknown, incomplete]
     ) == [best, incomplete]
-

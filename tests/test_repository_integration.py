@@ -71,7 +71,11 @@ def test_migration_016_runs_backfills_once_and_is_idempotent(tmp_path):
                     "INSERT INTO stock(bezeichnung, menge) VALUES (%s, %s) RETURNING id",
                     (name, amount),
                 ).fetchone()[0]
-                for name, amount in (("Altbestand A", 3), ("Altbestand B", 7), ("Leer", 0))
+                for name, amount in (
+                    ("Altbestand A", 3),
+                    ("Altbestand B", 7),
+                    ("Leer", 0),
+                )
             ]
             connection.commit()
 
@@ -81,9 +85,12 @@ def test_migration_016_runs_backfills_once_and_is_idempotent(tmp_path):
             )
             assert apply_migrations(connection, tmp_path) == [16]
 
-            assert connection.execute(
-                "SELECT to_regclass('public.stock_bewegung')"
-            ).fetchone()[0] == "stock_bewegung"
+            assert (
+                connection.execute(
+                    "SELECT to_regclass('public.stock_bewegung')"
+                ).fetchone()[0]
+                == "stock_bewegung"
+            )
             constraint_defs = [
                 row[0]
                 for row in connection.execute(
@@ -94,11 +101,24 @@ def test_migration_016_runs_backfills_once_and_is_idempotent(tmp_path):
                     """
                 ).fetchall()
             ]
-            assert any("FOREIGN KEY (stock_id) REFERENCES stock(id)" in value for value in constraint_defs)
-            assert any("FOREIGN KEY (line_id) REFERENCES bom_line(id) ON DELETE SET NULL" in value for value in constraint_defs)
+            assert any(
+                "FOREIGN KEY (stock_id) REFERENCES stock(id)" in value
+                for value in constraint_defs
+            )
+            assert any(
+                "FOREIGN KEY (line_id) REFERENCES bom_line(id) ON DELETE SET NULL"
+                in value
+                for value in constraint_defs
+            )
             assert any("delta <> 0" in value for value in constraint_defs)
-            assert any("grund" in value and "uebernahme_migration" in value for value in constraint_defs)
-            assert any("kommentar" in value and "korrektur" in value for value in constraint_defs)
+            assert any(
+                "grund" in value and "uebernahme_migration" in value
+                for value in constraint_defs
+            )
+            assert any(
+                "kommentar" in value and "korrektur" in value
+                for value in constraint_defs
+            )
             indexes = {
                 row[0]
                 for row in connection.execute(
@@ -120,7 +140,10 @@ def test_migration_016_runs_backfills_once_and_is_idempotent(tmp_path):
 
             connection.execute(migration_016.read_text(encoding="utf-8"))
             connection.commit()
-            assert connection.execute("SELECT count(*) FROM stock_bewegung").fetchone()[0] == 2
+            assert (
+                connection.execute("SELECT count(*) FROM stock_bewegung").fetchone()[0]
+                == 2
+            )
             assert apply_migrations(connection, tmp_path) == []
     finally:
         with psycopg.connect(_admin_url(), connect_timeout=5, autocommit=True) as admin:
@@ -159,11 +182,20 @@ def test_the_schema_applies_from_scratch_and_derives_the_home_address(repository
 
 def test_a_shop_keeps_its_delivery_target_through_the_insert(service, repository):
     """Der Fall, den das Fake nicht sehen konnte: INSERT verwirft eine Spalte."""
-    ziel = service.record_lieferziel("Postfach (DE)", "Grenzweg 1", "DE", aufschlag_chf=25, zuschlag_tage=3)
+    ziel = service.record_lieferziel(
+        "Postfach (DE)", "Grenzweg 1", "DE", aufschlag_chf=25, zuschlag_tage=3
+    )
 
     shop = service.record_shop(
-        "Reichelt", "https://www.reichelt.de/", "DE", 5.95, 100, None, 3,
-        "https://www.reichelt.de/versand", "Versand 5,95 EUR",
+        "Reichelt",
+        "https://www.reichelt.de/",
+        "DE",
+        5.95,
+        100,
+        None,
+        3,
+        "https://www.reichelt.de/versand",
+        "Versand 5,95 EUR",
     )
 
     assert shop["lieferziel_id"] == ziel["id"]
@@ -177,8 +209,15 @@ def test_a_non_swiss_shop_is_allowed_by_the_schema(service):
     service.record_lieferziel("Wien", "Ringstrasse 1", "AT")
 
     shop = service.record_shop(
-        "Conrad AT", "https://www.conrad.at/", "AT", 6.0, None, None, 4,
-        "https://www.conrad.at/versand", "Versand 6 EUR",
+        "Conrad AT",
+        "https://www.conrad.at/",
+        "AT",
+        6.0,
+        None,
+        None,
+        4,
+        "https://www.conrad.at/versand",
+        "Versand 6 EUR",
     )
 
     assert shop["land"] == "AT"
@@ -188,17 +227,35 @@ def test_currency_evidence_survives_the_round_trip(service, repository):
     ziel = service.record_lieferziel("Postfach DE2", "Grenzweg 2", "DE")
     # Zweites DE-Ziel: die Zuordnung muss jetzt explizit sein.
     shop = service.record_shop(
-        "Pollin", "https://www.pollin.de/", "DE", 4.9, None, None, 3,
-        "https://www.pollin.de/versand", "Versand 4,90 EUR", lieferziel_id=ziel["id"],
+        "Pollin",
+        "https://www.pollin.de/",
+        "DE",
+        4.9,
+        None,
+        None,
+        3,
+        "https://www.pollin.de/versand",
+        "Versand 4,90 EUR",
+        lieferziel_id=ziel["id"],
     )
-    repository.save_kurs("EUR", Decimal("0.94"), ProcurementService._heute(),
-                         "https://api.frankfurter.app/latest?from=EUR&to=CHF")
+    repository.save_kurs(
+        "EUR",
+        Decimal("0.94"),
+        ProcurementService._heute(),
+        "https://api.frankfurter.app/latest?from=EUR&to=CHF",
+    )
     job = service.create_job("1x Kondensator")
     line_id = repository.get_job(job["job_id"])["lines"][0]["id"]
 
     angebot = service.record_offer(
-        line_id, shop["id"], "Kondensator", "https://www.pollin.de/kondensator",
-        "7.99", lieferzeit_text="2 Tage", artikelnummer="ART-4711", waehrung="EUR",
+        line_id,
+        shop["id"],
+        "Kondensator",
+        "https://www.pollin.de/kondensator",
+        "7.99",
+        lieferzeit_text="2 Tage",
+        artikelnummer="ART-4711",
+        waehrung="EUR",
     )
 
     assert angebot["preis_original"] == Decimal("7.99")
@@ -209,11 +266,23 @@ def test_currency_evidence_survives_the_round_trip(service, repository):
     # Und der Weg, den der Optimierer nimmt, führt dieselben Spalten.
     daten = repository.optimization_input(job["job_id"])
     zeile = daten["offers"][0]
-    for spalte in ("preis_original", "waehrung", "kurs", "kurs_am", "kurs_quelle", "artikelnummer"):
+    for spalte in (
+        "preis_original",
+        "waehrung",
+        "kurs",
+        "kurs_am",
+        "kurs_quelle",
+        "artikelnummer",
+    ):
         assert zeile[spalte] is not None, f"{spalte} fehlt in optimization_input"
     shop_zeile = daten["shops"][0]
-    for spalte in ("lieferziel_id", "lieferziel_name", "lieferziel_land",
-                   "lieferziel_aufschlag_chf", "lieferziel_zuschlag_tage"):
+    for spalte in (
+        "lieferziel_id",
+        "lieferziel_name",
+        "lieferziel_land",
+        "lieferziel_aufschlag_chf",
+        "lieferziel_zuschlag_tage",
+    ):
         assert spalte in shop_zeile, f"{spalte} fehlt in optimization_input"
 
 
@@ -223,11 +292,22 @@ def test_the_database_refuses_a_converted_price_without_evidence(service, reposi
     line_id = repository.get_job(job["job_id"])["lines"][0]["id"]
     # Eigener CH-Shop, damit die Waehrung zum Ziel passt.
     shop = service.record_shop(
-        "Distrelec", "https://www.distrelec.ch/", "CH", 8.0, None, None, 2,
-        "https://www.distrelec.ch/versand", "Versand CHF 8",
+        "Distrelec",
+        "https://www.distrelec.ch/",
+        "CH",
+        8.0,
+        None,
+        None,
+        2,
+        "https://www.distrelec.ch/versand",
+        "Versand CHF 8",
     )
     angebot = service.record_offer(
-        line_id, shop["id"], "Widerstand", "https://www.distrelec.ch/widerstand", "1.50",
+        line_id,
+        shop["id"],
+        "Widerstand",
+        "https://www.distrelec.ch/widerstand",
+        "1.50",
         lieferzeit_text="2 Tage",
     )
 
@@ -246,9 +326,13 @@ def test_the_capture_path_survives_the_round_trip(service, repository):
 
     von_hand = _create_offer(service, line_id, shop, "servohalter", "ART-1")
     per_adapter = service.record_offer(
-        line_id, shop["id"], "Servohalter",
-        f"{shop['url'].rstrip('/')}/servohalter-v2", "2.00",
-        lieferzeit_text="2 Tage", erfasst_via="adapter:demo",
+        line_id,
+        shop["id"],
+        "Servohalter",
+        f"{shop['url'].rstrip('/')}/servohalter-v2",
+        "2.00",
+        lieferzeit_text="2 Tage",
+        erfasst_via="adapter:demo",
     )
 
     # NULL heisst weiterhin "von Hand bzw. via KI erfasst".
@@ -268,15 +352,22 @@ def test_the_capture_path_survives_the_round_trip(service, repository):
             )
 
 
-def test_the_newest_observation_of_a_pair_is_what_a_refresh_starts_from(service, repository):
+def test_the_newest_observation_of_a_pair_is_what_a_refresh_starts_from(
+    service, repository
+):
     """Tagesgenaue Historie: get_offer liefert die jüngste Zeile ihrer Reihe."""
     job_id, line_id = _create_line(service, repository, "1x Servohalter alt")
     shop = _create_shop(service, "auffrischen")
     url = f"{shop['url'].rstrip('/')}/servohalter"
 
     gestern = service.record_offer(
-        line_id, shop["id"], "Servohalter", url, "12.90",
-        lieferzeit_text="3 Tage", erfasst_via="adapter:demo",
+        line_id,
+        shop["id"],
+        "Servohalter",
+        url,
+        "12.90",
+        lieferzeit_text="3 Tage",
+        erfasst_via="adapter:demo",
     )
     with psycopg.connect(_test_url()) as connection:
         # Die Beobachtung von gestern - danach legt derselbe Aufruf eine neue an.
@@ -285,8 +376,13 @@ def test_the_newest_observation_of_a_pair_is_what_a_refresh_starts_from(service,
             (gestern["id"],),
         )
     heute = service.record_offer(
-        line_id, shop["id"], "Servohalter", url, "11.50",
-        lieferzeit_text="2 Tage", erfasst_via="adapter:demo",
+        line_id,
+        shop["id"],
+        "Servohalter",
+        url,
+        "11.50",
+        lieferzeit_text="2 Tage",
+        erfasst_via="adapter:demo",
     )
 
     assert heute["id"] != gestern["id"]
@@ -309,7 +405,9 @@ def test_the_platform_finding_needs_evidence_at_the_database(repository):
     with pytest.raises(ValueError):
         repository.save_shop_platform(shop["id"], "opencart", "   ")
 
-    gespeichert = repository.save_shop_platform(shop["id"], "opencart", "Cookie OCSESSID")
+    gespeichert = repository.save_shop_platform(
+        shop["id"], "opencart", "Cookie OCSESSID"
+    )
     assert gespeichert["plattform"] == "opencart"
     assert repository.get_shop(shop["id"])["plattform_geprueft_am"] is not None
 
@@ -334,15 +432,27 @@ def _create_line(service, repository, text):
 
 def _create_shop(service, slug):
     return service.record_shop(
-        f"Integration {slug}", f"https://{slug}.example.ch/", "CH", 5, None, None, 2,
-        f"https://{slug}.example.ch/versand", "Versand CHF 5",
+        f"Integration {slug}",
+        f"https://{slug}.example.ch/",
+        "CH",
+        5,
+        None,
+        None,
+        2,
+        f"https://{slug}.example.ch/versand",
+        "Versand CHF 5",
     )
 
 
 def _create_offer(service, line_id, shop, slug, article):
     return service.record_offer(
-        line_id, shop["id"], slug, f"{shop['url'].rstrip('/')}/{slug}", "1.00",
-        lieferzeit_text="2 Tage", artikelnummer=article,
+        line_id,
+        shop["id"],
+        slug,
+        f"{shop['url'].rstrip('/')}/{slug}",
+        "1.00",
+        lieferzeit_text="2 Tage",
+        artikelnummer=article,
     )
 
 
@@ -401,19 +511,31 @@ def _create_plain_stock(name, amount, updated_at="2026-01-01T00:00:00Z"):
 def test_article_number_match_works_with_different_text(service, repository):
     shop = _create_shop(service, "article-match")
     source_job, source_line = _create_line(service, repository, "4x Ursprungsprodukt")
-    source_offer = _create_offer(service, source_line, shop, "source-article", "ART-MATCH-1")
-    stock_id = _create_stock_from_offer(
-        repository, source_job, source_line, source_offer["id"], "Völlig andere Bezeichnung", 4
+    source_offer = _create_offer(
+        service, source_line, shop, "source-article", "ART-MATCH-1"
     )
-    _, target_line = _create_line(service, repository, "3x Zielprodukt ohne Texttreffer")
+    stock_id = _create_stock_from_offer(
+        repository,
+        source_job,
+        source_line,
+        source_offer["id"],
+        "Völlig andere Bezeichnung",
+        4,
+    )
+    _, target_line = _create_line(
+        service, repository, "3x Zielprodukt ohne Texttreffer"
+    )
     _create_offer(service, target_line, shop, "target-article", "ART-MATCH-1")
 
     service.mark_line(target_line, "bestand")
 
     with psycopg.connect(_test_url()) as connection:
-        assert connection.execute(
-            "SELECT menge FROM stock WHERE id = %s", (stock_id,)
-        ).fetchone()[0] == 1
+        assert (
+            connection.execute(
+                "SELECT menge FROM stock WHERE id = %s", (stock_id,)
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def test_article_number_match_refuses_a_different_shop(service, repository):
@@ -433,12 +555,18 @@ def test_article_number_match_refuses_a_different_shop(service, repository):
         service.mark_line(target_line, "bestand")
 
     with psycopg.connect(_test_url()) as connection:
-        assert connection.execute(
-            "SELECT menge FROM stock WHERE id = %s", (stock_id,)
-        ).fetchone()[0] == 2
-        assert connection.execute(
-            "SELECT count(*) FROM stock_bewegung WHERE line_id = %s", (target_line,)
-        ).fetchone()[0] == 0
+        assert (
+            connection.execute(
+                "SELECT menge FROM stock WHERE id = %s", (stock_id,)
+            ).fetchone()[0]
+            == 2
+        )
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM stock_bewegung WHERE line_id = %s", (target_line,)
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def test_explicit_stock_ids_refuse_insufficient_coverage(service, repository):
@@ -449,9 +577,12 @@ def test_explicit_stock_ids_refuse_insufficient_coverage(service, repository):
         service.mark_line(line_id, "bestand", stock_ids=[stock_id])
 
     with psycopg.connect(_test_url()) as connection:
-        assert connection.execute(
-            "SELECT menge FROM stock WHERE id = %s", (stock_id,)
-        ).fetchone()[0] == 2
+        assert (
+            connection.execute(
+                "SELECT menge FROM stock WHERE id = %s", (stock_id,)
+            ).fetchone()[0]
+            == 2
+        )
 
 
 def test_stock_candidates_rank_by_common_tokens_then_recency(service, repository):
@@ -478,7 +609,9 @@ def test_stock_candidates_rank_by_common_tokens_then_recency(service, repository
     ]
 
 
-def test_deleting_a_stock_fulfilled_job_refunds_stock_and_preserves_history(service, repository):
+def test_deleting_a_stock_fulfilled_job_refunds_stock_and_preserves_history(
+    service, repository
+):
     job = service.create_job("3x Servo")
     line_id = repository.get_job(job["job_id"])["lines"][0]["id"]
     with psycopg.connect(_test_url()) as connection:
@@ -497,9 +630,12 @@ def test_deleting_a_stock_fulfilled_job_refunds_stock_and_preserves_history(serv
     service.delete_job(job["job_id"], job["job_id"])
 
     with psycopg.connect(_test_url()) as connection:
-        assert connection.execute(
-            "SELECT menge FROM stock WHERE id = %s", (stock_id,)
-        ).fetchone()[0] == 5
+        assert (
+            connection.execute(
+                "SELECT menge FROM stock WHERE id = %s", (stock_id,)
+            ).fetchone()[0]
+            == 5
+        )
         movements = connection.execute(
             """
             SELECT delta, grund, line_id, kommentar
@@ -510,7 +646,12 @@ def test_deleting_a_stock_fulfilled_job_refunds_stock_and_preserves_history(serv
         assert movements == [
             (5, "uebernahme_migration", None, "Testbestand"),
             (-3, "abgang_bestand", None, None),
-            (3, "rueckbuchung_job_geloescht", None, f"Rückbuchung: Job {job['job_id']} gelöscht"),
+            (
+                3,
+                "rueckbuchung_job_geloescht",
+                None,
+                f"Rückbuchung: Job {job['job_id']} gelöscht",
+            ),
         ]
         _assert_stock_invariant(connection)
 
@@ -604,7 +745,9 @@ def test_a_second_test_job_keeps_the_shared_disposable_shops_alive(frische_daten
     assert repository.list_shops() == []
 
 
-def test_only_the_missing_shops_are_created_and_only_those_are_removed(frische_datenbank):
+def test_only_the_missing_shops_are_created_and_only_those_are_removed(
+    frische_datenbank,
+):
     """Ein echter Shop steht schon da: dann kommen zwei dazu, nicht drei."""
     repository = frische_datenbank
     echter = _create_shop(ProcurementService(repository), "echt")
@@ -614,7 +757,8 @@ def test_only_the_missing_shops_are_created_and_only_those_are_removed(frische_d
     assert len(testjob["created_shop_ids"]) == 2
     assert testjob["shop_ids"][0] == echter["id"]
     assert [
-        shop["domain"] for shop in repository.list_shops()
+        shop["domain"]
+        for shop in repository.list_shops()
         if shop["domain"].endswith(".invalid")
     ] == ["e2e-a.invalid", "e2e-b.invalid"]
 

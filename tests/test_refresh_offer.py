@@ -18,7 +18,6 @@ import pytest
 from app import adapter, fetch
 from app.procurement import ProcurementService, ValidationError
 
-
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "adapters" / "demo"
 SEITE = (FIXTURES / "produkt.html").read_text(encoding="utf-8")
 
@@ -76,8 +75,16 @@ class FakeRepository:
         self.next_id += 1
         return self.next_id
 
-    def seed(self, *, tag: date, preis: str, url: str = PRODUKT_URL, shop_id: int = 1,
-             lieferzeit_tage: int | None = 3, lager_text: str | None = "an Lager (5 Stück)"):
+    def seed(
+        self,
+        *,
+        tag: date,
+        preis: str,
+        url: str = PRODUKT_URL,
+        shop_id: int = 1,
+        lieferzeit_tage: int | None = 3,
+        lager_text: str | None = "an Lager (5 Stück)",
+    ):
         """Eine Beobachtung von Hand setzen - so, wie sie an dem Tag entstand."""
         row = {
             "id": self._neue_id(),
@@ -110,8 +117,12 @@ class FakeRepository:
         return None
 
     def save_kurs(self, waehrung, kurs, geholt_am, quelle_url):
-        return {"waehrung": waehrung, "kurs": kurs, "geholt_am": geholt_am,
-                "quelle_url": quelle_url}
+        return {
+            "waehrung": waehrung,
+            "kurs": kurs,
+            "geholt_am": geholt_am,
+            "quelle_url": quelle_url,
+        }
 
     def get_offer(self, offer_id):
         """Dieselbe Regel wie das echte SQL: die jüngste Beobachtung der Reihe."""
@@ -196,7 +207,9 @@ def test_a_changed_price_shows_up_as_before_and_after(monkeypatch):
     assert ergebnis["extraktion"]["felder"]["preis"] == "CHF 11.50"
     # Die heutige Beobachtung steht neben der von gestern, nicht an ihrer Stelle.
     assert repository.offers[(10, PRODUKT_URL, HEUTE)]["preis_chf"] == Decimal("11.50")
-    assert repository.offers[(10, PRODUKT_URL, GESTERN)]["preis_chf"] == Decimal("12.90")
+    assert repository.offers[(10, PRODUKT_URL, GESTERN)]["preis_chf"] == Decimal(
+        "12.90"
+    )
 
 
 def test_an_unchanged_page_is_reported_as_unchanged(monkeypatch):
@@ -292,7 +305,9 @@ def test_a_failing_fetch_never_devalues_the_old_observation(monkeypatch):
         service.refresh_offer(alt["id"])
 
     assert list(repository.offers) == [(10, PRODUKT_URL, GESTERN)]
-    assert repository.offers[(10, PRODUKT_URL, GESTERN)]["preis_chf"] == Decimal("12.90")
+    assert repository.offers[(10, PRODUKT_URL, GESTERN)]["preis_chf"] == Decimal(
+        "12.90"
+    )
 
 
 def test_the_refresh_list_says_which_offers_an_adapter_covers():

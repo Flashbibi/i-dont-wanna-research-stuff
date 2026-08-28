@@ -17,32 +17,52 @@ from app.optimizer import (
 
 def heimat(shop_id=1, name="Bastelgarage", versand="0.00", tage=2):
     return ShopProfile(
-        id=shop_id, name=name, versand_chf=Decimal(versand), gratis_ab_chf=None,
-        mindestbestellwert_chf=None, lieferzeit_default_tage=tage,
-        lieferziel_id=1, lieferziel_name="Zuhause (CH)",
-        aufschlag_chf=Decimal("0.00"), zuschlag_tage=0, ist_heimat=True,
+        id=shop_id,
+        name=name,
+        versand_chf=Decimal(versand),
+        gratis_ab_chf=None,
+        mindestbestellwert_chf=None,
+        lieferzeit_default_tage=tage,
+        lieferziel_id=1,
+        lieferziel_name="Zuhause (CH)",
+        aufschlag_chf=Decimal("0.00"),
+        zuschlag_tage=0,
+        ist_heimat=True,
     )
 
 
 def deutsch(shop_id, name, *, versand="0.00", tage=2, aufschlag="25.00", zuschlag=3):
     return ShopProfile(
-        id=shop_id, name=name, versand_chf=Decimal(versand), gratis_ab_chf=None,
-        mindestbestellwert_chf=None, lieferzeit_default_tage=tage,
-        lieferziel_id=2, lieferziel_name="Postfach (DE)",
-        aufschlag_chf=Decimal(aufschlag), zuschlag_tage=zuschlag, ist_heimat=False,
+        id=shop_id,
+        name=name,
+        versand_chf=Decimal(versand),
+        gratis_ab_chf=None,
+        mindestbestellwert_chf=None,
+        lieferzeit_default_tage=tage,
+        lieferziel_id=2,
+        lieferziel_name="Postfach (DE)",
+        aufschlag_chf=Decimal(aufschlag),
+        zuschlag_tage=zuschlag,
+        ist_heimat=False,
     )
 
 
 def angebot(offer_id, line_id, shop_id, preis, *, menge=1, tage=None):
     return Offer(
-        id=offer_id, line_id=line_id, shop_id=shop_id, preis_chf=Decimal(preis),
-        menge=menge, lieferzeit_tage=tage, product_key=f"p{line_id}",
+        id=offer_id,
+        line_id=line_id,
+        shop_id=shop_id,
+        preis_chf=Decimal(preis),
+        menge=menge,
+        lieferzeit_tage=tage,
+        product_key=f"p{line_id}",
     )
 
 
 # ---------------------------------------------------------------------------
 # Aufschlag einmal pro Ziel, nicht pro Shop
 # ---------------------------------------------------------------------------
+
 
 def test_two_german_shops_in_one_plan_cost_exactly_one_pickup():
     """Eine Abholfahrt, egal wie viele DE-Shops im Plan liegen."""
@@ -97,6 +117,7 @@ def test_the_waiting_time_is_added_to_every_shop_of_that_target():
 # Dominanzfilter arbeitet auf Totalen NACH Aufschlag
 # ---------------------------------------------------------------------------
 
+
 def test_a_german_plan_cheap_before_pickup_but_worse_after_is_filtered_out():
     """Der Kern gegen «billig gewinnt immer».
 
@@ -104,7 +125,10 @@ def test_a_german_plan_cheap_before_pickup_but_worse_after_is_filtered_out():
     teurer (55 statt 40) UND langsamer (5 statt 2 Tage) - also dominiert und
     damit unsichtbar.
     """
-    shops = [heimat(tage=2), deutsch(2, "Reichelt", tage=2, aufschlag="25.00", zuschlag=3)]
+    shops = [
+        heimat(tage=2),
+        deutsch(2, "Reichelt", tage=2, aufschlag="25.00", zuschlag=3),
+    ]
     schweiz = optimize_orders(
         [angebot(1, 10, 1, "40.00", tage=2)], [shops[0]], tempo=0.0
     )[0]
@@ -127,9 +151,16 @@ def test_a_german_plan_cheap_before_pickup_but_worse_after_is_filtered_out():
 
 
 def test_a_german_plan_that_stays_cheaper_after_pickup_survives():
-    shops = [heimat(tage=2), deutsch(2, "Reichelt", tage=2, aufschlag="25.00", zuschlag=3)]
-    schweiz = optimize_orders([angebot(1, 10, 1, "200.00", tage=2)], [shops[0]], tempo=0.0)[0]
-    deutschland = optimize_orders([angebot(2, 10, 2, "100.00", tage=2)], [shops[1]], tempo=0.0)[0]
+    shops = [
+        heimat(tage=2),
+        deutsch(2, "Reichelt", tage=2, aufschlag="25.00", zuschlag=3),
+    ]
+    schweiz = optimize_orders(
+        [angebot(1, 10, 1, "200.00", tage=2)], [shops[0]], tempo=0.0
+    )[0]
+    deutschland = optimize_orders(
+        [angebot(2, 10, 2, "100.00", tage=2)], [shops[1]], tempo=0.0
+    )[0]
 
     sichtbar = filter_dominated_variants([schweiz, deutschland])
 
@@ -143,6 +174,7 @@ def test_a_german_plan_that_stays_cheaper_after_pickup_survives():
 # Nur-Schweiz-Preset
 # ---------------------------------------------------------------------------
 
+
 def test_only_ch_matches_the_overall_optimum_when_there_is_no_foreign_offer():
     shops = [heimat()]
     offers = [angebot(1, 10, 1, "10.00", tage=2)]
@@ -154,7 +186,10 @@ def test_only_ch_matches_the_overall_optimum_when_there_is_no_foreign_offer():
 
 
 def test_only_ch_becomes_its_own_plan_once_a_foreign_offer_is_cheaper():
-    shops = [heimat(tage=2), deutsch(2, "Reichelt", tage=2, aufschlag="5.00", zuschlag=1)]
+    shops = [
+        heimat(tage=2),
+        deutsch(2, "Reichelt", tage=2, aufschlag="5.00", zuschlag=1),
+    ]
     offers = [
         angebot(1, 10, 1, "40.00", tage=2),
         angebot(2, 10, 2, "10.00", tage=2),
@@ -180,7 +215,7 @@ def test_only_ch_appears_incomplete_and_names_the_lines_it_cannot_cover():
     shops = [heimat(), deutsch(2, "Reichelt")]
     offers = [
         angebot(1, 10, 1, "10.00", tage=2),
-        angebot(2, 11, 2, "20.00", tage=2),   # Zeile 11 gibt es nur in DE
+        angebot(2, 11, 2, "20.00", tage=2),  # Zeile 11 gibt es nur in DE
     ]
 
     presets = plan_scenarios(offers, shops, required_line_ids=[10, 11])
@@ -207,26 +242,46 @@ def test_only_ch_stays_away_only_when_the_home_market_has_nothing_at_all():
 # Wertfreigrenzen-Indikator (reine Anzeige)
 # ---------------------------------------------------------------------------
 
+
 def plan_mit_de(preis):
     """Ein Plan mit genau einer DE-Position, ueber den Service angereichert."""
     from app.procurement import ProcurementService
 
     data = {
-        "offers": [{
-            "id": 1, "line_id": 10, "shop_id": 2, "preis_chf": preis, "menge": 1,
-            "lieferzeit_tage": 2, "lieferzeit_text": "2 Tage", "lager_text": None,
-            "produktname": "Teil", "produkt_url": "https://www.reichelt.de/teil",
-            "quelle_url": "https://www.reichelt.de/teil", "suchtext": "Teil",
-            "position": 1, "override_status": None,
-        }],
-        "shops": [{
-            "id": 2, "name": "Reichelt", "url": "https://www.reichelt.de",
-            "versand_chf": "0.00", "gratis_ab_chf": None,
-            "mindestbestellwert_chf": None, "lieferzeit_default_tage": 2,
-            "lieferziel_id": 2, "lieferziel_name": "Postfach (DE)",
-            "lieferziel_land": "DE", "lieferziel_aufschlag_chf": "25.00",
-            "lieferziel_zuschlag_tage": 3,
-        }],
+        "offers": [
+            {
+                "id": 1,
+                "line_id": 10,
+                "shop_id": 2,
+                "preis_chf": preis,
+                "menge": 1,
+                "lieferzeit_tage": 2,
+                "lieferzeit_text": "2 Tage",
+                "lager_text": None,
+                "produktname": "Teil",
+                "produkt_url": "https://www.reichelt.de/teil",
+                "quelle_url": "https://www.reichelt.de/teil",
+                "suchtext": "Teil",
+                "position": 1,
+                "override_status": None,
+            }
+        ],
+        "shops": [
+            {
+                "id": 2,
+                "name": "Reichelt",
+                "url": "https://www.reichelt.de",
+                "versand_chf": "0.00",
+                "gratis_ab_chf": None,
+                "mindestbestellwert_chf": None,
+                "lieferzeit_default_tage": 2,
+                "lieferziel_id": 2,
+                "lieferziel_name": "Postfach (DE)",
+                "lieferziel_land": "DE",
+                "lieferziel_aufschlag_chf": "25.00",
+                "lieferziel_zuschlag_tage": 3,
+            }
+        ],
         "required_line_ids": [10],
         "lines": [{"id": 10, "position": 1, "suchtext": "Teil", "menge": 1}],
         "selected_assignments": None,
@@ -242,7 +297,7 @@ def test_a_plan_below_the_allowance_says_so_without_touching_the_total():
     plan = plan_mit_de("100.00")
 
     eintrag = plan["einfuhr"][0]
-    assert eintrag["netto_ca_chf"] == "84.03"      # 100 / 1.19
+    assert eintrag["netto_ca_chf"] == "84.03"  # 100 / 1.19
     assert eintrag["ueber_freigrenze"] is False
     assert "unter der Wertfreigrenze" in eintrag["text"]
     # Der Indikator ist Anzeige - das Total kennt nur Ware und Aufschlag.
@@ -254,7 +309,7 @@ def test_a_plan_above_the_allowance_names_the_import_tax_without_computing_it():
     plan = plan_mit_de("200.00")
 
     eintrag = plan["einfuhr"][0]
-    assert eintrag["netto_ca_chf"] == "168.07"     # 200 / 1.19
+    assert eintrag["netto_ca_chf"] == "168.07"  # 200 / 1.19
     assert eintrag["ueber_freigrenze"] is True
     assert "über der Wertfreigrenze" in eintrag["text"]
     assert "8.1 % MwSt auf den Gesamtwert" in eintrag["text"]
@@ -266,21 +321,40 @@ def test_a_pure_home_plan_has_no_import_indicator_at_all():
     from app.procurement import ProcurementService
 
     data = {
-        "offers": [{
-            "id": 1, "line_id": 10, "shop_id": 1, "preis_chf": "500.00", "menge": 1,
-            "lieferzeit_tage": 2, "lieferzeit_text": "2 Tage", "lager_text": None,
-            "produktname": "Teil", "produkt_url": "https://shop.ch/teil",
-            "quelle_url": "https://shop.ch/teil", "suchtext": "Teil",
-            "position": 1, "override_status": None,
-        }],
-        "shops": [{
-            "id": 1, "name": "Bastelgarage", "url": "https://shop.ch",
-            "versand_chf": "0.00", "gratis_ab_chf": None,
-            "mindestbestellwert_chf": None, "lieferzeit_default_tage": 2,
-            "lieferziel_id": 1, "lieferziel_name": "Zuhause (CH)",
-            "lieferziel_land": "CH", "lieferziel_aufschlag_chf": "0.00",
-            "lieferziel_zuschlag_tage": 0,
-        }],
+        "offers": [
+            {
+                "id": 1,
+                "line_id": 10,
+                "shop_id": 1,
+                "preis_chf": "500.00",
+                "menge": 1,
+                "lieferzeit_tage": 2,
+                "lieferzeit_text": "2 Tage",
+                "lager_text": None,
+                "produktname": "Teil",
+                "produkt_url": "https://shop.ch/teil",
+                "quelle_url": "https://shop.ch/teil",
+                "suchtext": "Teil",
+                "position": 1,
+                "override_status": None,
+            }
+        ],
+        "shops": [
+            {
+                "id": 1,
+                "name": "Bastelgarage",
+                "url": "https://shop.ch",
+                "versand_chf": "0.00",
+                "gratis_ab_chf": None,
+                "mindestbestellwert_chf": None,
+                "lieferzeit_default_tage": 2,
+                "lieferziel_id": 1,
+                "lieferziel_name": "Zuhause (CH)",
+                "lieferziel_land": "CH",
+                "lieferziel_aufschlag_chf": "0.00",
+                "lieferziel_zuschlag_tage": 0,
+            }
+        ],
         "required_line_ids": [10],
         "lines": [{"id": 10, "position": 1, "suchtext": "Teil", "menge": 1}],
         "selected_assignments": None,

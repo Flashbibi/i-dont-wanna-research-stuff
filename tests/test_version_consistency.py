@@ -10,6 +10,7 @@ nicht liefert.
 Dieser Test ist derselbe Stolperdraht wie das Versionsliteral im Footer-Test:
 die Version kann sich nicht bewegen, ohne dass jemand den Pin anfasst.
 """
+
 from pathlib import Path
 
 from app.version import __version__

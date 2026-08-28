@@ -1,4 +1,5 @@
 """Gebündelte Adapter müssen fehlerfrei laden - sonst bricht der Build."""
+
 from pathlib import Path
 
 import pytest

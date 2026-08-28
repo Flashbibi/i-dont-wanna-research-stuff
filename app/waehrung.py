@@ -13,11 +13,11 @@ Zwei Regeln tragen dieses Modul:
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import Decimal, ROUND_HALF_UP
-from typing import Any, Callable, Protocol
-
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Any, Protocol
 
 HOME_CURRENCY = "CHF"
 
@@ -87,7 +87,9 @@ class KursRepository(Protocol):
     ) -> dict[str, Any]: ...
 
 
-def fetch_kurs(waehrung: str, *, opener: Callable[[str], str] | None = None) -> tuple[Decimal, str]:
+def fetch_kurs(
+    waehrung: str, *, opener: Callable[[str], str] | None = None
+) -> tuple[Decimal, str]:
     """Tageskurs <waehrung> -> CHF abrufen.
 
     Liefert Kurs und die konkrete Abruf-URL als Beleg. Netzwerkfehler werden
@@ -95,6 +97,7 @@ def fetch_kurs(waehrung: str, *, opener: Callable[[str], str] | None = None) -> 
     """
     url = f"{KURS_API}?from={waehrung}&to={HOME_CURRENCY}"
     if opener is None:
+
         def opener(target: str) -> str:
             # httpx statt urllib: die Quelle weist urllibs Default-User-Agent
             # mit HTTP 403 ab. Gemockte Tests sehen das nicht, der erste echte

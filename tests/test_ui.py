@@ -37,14 +37,16 @@ class UIRepository:
                 "id": 13,
                 "status": "offen",
                 "quelltext": "Versehentlich angelegt",
-                "lines": [{
-                    "id": 46,
-                    "position": 1,
-                    "suchtext": "Unberührte Position",
-                    "menge": 1,
-                    "status": "offen",
-                    "kommentar": None,
-                }],
+                "lines": [
+                    {
+                        "id": 46,
+                        "position": 1,
+                        "suchtext": "Unberührte Position",
+                        "menge": 1,
+                        "status": "offen",
+                        "kommentar": None,
+                    }
+                ],
             }
         if job_id != 7:
             return None
@@ -52,11 +54,28 @@ class UIRepository:
             "id": 7,
             "status": "in_arbeit",
             "quelltext": "2x Servo",
-            "lines": [{"id": 10, "position": 1, "suchtext": "Servo", "menge": 2, "status": "kandidaten", "kommentar": None}],
+            "lines": [
+                {
+                    "id": 10,
+                    "position": 1,
+                    "suchtext": "Servo",
+                    "menge": 2,
+                    "status": "kandidaten",
+                    "kommentar": None,
+                }
+            ],
         }
 
     def list_jobs(self, limit=20):
-        return [{"id": 7, "status": "in_arbeit", "quelltext": "2x Servo", "erstellt_am": "heute", "line_count": 1}]
+        return [
+            {
+                "id": 7,
+                "status": "in_arbeit",
+                "quelltext": "2x Servo",
+                "erstellt_am": "heute",
+                "line_count": 1,
+            }
+        ]
 
     def create_e2e_test_job(self):
         job_id = self.next_test_job_id
@@ -73,7 +92,9 @@ class UIRepository:
 
     def delete_unstarted_job(self, job_id):
         if job_id != 13 or job_id in self.deleted_jobs:
-            raise ValueError("Job ist nicht mehr unberührt und darf nicht gelöscht werden")
+            raise ValueError(
+                "Job ist nicht mehr unberührt und darf nicht gelöscht werden"
+            )
         self.deleted_jobs.append(job_id)
         return {"job_id": job_id, "deleted": True}
 
@@ -83,28 +104,32 @@ class UIRepository:
                 "id": job_id,
                 "status": "test",
                 "quelltext": "[E2E-TEST] Klickhygiene",
-                "lines": [{
-                    "id": 9002,
-                    "position": 1,
-                    "suchtext": "[E2E-TEST] Wegwerfangebot",
-                    "menge": 1,
-                    "status": "kandidaten",
-                    "kommentar": None,
-                    "offers": [{
-                        "id": 9001,
-                        "produktname": "[E2E-TEST] Wegwerfprodukt",
-                        "produkt_url": "https://example.invalid/e2e",
-                        "preis_chf": "1.00",
-                        "lieferzeit_tage": 1,
-                        "lieferzeit_text": "1 Testtag",
-                        "lager_text": "Testbestand",
-                        "shop_id": 1,
-                        "shop_name": "E2E Test",
-                        "shop_status": "bestaetigt",
-                        "lieferzeit_default_tage": 1,
-                        "decision": self.decision_by_offer.get(9001),
-                    }],
-                }],
+                "lines": [
+                    {
+                        "id": 9002,
+                        "position": 1,
+                        "suchtext": "[E2E-TEST] Wegwerfangebot",
+                        "menge": 1,
+                        "status": "kandidaten",
+                        "kommentar": None,
+                        "offers": [
+                            {
+                                "id": 9001,
+                                "produktname": "[E2E-TEST] Wegwerfprodukt",
+                                "produkt_url": "https://example.invalid/e2e",
+                                "preis_chf": "1.00",
+                                "lieferzeit_tage": 1,
+                                "lieferzeit_text": "1 Testtag",
+                                "lager_text": "Testbestand",
+                                "shop_id": 1,
+                                "shop_name": "E2E Test",
+                                "shop_status": "bestaetigt",
+                                "lieferzeit_default_tage": 1,
+                                "decision": self.decision_by_offer.get(9001),
+                            }
+                        ],
+                    }
+                ],
             }
         job = self.get_job(job_id)
         if not job:
@@ -151,23 +176,44 @@ class UIRepository:
 
     def optimization_input(self, job_id):
         return {
-            "offers": [{
-                "id": 31,
-                "line_id": 10,
-                "shop_id": 1,
-                "preis_chf": "10",
-                "menge": 2,
-                "lieferzeit_tage": 2,
-                "lieferzeit_text": "2 Tage",
-                "produktname": "MG996R Servo",
-                "produkt_url": "https://shop.example.ch/mg996r",
-                "suchtext": "Servo",
-                "position": 1,
-                "override_status": self.decision_by_offer.get(31),
-            }],
-            "shops": [{"id": 1, "name": "Servo Shop", "url": "https://shop.example.ch", "versand_chf": "8", "gratis_ab_chf": None, "mindestbestellwert_chf": None, "lieferzeit_default_tage": 3}],
+            "offers": [
+                {
+                    "id": 31,
+                    "line_id": 10,
+                    "shop_id": 1,
+                    "preis_chf": "10",
+                    "menge": 2,
+                    "lieferzeit_tage": 2,
+                    "lieferzeit_text": "2 Tage",
+                    "produktname": "MG996R Servo",
+                    "produkt_url": "https://shop.example.ch/mg996r",
+                    "suchtext": "Servo",
+                    "position": 1,
+                    "override_status": self.decision_by_offer.get(31),
+                }
+            ],
+            "shops": [
+                {
+                    "id": 1,
+                    "name": "Servo Shop",
+                    "url": "https://shop.example.ch",
+                    "versand_chf": "8",
+                    "gratis_ab_chf": None,
+                    "mindestbestellwert_chf": None,
+                    "lieferzeit_default_tage": 3,
+                }
+            ],
             "required_line_ids": [10],
-            "lines": [{"id": 10, "position": 1, "suchtext": "Servo", "menge": 2, "status": "kandidaten", "kommentar": None}],
+            "lines": [
+                {
+                    "id": 10,
+                    "position": 1,
+                    "suchtext": "Servo",
+                    "menge": 2,
+                    "status": "kandidaten",
+                    "kommentar": None,
+                }
+            ],
             "selected_assignments": self.selected_assignments,
         }
 
@@ -181,7 +227,16 @@ class UIRepository:
         return purchase
 
     def list_purchases(self):
-        return [{"id": 90, "job_id": 7, "total_chf": "28.00", "bestellt_am": "heute", "angekommen_am": None, "items": [{"produktname": "MG996R Servo", "menge": 2}]}]
+        return [
+            {
+                "id": 90,
+                "job_id": 7,
+                "total_chf": "28.00",
+                "bestellt_am": "heute",
+                "angekommen_am": None,
+                "items": [{"produktname": "MG996R Servo", "menge": 2}],
+            }
+        ]
 
     def repeat_purchase(self, purchase_id):
         return 8
@@ -209,7 +264,11 @@ class UIRepository:
 
     def save_shop_platform(self, shop_id, plattform, plattform_beleg):
         self.platform_writes.append((shop_id, plattform, plattform_beleg))
-        return {"id": shop_id, "plattform": plattform, "plattform_beleg": plattform_beleg}
+        return {
+            "id": shop_id,
+            "plattform": plattform,
+            "plattform_beleg": plattform_beleg,
+        }
 
     def save_offer_product_ids(self, produkt_ids):
         self.product_id_writes.append(dict(produkt_ids))
@@ -221,14 +280,32 @@ class UIRepository:
 
     def list_lieferziele(self):
         return [
-            {"id": 1, "name": "Zuhause (CH)", "adresse": "Heimadresse", "land": "CH",
-             "waehrung": "CHF", "aufschlag_chf": "0.00", "zuschlag_tage": 0, "shop_count": 1},
-            {"id": 2, "name": "Postfach (DE)", "adresse": "Grenzstrasse 1", "land": "DE",
-             "waehrung": "EUR", "aufschlag_chf": "25.00", "zuschlag_tage": 3, "shop_count": 0},
+            {
+                "id": 1,
+                "name": "Zuhause (CH)",
+                "adresse": "Heimadresse",
+                "land": "CH",
+                "waehrung": "CHF",
+                "aufschlag_chf": "0.00",
+                "zuschlag_tage": 0,
+                "shop_count": 1,
+            },
+            {
+                "id": 2,
+                "name": "Postfach (DE)",
+                "adresse": "Grenzstrasse 1",
+                "land": "DE",
+                "waehrung": "EUR",
+                "aufschlag_chf": "25.00",
+                "zuschlag_tage": 3,
+                "shop_count": 0,
+            },
         ]
 
     def get_lieferziel(self, lieferziel_id):
-        return next((z for z in self.list_lieferziele() if z["id"] == lieferziel_id), None)
+        return next(
+            (z for z in self.list_lieferziele() if z["id"] == lieferziel_id), None
+        )
 
     def lieferziele_fuer_land(self, land):
         return [z for z in self.list_lieferziele() if z["land"] == land]
@@ -242,7 +319,16 @@ class UIRepository:
         return {"id": lieferziel_id, **values}
 
     def list_shops(self):
-        return [{"id": 1, "name": "Servo Shop", "url": "https://shop.example.ch", "status": "ungeprueft", "versand_chf": "8.00", "lieferzeit_default_tage": 3}]
+        return [
+            {
+                "id": 1,
+                "name": "Servo Shop",
+                "url": "https://shop.example.ch",
+                "status": "ungeprueft",
+                "versand_chf": "8.00",
+                "lieferzeit_default_tage": 3,
+            }
+        ]
 
     def update_shop_status(self, shop_id, status):
         self.shop_status = (shop_id, status)
@@ -347,7 +433,7 @@ def test_footer_names_the_running_version_before_the_source_link():
 def test_stylesheet_changes_use_a_fresh_cache_version():
     base = Path("templates/base.html").read_text(encoding="utf-8")
 
-    assert '/static/app.css?v=12' in base
+    assert "/static/app.css?v=12" in base
 
 
 def test_delete_job_form_uses_guarded_service_and_redirects_home():
@@ -427,14 +513,10 @@ def test_delete_job_form_rejects_malformed_form_tokens(malformed_token):
 
 def test_job_page_replaces_malformed_csrf_cookie_with_a_fresh_token():
     client, _ = client_and_repo()
-    client.cookies.set(
-        "beschaffung_csrf", '""', domain="testserver.local", path="/"
-    )
+    client.cookies.set("beschaffung_csrf", '""', domain="testserver.local", path="/")
 
     page = client.get("/jobs/13")
-    token = client.cookies.get(
-        "beschaffung_csrf", domain="testserver.local", path="/"
-    )
+    token = client.cookies.get("beschaffung_csrf", domain="testserver.local", path="/")
 
     assert page.status_code == 200
     assert token and len(token) >= 32
@@ -551,6 +633,7 @@ def test_unknown_delivery_is_rendered_explicitly_in_assignments():
     assert "Lieferzeit unbekannt" in script
     assert "kein belegter Shop-Standard" in script
 
+
 def test_decision_has_form_fallback_and_persists_in_matrix_api():
     client, repository = client_and_repo()
     script = Path("static/job-matrix.js").read_text(encoding="utf-8")
@@ -589,9 +672,7 @@ def test_matrix_selection_and_delta_endpoints_use_server_side_planning():
     matrix = client.post("/api/jobs/7/scenarios", json={"tempo": 0.5}).json()
     assignments = matrix["scenarios"][0]["assignments"]
 
-    selected = client.put(
-        "/api/jobs/7/selection", json={"assignments": assignments}
-    )
+    selected = client.put("/api/jobs/7/selection", json={"assignments": assignments})
     delta = client.post(
         "/api/jobs/7/lines/10/delta",
         json={
@@ -626,7 +707,13 @@ def test_variants_page_and_server_side_tempo_api_include_links_and_totals():
     assert scenarios.status_code == 200
     grouped = scenarios.json()["scenarios"]
     assert len(grouped) == 1
-    assert grouped[0]["keys"] == ["cheapest", "fastest", "one_shop", "balanced", "only_ch"]
+    assert grouped[0]["keys"] == [
+        "cheapest",
+        "fastest",
+        "one_shop",
+        "balanced",
+        "only_ch",
+    ]
     assert grouped[0]["same_result_note"]
 
 
@@ -665,10 +752,16 @@ def test_cart_fill_maps_each_outcome_to_its_own_status_code():
 
     cases = [
         (CartTemporaryError("Shop war nicht erreichbar"), 503),
-        (CartVerificationError(["Zwischensumme weicht ab: erfasst CHF 3.90, Korb CHF 4.20."]), 409),
+        (
+            CartVerificationError(
+                ["Zwischensumme weicht ab: erfasst CHF 3.90, Korb CHF 4.20."]
+            ),
+            409,
+        ),
         (CartError("Produktseite nennt keine product_id"), 422),
     ]
     for error, expected in cases:
+
         def explode(*_args, _error=error, **_kwargs):
             raise _error
 
@@ -706,9 +799,12 @@ def test_cart_stub_never_applies_to_a_real_job_even_with_the_marker():
     assert real.status_code == 404
     assert mismatch.status_code == 404
     # Der Marker wirkt weiterhin - nur eben ausschliesslich auf Testjobs.
-    assert client.post(
-        f"/api/jobs/{test_job_id}/shops/1/cart?stub=ok", headers=MARKER
-    ).status_code == 200
+    assert (
+        client.post(
+            f"/api/jobs/{test_job_id}/shops/1/cart?stub=ok", headers=MARKER
+        ).status_code
+        == 200
+    )
     assert repository.platform_writes == []
     assert repository.product_id_writes == []
 
@@ -716,7 +812,9 @@ def test_cart_stub_never_applies_to_a_real_job_even_with_the_marker():
 def test_cart_stub_rejects_an_unknown_mode():
     client, _, job_id = client_with_test_job()
 
-    response = client.post(f"/api/jobs/{job_id}/shops/1/cart?stub=erfunden", headers=MARKER)
+    response = client.post(
+        f"/api/jobs/{job_id}/shops/1/cart?stub=erfunden", headers=MARKER
+    )
 
     assert response.status_code == 422
 
@@ -742,7 +840,9 @@ def test_cart_stub_verifies_a_matching_cart_without_writing_anything():
 def test_cart_stub_mismatch_produces_the_blocking_diff():
     client, _, job_id = client_with_test_job()
 
-    response = client.post(f"/api/jobs/{job_id}/shops/1/cart?stub=mismatch", headers=MARKER)
+    response = client.post(
+        f"/api/jobs/{job_id}/shops/1/cart?stub=mismatch", headers=MARKER
+    )
 
     assert response.status_code == 409
     detail = response.json()["detail"]
@@ -753,7 +853,9 @@ def test_cart_stub_mismatch_produces_the_blocking_diff():
 def test_cart_fill_reports_a_platform_specific_handover_url():
     client, _, job_id = client_with_test_job()
 
-    payload = client.post(f"/api/jobs/{job_id}/shops/1/cart?stub=ok", headers=MARKER).json()
+    payload = client.post(
+        f"/api/jobs/{job_id}/shops/1/cart?stub=ok", headers=MARKER
+    ).json()
 
     # Additiv: cart_url bleibt unverändert, uebergabe_url kommt dazu.
     assert payload["cart_url"].endswith("index.php?route=checkout/cart")
@@ -793,7 +895,10 @@ def test_extension_zip_is_the_deployed_directory_and_is_deterministic():
 
     manifest = json.loads(archive.read("manifest.json"))
     assert manifest["version"] == client.get("/api/extension").json()["version"]
-    assert f'beschaffung-extension-{manifest["version"]}.zip' in first.headers["content-disposition"]
+    assert (
+        f"beschaffung-extension-{manifest['version']}.zip"
+        in first.headers["content-disposition"]
+    )
 
 
 def test_extension_manifest_carries_both_background_keys_and_a_narrow_radius():
@@ -860,7 +965,9 @@ def test_one_click_handover_sits_above_an_intact_copy_flow():
     assert "Übernommen ✓ — Tab geöffnet" in script
     assert "Erweiterung v" in script
     # Herkunftsprüfung auch auf der Seite.
-    assert "event.source === window && event.origin === window.location.origin" in script
+    assert (
+        "event.source === window && event.origin === window.location.origin" in script
+    )
     # Der Kopierflow bleibt vollständig bestehen - er ist der Fallback.
     assert "Kopieren" in script
     assert "DevTools öffnen (F12)" in script
@@ -885,15 +992,20 @@ def test_the_shops_page_lets_linus_add_and_edit_delivery_addresses():
 
     angelegt = client.post(
         "/lieferziele",
-        data={"name": "Postfach Süd", "adresse": "Weg 3", "land": "de",
-              "aufschlag_chf": "20", "zuschlag_tage": "2"},
+        data={
+            "name": "Postfach Süd",
+            "adresse": "Weg 3",
+            "land": "de",
+            "aufschlag_chf": "20",
+            "zuschlag_tage": "2",
+        },
         follow_redirects=False,
     )
 
     assert angelegt.status_code == 303
     geschrieben = repository.lieferziel_writes[-1]
     assert geschrieben["land"] == "DE"
-    assert geschrieben["waehrung"] == "EUR"   # folgt dem Land
+    assert geschrieben["waehrung"] == "EUR"  # folgt dem Land
     assert geschrieben["zuschlag_tage"] == 2
 
 
@@ -912,15 +1024,18 @@ def test_an_address_in_a_country_without_a_known_currency_is_rejected():
 def test_shop_profile_api_accepts_unknown_shipping_and_keeps_currency():
     client, repository = client_and_repo()
 
-    response = client.put("/api/shops/1/profile", json={
-        "versand_chf": None,
-        "gratis_ab_chf": None,
-        "mindestbestellwert_chf": None,
-        "lieferzeit_default_tage": 3,
-        "profil_quelle_url": "https://shop.example.ch/shipping",
-        "versand_text": "Versandkosten erst im Checkout",
-        "waehrung": "USD",
-    })
+    response = client.put(
+        "/api/shops/1/profile",
+        json={
+            "versand_chf": None,
+            "gratis_ab_chf": None,
+            "mindestbestellwert_chf": None,
+            "lieferzeit_default_tage": 3,
+            "profil_quelle_url": "https://shop.example.ch/shipping",
+            "versand_text": "Versandkosten erst im Checkout",
+            "waehrung": "USD",
+        },
+    )
 
     assert response.status_code == 200
     assert repository.shop_profile_writes[0]["versand_chf"] is None
@@ -934,7 +1049,9 @@ def test_history_repeat_arrival_and_shop_moderation_are_available():
     repeated = client.post("/purchases/90/repeat", follow_redirects=False)
     arrived = client.post("/purchases/90/arrived", follow_redirects=False)
     shops = client.get("/shops")
-    updated = client.post("/shops/1/status", data={"status": "bestaetigt"}, follow_redirects=False)
+    updated = client.post(
+        "/shops/1/status", data={"status": "bestaetigt"}, follow_redirects=False
+    )
 
     assert "Nochmal bestellen" in history.text
     assert "Angekommen" in history.text
@@ -958,7 +1075,7 @@ def test_the_browser_shows_currency_evidence_pickup_and_no_quick_action_for_only
     assert "waehrung_beleg" in script
     assert '<div class="fx">' in script and ".fx {" in css
     assert 'id="currency-toggle"' in page
-    assert 'job-matrix.js?v=7' in page
+    assert "job-matrix.js?v=7" in page
     assert "currencyMode" in script
     assert "versandOriginalText" in script
     assert "versand_kurs" in script
@@ -996,7 +1113,13 @@ def test_the_scenario_payload_carries_the_pickup_and_import_fields():
     # Die Kandidatenzeilen der Matrix tragen dieselben Felder - dort schaut man
     # beim Vergleichen hin, und nur dort rendert die Fremdwährungszeile.
     kandidat = matrix["lines"][0]["candidates"][0]
-    for feld in ("waehrung", "waehrung_fremd", "waehrung_beleg", "abholung", "lieferziel_name"):
+    for feld in (
+        "waehrung",
+        "waehrung_fremd",
+        "waehrung_beleg",
+        "abholung",
+        "lieferziel_name",
+    ):
         assert feld in kandidat, f"{feld} fehlt am Matrix-Kandidaten"
 
 

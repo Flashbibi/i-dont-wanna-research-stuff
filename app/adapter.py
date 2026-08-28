@@ -32,7 +32,6 @@ from urllib.parse import urlsplit
 import yaml
 from bs4 import BeautifulSoup
 
-
 #: Diagnose-Logging der Registry: laut bei defekten Dateien, aber nie tödlich.
 log = logging.getLogger("beschaffung.adapter")
 
@@ -61,7 +60,9 @@ PRODUCT_SCHLUESSEL = {"url_pattern", "fields"}
 FELD_SCHLUESSEL = {"selector", "attribute", "regex", "parse", "optional"}
 
 ID_MUSTER = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
-DOMAIN_MUSTER = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
+DOMAIN_MUSTER = re.compile(
+    r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
+)
 
 #: Wie eine Währung im Preistext auftauchen darf. Ein Buchstabencode darf keine
 #: Buchstaben neben sich haben - sonst täuschte ein «Neuromodul» einen Euro-Preis
@@ -174,13 +175,13 @@ def _baue_adapter(roh: Any, pfad: Path, quelle: str) -> Adapter:
 
     schema = daten.get("schema")
     if schema != SCHEMA_VERSION:
-        raise _ladefehler(pfad, f"schema muss {SCHEMA_VERSION} sein, gefunden: {schema!r}")
+        raise _ladefehler(
+            pfad, f"schema muss {SCHEMA_VERSION} sein, gefunden: {schema!r}"
+        )
 
     kennung = _text(daten.get("id"), "id", pfad)
     if not ID_MUSTER.match(kennung):
-        raise _ladefehler(
-            pfad, f"id «{kennung}» passt nicht zu {ID_MUSTER.pattern}"
-        )
+        raise _ladefehler(pfad, f"id «{kennung}» passt nicht zu {ID_MUSTER.pattern}")
 
     domain = _text(daten.get("domain"), "domain", pfad)
     if not DOMAIN_MUSTER.match(domain):
@@ -325,12 +326,17 @@ def _text(wert: Any, stelle: str, pfad: Path) -> str:
     return wert.strip()
 
 
-def _nur_bekannte(daten: dict[str, Any], erlaubt: set[str], stelle: str, pfad: Path) -> None:
-    unbekannt = sorted(str(schluessel) for schluessel in daten if schluessel not in erlaubt)
+def _nur_bekannte(
+    daten: dict[str, Any], erlaubt: set[str], stelle: str, pfad: Path
+) -> None:
+    unbekannt = sorted(
+        str(schluessel) for schluessel in daten if schluessel not in erlaubt
+    )
     if unbekannt:
         raise _ladefehler(
             pfad,
-            f"unbekannte Schlüssel unter {stelle}: " + ", ".join(f"«{k}»" for k in unbekannt),
+            f"unbekannte Schlüssel unter {stelle}: "
+            + ", ".join(f"«{k}»" for k in unbekannt),
         )
 
 
@@ -435,7 +441,9 @@ def parse_preis(text: str, erwartete_waehrung: str) -> Decimal:
     try:
         betrag = Decimal(zahl.replace(dezimal, "."))
     except InvalidOperation as error:  # pragma: no cover - vom Muster ausgeschlossen
-        raise ExtraktionFehlt(f"Preis nicht als {code}-Betrag lesbar: «{roh}»") from error
+        raise ExtraktionFehlt(
+            f"Preis nicht als {code}-Betrag lesbar: «{roh}»"
+        ) from error
     if betrag <= 0:
         raise ExtraktionFehlt(f"Preis muss grösser als 0 sein: «{roh}»")
     if betrag != betrag.quantize(Decimal("0.01")):
@@ -450,7 +458,9 @@ def parse_preis(text: str, erwartete_waehrung: str) -> Decimal:
 
 def nennt_waehrung(text: str, code: str) -> bool:
     """Ob ein Text diese Währung ausdrücklich nennt."""
-    return (code or "").strip().upper() in _erkannte_waehrungen(_normalisiere(text or ""))
+    return (code or "").strip().upper() in _erkannte_waehrungen(
+        _normalisiere(text or "")
+    )
 
 
 def _erkannte_waehrungen(text: str) -> set[str]:

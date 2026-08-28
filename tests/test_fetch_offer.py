@@ -17,7 +17,6 @@ import pytest
 from app import adapter, fetch
 from app.procurement import ProcurementService, ValidationError
 
-
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "adapters" / "demo"
 SEITE = (FIXTURES / "produkt.html").read_text(encoding="utf-8")
 
@@ -64,8 +63,12 @@ class FakeRepository:
         return self.kurse.get(waehrung)
 
     def save_kurs(self, waehrung, kurs, geholt_am, quelle_url):
-        row = {"waehrung": waehrung, "kurs": kurs, "geholt_am": geholt_am,
-               "quelle_url": quelle_url}
+        row = {
+            "waehrung": waehrung,
+            "kurs": kurs,
+            "geholt_am": geholt_am,
+            "quelle_url": quelle_url,
+        }
         self.kurse[waehrung] = row
         return row
 
@@ -117,7 +120,9 @@ def dienst(**kwargs) -> tuple[ProcurementService, FakeRepository]:
     return ProcurementService(repository), repository
 
 
-def test_the_engine_records_the_offer_from_literal_page_text(monkeypatch, registry_und_uhr):
+def test_the_engine_records_the_offer_from_literal_page_text(
+    monkeypatch, registry_und_uhr
+):
     netz(monkeypatch, demoshop())
     service, repository = dienst()
 
@@ -192,7 +197,9 @@ def test_a_blocked_shop_is_not_fetched(monkeypatch, registry_und_uhr):
     assert repository.offers == []
 
 
-def test_without_an_adapter_the_manual_path_remains(monkeypatch, registry_und_uhr, tmp_path):
+def test_without_an_adapter_the_manual_path_remains(
+    monkeypatch, registry_und_uhr, tmp_path
+):
     monkeypatch.setattr(adapter, "GEBUENDELT_DIR", tmp_path)
     monkeypatch.setattr(adapter, "_registry", None)
     aufrufe = netz(monkeypatch, demoshop())
@@ -220,7 +227,9 @@ def test_a_robots_ban_ends_the_attempt(monkeypatch, registry_und_uhr):
     aufrufe = netz(monkeypatch, demoshop(robots=ROBOTS_VERBIETET))
     service, repository = dienst()
 
-    with pytest.raises(ValidationError, match="robots.txt von demoshop.example verbietet"):
+    with pytest.raises(
+        ValidationError, match="robots.txt von demoshop.example verbietet"
+    ):
         service.fetch_offer(10, PRODUKT_URL)
 
     assert [request.url.path for request in aufrufe] == ["/robots.txt"]
@@ -238,7 +247,9 @@ def test_a_currency_contradiction_writes_nothing(monkeypatch, registry_und_uhr):
     assert repository.offers == []
 
 
-def test_a_foreign_shop_kept_in_chf_needs_the_page_to_say_so(monkeypatch, registry_und_uhr):
+def test_a_foreign_shop_kept_in_chf_needs_the_page_to_say_so(
+    monkeypatch, registry_und_uhr
+):
     """CHF ist die Vorgabe von record_shop - bei einem DE-Shop also oft ein Versehen."""
     netz(monkeypatch, demoshop())
     service, repository = dienst(land="DE", waehrung="CHF")
@@ -310,4 +321,3 @@ def test_a_redirect_inside_the_domain_stores_the_final_url(
     assert ergebnis["produkt_url"] == ziel
     assert ergebnis["quelle_url"] == ziel
     assert repository.offers[0]["produkt_url"] == ziel
-

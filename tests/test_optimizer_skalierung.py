@@ -26,7 +26,8 @@ from app.optimizer import (
 
 def shop(shop_id, *, versand="6.90", gratis=None, minimum=None, tage=3):
     return ShopProfile(
-        id=shop_id, name=f"S{shop_id}",
+        id=shop_id,
+        name=f"S{shop_id}",
         versand_chf=None if versand is None else Decimal(versand),
         gratis_ab_chf=None if gratis is None else Decimal(gratis),
         mindestbestellwert_chf=None if minimum is None else Decimal(minimum),
@@ -36,8 +37,13 @@ def shop(shop_id, *, versand="6.90", gratis=None, minimum=None, tage=3):
 
 def angebot(offer_id, line_id, shop_id, preis, *, menge=1, tage=2):
     return Offer(
-        id=offer_id, line_id=line_id, shop_id=shop_id, preis_chf=Decimal(preis),
-        menge=menge, lieferzeit_tage=tage, product_key=f"p{line_id}-{offer_id}",
+        id=offer_id,
+        line_id=line_id,
+        shop_id=shop_id,
+        preis_chf=Decimal(preis),
+        menge=menge,
+        lieferzeit_tage=tage,
+        product_key=f"p{line_id}-{offer_id}",
     )
 
 
@@ -65,10 +71,11 @@ def aufbau(zeilen, kandidaten, shops, **shop_args):
 # Klein bleibt exakt
 # ---------------------------------------------------------------------------
 
+
 def test_a_job_within_the_budget_is_still_enumerated_exactly():
     shops_by_id, offers_by_line = aufbau(6, 3, 5)
     lines = sorted(offers_by_line)
-    assert 3 ** 6 <= KOMBINATIONS_BUDGET
+    assert 3**6 <= KOMBINATIONS_BUDGET
 
     jetzt = _complete_variants(offers_by_line, shops_by_id, lines, 0.5)
     frueher = brute_force(offers_by_line, shops_by_id, lines)
@@ -99,11 +106,12 @@ def test_the_optima_match_the_full_enumeration_within_the_budget():
 # Gross explodiert nicht mehr
 # ---------------------------------------------------------------------------
 
+
 def test_a_thirteen_line_job_no_longer_enumerates_millions():
     """Job 10: 13 Positionen. Früher 1,6 Millionen Pläne, drei Mal pro Aufruf."""
     shops_by_id, offers_by_line = aufbau(13, 3, 13)
     lines = sorted(offers_by_line)
-    assert 3 ** 13 > KOMBINATIONS_BUDGET, "dieser Fall muss über dem Budget liegen"
+    assert 3**13 > KOMBINATIONS_BUDGET, "dieser Fall muss über dem Budget liegen"
 
     variants = _complete_variants(offers_by_line, shops_by_id, lines, 0.5)
 
@@ -127,6 +135,7 @@ def test_even_the_largest_allowed_job_stays_computable(zeilen, kandidaten):
 # Die Schwellen müssen auch im grossen Fall greifen
 # ---------------------------------------------------------------------------
 
+
 def test_a_minimum_order_value_is_repaired_instead_of_dropping_the_plan():
     """Die billigste Zuordnung kann unter dem Mindestbestellwert liegen.
 
@@ -134,9 +143,12 @@ def test_a_minimum_order_value_is_repaired_instead_of_dropping_the_plan():
     höheren Warenwert gibt. Der teurere Einkauf muss gefunden werden.
     """
     shops_by_id, offers_by_line = _validated_inputs(
-        [angebot(oid, line_id, 1, preis)
-         for oid, (line_id, preis) in enumerate(
-             [(l, p) for l in range(1, 13) for p in ("2.00", "9.00")], start=1)],
+        [
+            angebot(oid, line_id, 1, preis)
+            for oid, (line_id, preis) in enumerate(
+                [(lid, p) for lid in range(1, 13) for p in ("2.00", "9.00")], start=1
+            )
+        ],
         [shop(1, minimum="60", versand="5.00")],
     )
     lines = sorted(offers_by_line)
@@ -159,9 +171,12 @@ def test_free_shipping_is_reached_by_buying_up_in_the_large_case():
     offers = []
     oid = 1
     for line_id in range(1, 14):
-        offers.append(angebot(oid, line_id, 1, "3.00")); oid += 1
-        offers.append(angebot(oid, line_id, 1, "6.00")); oid += 1
-        offers.append(angebot(oid, line_id, 2, "4.00")); oid += 1
+        offers.append(angebot(oid, line_id, 1, "3.00"))
+        oid += 1
+        offers.append(angebot(oid, line_id, 1, "6.00"))
+        oid += 1
+        offers.append(angebot(oid, line_id, 2, "4.00"))
+        oid += 1
 
     beste = optimize_orders(offers, [guenstig, teuer], tempo=0.0, limit=5)[0]
 

@@ -39,7 +39,9 @@ def netz(monkeypatch, payload=None, fehler=None):
 
 
 def test_a_newer_release_shows_a_banner_that_links_to_it(monkeypatch):
-    netz(monkeypatch, {"tag_name": "v9.9.9", "html_url": "https://example.invalid/fremd"})
+    netz(
+        monkeypatch, {"tag_name": "v9.9.9", "html_url": "https://example.invalid/fremd"}
+    )
 
     seiteninhalt = seite().get("/").text
 
@@ -59,7 +61,9 @@ def test_the_same_or_an_older_release_stays_quiet(monkeypatch, tag):
     assert "Update verfügbar" not in antwort.text
 
 
-@pytest.mark.parametrize("payload", [{"tag_name": "release-9"}, {"tag_name": None}, {}, []])
+@pytest.mark.parametrize(
+    "payload", [{"tag_name": "release-9"}, {"tag_name": None}, {}, []]
+)
 def test_an_answer_without_a_usable_tag_is_no_banner(monkeypatch, payload):
     netz(monkeypatch, payload)
 

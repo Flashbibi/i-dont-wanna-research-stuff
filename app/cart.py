@@ -17,11 +17,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from decimal import Decimal, InvalidOperation
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 from urllib.parse import urljoin, urlparse
-
 
 #: Diagnose-Logging des Füllpfads. Enthält bewusst nie Cookie-Werte.
 log = logging.getLogger("beschaffung.cart")
@@ -168,7 +168,7 @@ def parse_chf(text: str | None) -> Decimal:
     else:
         # Alles vor dem Dezimaltrenner ist Gruppierung und fliegt raus.
         head = raw[:separator].replace(".", "").replace(",", "")
-        normalized = f"{head}.{raw[separator + 1:]}"
+        normalized = f"{head}.{raw[separator + 1 :]}"
     try:
         return Decimal(normalized)
     except InvalidOperation as error:
@@ -182,6 +182,7 @@ def format_chf(value: Decimal) -> str:
 # ---------------------------------------------------------------------------
 # Plattform-Erkennung
 # ---------------------------------------------------------------------------
+
 
 def detect_platform(html: str, cookie_names: list[str]) -> PlatformEvidence | None:
     """Plattform on demand erkennen und einen kurzen Nachweis mitliefern.
@@ -367,7 +368,8 @@ def parse_opencart_cart(html: str) -> tuple[list[CartEntry], dict[str, Decimal]]
         amounts = [
             parse_chf(_text(cell))
             for cell in cells
-            if re.search(r"\d", _text(cell)) and re.search(r"chf|fr\.", _text(cell), re.I)
+            if re.search(r"\d", _text(cell))
+            and re.search(r"chf|fr\.", _text(cell), re.I)
         ]
         if not amounts:
             raise CartError(
@@ -375,7 +377,11 @@ def parse_opencart_cart(html: str) -> tuple[list[CartEntry], dict[str, Decimal]]
                 "Rückverifikation möglich, deshalb keine Übergabe."
             )
         href_match = _ANCHOR_HREF.search(row)
-        name_cells = [_text(cell) for cell in cells if _text(cell) and not re.search(r"chf|fr\.", _text(cell), re.I)]
+        name_cells = [
+            _text(cell)
+            for cell in cells
+            if _text(cell) and not re.search(r"chf|fr\.", _text(cell), re.I)
+        ]
         entries.append(
             CartEntry(
                 href=href_match.group(1) if href_match else None,
@@ -468,7 +474,11 @@ class OpenCartAdapter:
             # gecachte ID auf ein anderes Produkt, steht der Beleg genau hier.
             log.info(
                 "cart-fill offer=%s product_id=%s quelle=%s erwartet=%s eingelegt=%s",
-                item.offer_id, product_id, quelle, item.produkt_url, hinzugefuegt,
+                item.offer_id,
+                product_id,
+                quelle,
+                item.produkt_url,
+                hinzugefuegt,
             )
 
         # Der Sprachkontext zählt nur für den URL-Vergleich. Trägt jede Position
@@ -492,20 +502,26 @@ class OpenCartAdapter:
             page = self.session.get(items[0].produkt_url)
             log.info(
                 "cart-language pinned via=%s status=%s",
-                items[0].produkt_url, getattr(page, "status_code", None),
+                items[0].produkt_url,
+                getattr(page, "status_code", None),
             )
 
         cart_page = self.session.get(self._cart_url(base_url))
         entries, _totals = parse_opencart_cart(cart_page.text)
         log.info(
             "cart-read status=%s bytes=%s positionen=%s hrefs=%s artikelnummern=%s",
-            cart_page.status_code, len(cart_page.text or ""), len(entries),
+            cart_page.status_code,
+            len(cart_page.text or ""),
+            len(entries),
             [entry.href for entry in entries],
             [entry.artikelnummer for entry in entries],
         )
         # Frisch gelesene Nummern für den Vergleich einsetzen.
         aufgeloest = [
-            replace(item, artikelnummer=item.artikelnummer or artikelnummern.get(item.offer_id))
+            replace(
+                item,
+                artikelnummer=item.artikelnummer or artikelnummern.get(item.offer_id),
+            )
             for item in items
         ]
         self._verify(base_url, aufgeloest, entries)
@@ -563,9 +579,7 @@ class OpenCartAdapter:
         if error_payload:
             raise CartError(self._add_error_text(item, error_payload))
         if not payload.get("success"):
-            raise CartError(
-                f"Shop bestätigt das Hinzufügen nicht: {item.produktname}"
-            )
+            raise CartError(f"Shop bestätigt das Hinzufügen nicht: {item.produktname}")
         link = _ADDED_LINK.search(str(payload.get("success") or ""))
         return link.group(1) if link else None
 
@@ -706,7 +720,9 @@ def build_stub_session(items: list[CartItem], *, mismatch: bool = False) -> Sess
         rows = []
         total = Decimal("0.00")
         for index, item in enumerate(items):
-            einzel = item.einzelpreis_chf + (Decimal("0.30") if mismatch else Decimal("0"))
+            einzel = item.einzelpreis_chf + (
+                Decimal("0.30") if mismatch else Decimal("0")
+            )
             zeile = einzel * item.menge
             total += zeile
             rows.append(
@@ -720,7 +736,7 @@ def build_stub_session(items: list[CartItem], *, mismatch: bool = False) -> Sess
                 f'<td class="text-right">CHF {zeile:.2f}</td></tr>'
             )
         return (
-            f'<html><body><table><tbody>{"".join(rows)}</tbody></table>'
+            f"<html><body><table><tbody>{''.join(rows)}</tbody></table>"
             '<table><tr><td class="text-right"><strong>Zwischensumme:</strong></td>'
             f'<td class="text-right">CHF {total:.2f}</td></tr></table></body></html>'
         )

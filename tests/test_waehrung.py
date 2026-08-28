@@ -20,22 +20,26 @@ from app.waehrung import (
     kurs_badge,
     nach_chf,
 )
-
 from tests.test_procurement import FakeProcurementRepository
-
 
 HEUTE = date(2026, 8, 11)
 
 
 def antwort(rate="0.94"):
     return lambda url: json.dumps(
-        {"amount": 1.0, "base": "EUR", "date": "2026-08-11", "rates": {"CHF": float(rate)}}
+        {
+            "amount": 1.0,
+            "base": "EUR",
+            "date": "2026-08-11",
+            "rates": {"CHF": float(rate)},
+        }
     )
 
 
 # ---------------------------------------------------------------------------
 # Abruf und Zwischenspeicher
 # ---------------------------------------------------------------------------
+
 
 def test_the_rate_is_read_from_the_source_with_its_url_as_evidence():
     kurs, quelle = fetch_kurs("EUR", opener=antwort("0.94"))
@@ -52,7 +56,9 @@ def test_a_source_without_the_target_rate_is_refused():
 def test_todays_stored_rate_is_used_without_fetching():
     repository = FakeProcurementRepository()
     repository.kurse["EUR"] = {
-        "waehrung": "EUR", "kurs": "0.95", "geholt_am": HEUTE,
+        "waehrung": "EUR",
+        "kurs": "0.95",
+        "geholt_am": HEUTE,
         "quelle_url": "https://api.frankfurter.app/latest?from=EUR&to=CHF",
     }
 
@@ -69,7 +75,9 @@ def test_todays_stored_rate_is_used_without_fetching():
 def test_a_stale_rate_triggers_a_fetch_and_is_stored_with_its_source():
     repository = FakeProcurementRepository()
     repository.kurse["EUR"] = {
-        "waehrung": "EUR", "kurs": "0.90", "geholt_am": date(2026, 8, 1),
+        "waehrung": "EUR",
+        "kurs": "0.90",
+        "geholt_am": date(2026, 8, 1),
         "quelle_url": "https://api.frankfurter.app/latest?from=EUR&to=CHF",
     }
 
@@ -77,13 +85,17 @@ def test_a_stale_rate_triggers_a_fetch_and_is_stored_with_its_source():
 
     assert kurs.kurs == Decimal("0.94")
     assert kurs.geholt_am == HEUTE
-    assert repository.saved_kurse[0]["quelle_url"].startswith("https://api.frankfurter.app/")
+    assert repository.saved_kurse[0]["quelle_url"].startswith(
+        "https://api.frankfurter.app/"
+    )
 
 
 def test_a_failed_fetch_falls_back_to_the_last_known_rate_and_says_so():
     repository = FakeProcurementRepository()
     repository.kurse["EUR"] = {
-        "waehrung": "EUR", "kurs": "0.93", "geholt_am": date(2026, 8, 9),
+        "waehrung": "EUR",
+        "kurs": "0.93",
+        "geholt_am": date(2026, 8, 9),
         "quelle_url": "https://api.frankfurter.app/latest?from=EUR&to=CHF",
     }
 
@@ -108,7 +120,9 @@ def test_no_rate_at_all_is_an_error_not_a_guess():
     with pytest.raises(KursError) as error:
         aktueller_kurs(repository, "EUR", HEUTE, opener=faellt_aus)
 
-    assert "kein Preis umgerechnet" in str(error.value).lower() or "Ohne belegten Kurs" in str(error.value)
+    assert "kein Preis umgerechnet" in str(
+        error.value
+    ).lower() or "Ohne belegten Kurs" in str(error.value)
 
 
 def test_the_home_currency_needs_no_source():
@@ -121,13 +135,14 @@ def test_the_home_currency_needs_no_source():
 # Rundung und Verfall
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "original,kurs,erwartet",
     [
-        ("7.99", "0.94", "7.51"),      # 7.5106 -> kaufmännisch auf Rappen
+        ("7.99", "0.94", "7.51"),  # 7.5106 -> kaufmännisch auf Rappen
         ("10.00", "0.945", "9.45"),
         ("1.00", "0.9449", "0.94"),
-        ("1.00", "0.9450", "0.95"),    # exakt halb -> aufgerundet
+        ("1.00", "0.9450", "0.95"),  # exakt halb -> aufgerundet
     ],
 )
 def test_conversion_rounds_to_rappen(original, kurs, erwartet):
@@ -135,8 +150,12 @@ def test_conversion_rounds_to_rappen(original, kurs, erwartet):
 
 
 def test_a_rate_older_than_a_week_is_flagged():
-    frisch = Kurs("EUR", Decimal("0.94"), date(2026, 8, 5), "https://api.frankfurter.app/x")
-    alt = Kurs("EUR", Decimal("0.94"), date(2026, 8, 3), "https://api.frankfurter.app/x")
+    frisch = Kurs(
+        "EUR", Decimal("0.94"), date(2026, 8, 5), "https://api.frankfurter.app/x"
+    )
+    alt = Kurs(
+        "EUR", Decimal("0.94"), date(2026, 8, 3), "https://api.frankfurter.app/x"
+    )
 
     assert ist_veraltet(date(2026, 8, 3), HEUTE) is True
     assert ist_veraltet(date(2026, 8, 5), HEUTE) is False
@@ -145,7 +164,9 @@ def test_a_rate_older_than_a_week_is_flagged():
 
 
 def test_the_evidence_line_names_rate_source_and_day():
-    kurs = Kurs("EUR", Decimal("0.94"), date(2026, 8, 11), "https://api.frankfurter.app/latest")
+    kurs = Kurs(
+        "EUR", Decimal("0.94"), date(2026, 8, 11), "https://api.frankfurter.app/latest"
+    )
 
     assert kurs.beleg() == "Kurs 0.9400 (EZB, 11.08.)"
 
@@ -154,10 +175,13 @@ def test_the_evidence_line_names_rate_source_and_day():
 # record_offer: der Server rechnet, nicht der Agent
 # ---------------------------------------------------------------------------
 
+
 def euro_service():
     repository = FakeProcurementRepository()
     repository.kurse["EUR"] = {
-        "waehrung": "EUR", "kurs": "0.94", "geholt_am": ProcurementService._heute(),
+        "waehrung": "EUR",
+        "kurs": "0.94",
+        "geholt_am": ProcurementService._heute(),
         "quelle_url": "https://api.frankfurter.app/latest?from=EUR&to=CHF",
     }
     return ProcurementService(repository), repository
@@ -167,8 +191,13 @@ def test_record_offer_converts_server_side_and_keeps_the_evidence():
     service, repository = euro_service()
 
     gespeichert = service.record_offer(
-        10, 2, "Servo", "https://www.reichelt.de/servo", "7.99",
-        lieferzeit_text="2 Tage", waehrung="EUR",
+        10,
+        2,
+        "Servo",
+        "https://www.reichelt.de/servo",
+        "7.99",
+        lieferzeit_text="2 Tage",
+        waehrung="EUR",
     )
 
     # Der Agent liefert 7.99 EUR; den CHF-Wert rechnet der Server.
@@ -184,7 +213,11 @@ def test_record_offer_in_chf_stays_a_no_op_with_rate_one():
     service, _ = euro_service()
 
     gespeichert = service.record_offer(
-        10, 1, "Servo", "https://shop.example.ch/servo", "12.50",
+        10,
+        1,
+        "Servo",
+        "https://shop.example.ch/servo",
+        "12.50",
         lieferzeit_text="2 Tage",
     )
 
@@ -199,10 +232,17 @@ def test_record_shop_converts_foreign_shipping_and_keeps_original_evidence():
     service, _ = euro_service()
 
     shop = service.record_shop(
-        "Amazon.de", "https://www.amazon.de/", "DE",
-        "6.99", "49.00", None, 5,
-        "https://www.amazon.de/hilfe/versand", "6,99 EUR; gratis ab 49 EUR",
-        lieferziel_id=1, waehrung="EUR",
+        "Amazon.de",
+        "https://www.amazon.de/",
+        "DE",
+        "6.99",
+        "49.00",
+        None,
+        5,
+        "https://www.amazon.de/hilfe/versand",
+        "6,99 EUR; gratis ab 49 EUR",
+        lieferziel_id=1,
+        waehrung="EUR",
     )
 
     assert shop["land"] == "DE"
@@ -220,11 +260,17 @@ def test_record_shop_allows_unknown_shipping_without_inventing_a_zero():
     service, _ = euro_service()
 
     shop = service.record_shop(
-        "SparkFun", "https://www.sparkfun.com/", "US",
-        None, None, None, 3,
+        "SparkFun",
+        "https://www.sparkfun.com/",
+        "US",
+        None,
+        None,
+        None,
+        3,
         "https://www.sparkfun.com/support#shipping-policy",
         "Versandkosten erst adressabhängig im Checkout",
-        lieferziel_id=1, waehrung="USD",
+        lieferziel_id=1,
+        waehrung="USD",
     )
 
     assert shop["versand_original"] is None
@@ -247,8 +293,13 @@ def test_a_foreign_price_without_any_rate_is_refused_without_writing():
     try:
         with pytest.raises(ValidationError):
             service.record_offer(
-                10, 2, "Servo", "https://www.reichelt.de/servo", "7.99",
-                lieferzeit_text="2 Tage", waehrung="EUR",
+                10,
+                2,
+                "Servo",
+                "https://www.reichelt.de/servo",
+                "7.99",
+                lieferzeit_text="2 Tage",
+                waehrung="EUR",
             )
     finally:
         waehrung_modul.fetch_kurs = original
@@ -262,8 +313,14 @@ def test_shop_shipping_rejects_non_finite_amounts(value):
 
     with pytest.raises(ValidationError, match="endliche Zahl"):
         service.record_shop(
-            "Kaputt", "https://invalid.example", "CH",
-            value, None, None, None,
-            "https://invalid.example/shipping", "Unzulässiger Testwert",
+            "Kaputt",
+            "https://invalid.example",
+            "CH",
+            value,
+            None,
+            None,
+            None,
+            "https://invalid.example/shipping",
+            "Unzulässiger Testwert",
             lieferziel_id=1,
         )

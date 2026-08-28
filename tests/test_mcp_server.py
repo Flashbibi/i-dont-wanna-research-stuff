@@ -13,13 +13,22 @@ class StubService:
         return {
             "job_id": 41,
             "lines": [
-                {"position": index, "text": line.removeprefix("2x "), "menge": 2 if line.startswith("2x ") else 1}
+                {
+                    "position": index,
+                    "text": line.removeprefix("2x "),
+                    "menge": 2 if line.startswith("2x ") else 1,
+                }
                 for index, line in enumerate(lines, 1)
             ],
         }
 
     def get_job(self, job_id):
-        return {"id": job_id, "status": "in_arbeit", "lines": [], "scenarios_available": False}
+        return {
+            "id": job_id,
+            "status": "in_arbeit",
+            "lines": [],
+            "scenarios_available": False,
+        }
 
     def delete_job(self, job_id, confirm_job_id):
         return {"job_id": job_id, "confirm_job_id": confirm_job_id, "deleted": True}
@@ -57,8 +66,14 @@ class StubService:
         return {"line": {"id": line_id}}
 
     def check_stock(self, line_id):
-        return {"line_id": line_id, "benoetigt": 2, "gedeckt": False, "fehlmenge": 2,
-                "treffer": [], "kandidaten": []}
+        return {
+            "line_id": line_id,
+            "benoetigt": 2,
+            "gedeckt": False,
+            "fehlmenge": 2,
+            "treffer": [],
+            "kandidaten": [],
+        }
 
     def korrigiere_bestand(self, stock_id, delta, kommentar):
         return {"id": stock_id, "menge": delta, "kommentar": kommentar}
@@ -80,12 +95,19 @@ class StubService:
 
     def refresh_offer(self, offer_id):
         return {
-            "vorher": {"preis_chf": "12.90", "lieferzeit_tage": 3,
-                       "lager_text": "an Lager", "beobachtungstag": "2026-08-24"},
+            "vorher": {
+                "preis_chf": "12.90",
+                "lieferzeit_tage": 3,
+                "lager_text": "an Lager",
+                "beobachtungstag": "2026-08-24",
+            },
             "nachher": {"id": offer_id, "preis_chf": "11.50"},
             "geaendert": True,
-            "extraktion": {"adapter": "demo", "final_url": "https://shop.example/x",
-                           "felder": {}},
+            "extraktion": {
+                "adapter": "demo",
+                "final_url": "https://shop.example/x",
+                "felder": {},
+            },
         }
 
     def list_adapters(self):
@@ -164,7 +186,8 @@ def test_mcp_exposes_exact_procurement_tools():
     shop_properties = record_shop.inputSchema["properties"]
     assert "waehrung" in shop_properties
     assert {entry.get("type") for entry in shop_properties["versand_chf"]["anyOf"]} == {
-        "number", "null"
+        "number",
+        "null",
     }
 
 
@@ -332,7 +355,9 @@ def test_search_history_tool_returns_matching_purchases():
     )
 
     assert isinstance(result, tuple)
-    assert result[1] == {"result": [{"produktname": "Servo", "shop_name": "Swiss Shop"}]}
+    assert result[1] == {
+        "result": [{"produktname": "Servo", "shop_name": "Swiss Shop"}]
+    }
 
 
 def test_get_stock_tool_returns_current_stock():
@@ -379,7 +404,9 @@ def test_plan_scenarios_tool_forwards_all_optional_overrides():
 
 def test_get_cart_session_runs_the_same_adapter_path_as_the_ui():
     result = asyncio.run(
-        build_mcp(StubService()).call_tool("get_cart_session", {"job_id": 7, "shop_id": 1})
+        build_mcp(StubService()).call_tool(
+            "get_cart_session", {"job_id": 7, "shop_id": 1}
+        )
     )
 
     assert isinstance(result, tuple)
@@ -505,7 +532,14 @@ def test_record_shop_accepts_an_explicit_delivery_target_and_stays_compatible():
     # Additiv: neu und optional, die bestehende Signatur bleibt aufrufbar.
     assert "lieferziel_id" in properties
     assert "lieferziel_id" not in pflicht
-    assert {"name", "url", "land", "versand_chf", "profil_quelle_url", "versand_text"} <= pflicht
+    assert {
+        "name",
+        "url",
+        "land",
+        "versand_chf",
+        "profil_quelle_url",
+        "versand_text",
+    } <= pflicht
 
 
 def test_record_offer_exposes_currency_and_article_number_as_optional():
@@ -527,7 +561,10 @@ def test_the_engine_reads_the_page_and_the_ai_cannot_pose_as_an_adapter():
 
     # Die KI nennt Zeile und URL, die Engine liest den Rest von der Seite.
     assert set(fetch_offer.inputSchema["properties"]) == {"line_id", "produkt_url"}
-    assert set(fetch_offer.inputSchema.get("required", [])) == {"line_id", "produkt_url"}
+    assert set(fetch_offer.inputSchema.get("required", [])) == {
+        "line_id",
+        "produkt_url",
+    }
     # Den Erfassungsweg setzt ausschliesslich die Engine.
     assert "erfasst_via" not in record_offer.inputSchema["properties"]
     assert list_adapters.inputSchema["properties"] == {}
@@ -542,7 +579,9 @@ def test_the_descriptions_state_the_currency_and_target_rules():
     assert "Tageskurs" in beschreibung["record_offer"]
     assert "Verkäufer" in beschreibung["record_offer"]
     # Shopherkunft, Lieferziel und Versandwährung sind getrennte Fakten.
-    assert "Shopland und Lieferziel dürfen verschieden sein" in beschreibung["record_shop"]
+    assert (
+        "Shopland und Lieferziel dürfen verschieden sein" in beschreibung["record_shop"]
+    )
     assert "ohne lieferziel_id" in beschreibung["record_shop"]
     assert "Tageskurs" in beschreibung["record_shop"]
     assert "null erfasst, niemals als kostenlos" in beschreibung["record_shop"]

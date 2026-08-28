@@ -24,7 +24,6 @@ from app.cart import (
     start_guest_session,
 )
 
-
 SHOP_URL = "https://www.bastelgarage.ch/"
 DUPONT_URL = "https://www.bastelgarage.ch/dupont-jumper-cable-set-10cm-60-pieces"
 BREADBOARD_URL = "https://www.bastelgarage.ch/half-size-transparent-breadboard-zy-60"
@@ -53,7 +52,9 @@ PRODUCT_HTML = """
 </body></html>
 """
 
-BREADBOARD_HTML = PRODUCT_HTML.replace('value="96"', 'value="412"').replace('"420027"', '"420467"')
+BREADBOARD_HTML = PRODUCT_HTML.replace('value="96"', 'value="412"').replace(
+    '"420027"', '"420467"'
+)
 
 
 def cart_html(rows: str, zwischensumme: str) -> str:
@@ -144,8 +145,15 @@ GERMAN_CART_HTML = """
 """
 
 
-def cart_row(url: str, name: str, menge: int, einzel: str, zeile: str, key: int,
-             modell: str | None = None) -> str:
+def cart_row(
+    url: str,
+    name: str,
+    menge: int,
+    einzel: str,
+    zeile: str,
+    key: int,
+    modell: str | None = None,
+) -> str:
     return f"""
     <tr>
       <td class="text-center"><a href="{url}"><img src="/image/x.jpg" alt="{name}" /></a></td>
@@ -160,12 +168,25 @@ def cart_row(url: str, name: str, menge: int, einzel: str, zeile: str, key: int,
     """
 
 
-DUPONT_ROW = cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 5.90", "CHF 11.80", 42, "420027")
-BREADBOARD_ROW = cart_row(BREADBOARD_URL, "Breadboard Half Size", 1, "CHF 6.90", "CHF 6.90", 43, "420467")
+DUPONT_ROW = cart_row(
+    DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 5.90", "CHF 11.80", 42, "420027"
+)
+BREADBOARD_ROW = cart_row(
+    BREADBOARD_URL, "Breadboard Half Size", 1, "CHF 6.90", "CHF 6.90", 43, "420467"
+)
 
 
-def item(url=DUPONT_URL, *, offer_id=31, menge=2, preis="5.90", name="Dupont Jumper Cable Set 10cm",
-         line_id=10, shop_produkt_id=None, artikelnummer=None) -> CartItem:
+def item(
+    url=DUPONT_URL,
+    *,
+    offer_id=31,
+    menge=2,
+    preis="5.90",
+    name="Dupont Jumper Cable Set 10cm",
+    line_id=10,
+    shop_produkt_id=None,
+    artikelnummer=None,
+) -> CartItem:
     return CartItem(
         line_id=line_id,
         offer_id=offer_id,
@@ -197,7 +218,9 @@ class FakeSession:
         self.pages = dict(pages or {})
         self.add_responses = list(add_responses or [])
         self.cart_page = cart_page
-        self.cookies = dict(cookies if cookies is not None else {"OCSESSID": "sess-abc-123"})
+        self.cookies = dict(
+            cookies if cookies is not None else {"OCSESSID": "sess-abc-123"}
+        )
         self.posted = []
         self.fetched = []
 
@@ -227,6 +250,7 @@ def adapter(**kwargs) -> tuple[OpenCartAdapter, FakeSession]:
 # ---------------------------------------------------------------------------
 # Betragsformate und Plattform-Erkennung
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "text,expected",
@@ -265,13 +289,16 @@ def test_unimplemented_and_unknown_platforms_keep_the_link_list():
 # product_id-Extraktion
 # ---------------------------------------------------------------------------
 
+
 def test_product_id_comes_from_the_cart_form_not_from_related_products():
     assert extract_opencart_product_id(PRODUCT_HTML, DUPONT_URL) == "96"
 
 
 def test_product_id_extraction_fails_loudly_when_absent():
     with pytest.raises(CartError) as error:
-        extract_opencart_product_id("<html><body>kein Formular</body></html>", DUPONT_URL)
+        extract_opencart_product_id(
+            "<html><body>kein Formular</body></html>", DUPONT_URL
+        )
 
     assert "keine product_id" in str(error.value)
     assert DUPONT_URL in str(error.value)
@@ -291,8 +318,11 @@ def test_product_id_extraction_refuses_to_choose_between_candidates():
 # Korb zurücklesen
 # ---------------------------------------------------------------------------
 
+
 def test_cart_readback_yields_positions_and_the_totals_block():
-    entries, totals = parse_opencart_cart(cart_html(DUPONT_ROW + BREADBOARD_ROW, "CHF 18.70"))
+    entries, totals = parse_opencart_cart(
+        cart_html(DUPONT_ROW + BREADBOARD_ROW, "CHF 18.70")
+    )
 
     assert [entry.menge for entry in entries] == [2, 1]
     assert entries[0].name == "Dupont Jumper Cable Set 10cm"
@@ -320,6 +350,7 @@ def test_a_row_without_an_amount_is_refused():
 # Netto-Summenzeile: die Falle aus der Live-Abnahme
 # ---------------------------------------------------------------------------
 
+
 def test_the_real_cart_page_exposes_a_net_subtotal_next_to_gross_line_prices():
     """Beleg für die Basis: Sub-Total ist netto, die Zeilenpreise sind brutto."""
     entries, totals = parse_opencart_cart(BASTELGARAGE_CART_HTML)
@@ -329,7 +360,9 @@ def test_the_real_cart_page_exposes_a_net_subtotal_next_to_gross_line_prices():
     assert totals["Sub-Total"] == Decimal("17.30")
     assert totals["Total"] == Decimal("18.70")
     # 8.1 % MWST - genau der Faktor, der die Live-Abnahme scheitern liess.
-    assert (totals["Total"] / Decimal("1.081")).quantize(Decimal("0.01")) == totals["Sub-Total"]
+    assert (totals["Total"] / Decimal("1.081")).quantize(Decimal("0.01")) == totals[
+        "Sub-Total"
+    ]
 
 
 def test_a_net_subtotal_no_longer_fakes_a_price_change():
@@ -345,10 +378,21 @@ def test_a_net_subtotal_no_longer_fakes_a_price_change():
     result = cart.fill(
         SHOP_URL,
         [
-            item(BG_DUPONT, offer_id=31, menge=2, preis="5.90",
-                 name="Dupont Jumper Cable Set 10cm 60 pieces."),
-            item(BG_BREADBOARD, offer_id=32, menge=1, preis="6.90",
-                 name="Half-Size Transparent Breadboard ZY-60", line_id=11),
+            item(
+                BG_DUPONT,
+                offer_id=31,
+                menge=2,
+                preis="5.90",
+                name="Dupont Jumper Cable Set 10cm 60 pieces.",
+            ),
+            item(
+                BG_BREADBOARD,
+                offer_id=32,
+                menge=1,
+                preis="6.90",
+                name="Half-Size Transparent Breadboard ZY-60",
+                line_id=11,
+            ),
         ],
     )
 
@@ -373,22 +417,37 @@ def test_a_real_price_change_still_names_the_affected_position():
         cart.fill(
             SHOP_URL,
             [
-                item(BG_DUPONT, offer_id=31, menge=2, preis="5.90",
-                     name="Dupont Jumper Cable Set 10cm 60 pieces."),
-                item(BG_BREADBOARD, offer_id=32, menge=1, preis="6.90",
-                     name="Half-Size Transparent Breadboard ZY-60", line_id=11),
+                item(
+                    BG_DUPONT,
+                    offer_id=31,
+                    menge=2,
+                    preis="5.90",
+                    name="Dupont Jumper Cable Set 10cm 60 pieces.",
+                ),
+                item(
+                    BG_BREADBOARD,
+                    offer_id=32,
+                    menge=1,
+                    preis="6.90",
+                    name="Half-Size Transparent Breadboard ZY-60",
+                    line_id=11,
+                ),
             ],
         )
 
     message = str(error.value)
     # Nennt die betroffene Position, nicht nur eine Summe.
-    assert "Half-Size Transparent Breadboard ZY-60: erfasst CHF 6.90, Korb CHF 7.40." in message
+    assert (
+        "Half-Size Transparent Breadboard ZY-60: erfasst CHF 6.90, Korb CHF 7.40."
+        in message
+    )
     assert "Dupont" not in message
 
 
 # ---------------------------------------------------------------------------
 # Füllen und Rückverifikation
 # ---------------------------------------------------------------------------
+
 
 def test_fill_adds_every_position_and_hands_over_the_verified_session():
     cart, session = adapter(
@@ -398,8 +457,17 @@ def test_fill_adds_every_position_and_hands_over_the_verified_session():
 
     result = cart.fill(
         SHOP_URL,
-        [item(), item(BREADBOARD_URL, offer_id=32, menge=1, preis="6.90",
-                     name="Breadboard Half Size", line_id=11)],
+        [
+            item(),
+            item(
+                BREADBOARD_URL,
+                offer_id=32,
+                menge=1,
+                preis="6.90",
+                name="Breadboard Half Size",
+                line_id=11,
+            ),
+        ],
     )
 
     assert result.verifiziert is True
@@ -458,11 +526,25 @@ def test_the_article_number_anchors_across_languages():
     result = cart.fill(
         SHOP_URL,
         [
-            item(BG_DUPONT, offer_id=31, menge=1, preis="5.90",
-                 name="Dupont Jumper Cable Set", shop_produkt_id="96", artikelnummer="420027"),
-            item(BG_GRID, offer_id=32, menge=1, preis="4.90",
-                 name="Breadboard Lochraster Half-Size", line_id=11, shop_produkt_id="69",
-                 artikelnummer="420018"),
+            item(
+                BG_DUPONT,
+                offer_id=31,
+                menge=1,
+                preis="5.90",
+                name="Dupont Jumper Cable Set",
+                shop_produkt_id="96",
+                artikelnummer="420027",
+            ),
+            item(
+                BG_GRID,
+                offer_id=32,
+                menge=1,
+                preis="4.90",
+                name="Breadboard Lochraster Half-Size",
+                line_id=11,
+                shop_produkt_id="69",
+                artikelnummer="420018",
+            ),
         ],
     )
 
@@ -521,7 +603,10 @@ def test_a_cart_rendered_in_another_language_is_blocked_not_guessed():
     hrefs = [entry.href for entry in entries]
 
     assert all("lochraster" in href or "jumperkabel" in href for href in hrefs)
-    assert not any("breadboard-hole-grid" in href or "dupont-jumper-cable" in href for href in hrefs)
+    assert not any(
+        "breadboard-hole-grid" in href or "dupont-jumper-cable" in href
+        for href in hrefs
+    )
 
     cart, _ = adapter(
         pages={BG_DUPONT: PRODUCT_HTML, BG_GRID: PRODUCT_HTML},
@@ -532,10 +617,23 @@ def test_a_cart_rendered_in_another_language_is_blocked_not_guessed():
         cart.fill(
             SHOP_URL,
             [
-                item(BG_DUPONT, offer_id=31, menge=1, preis="5.90",
-                     name="Dupont Jumper Cable Set", shop_produkt_id="96"),
-                item(BG_GRID, offer_id=32, menge=1, preis="4.90",
-                     name="Breadboard Half-Size", line_id=11, shop_produkt_id="69"),
+                item(
+                    BG_DUPONT,
+                    offer_id=31,
+                    menge=1,
+                    preis="5.90",
+                    name="Dupont Jumper Cable Set",
+                    shop_produkt_id="96",
+                ),
+                item(
+                    BG_GRID,
+                    offer_id=32,
+                    menge=1,
+                    preis="4.90",
+                    name="Breadboard Half-Size",
+                    line_id=11,
+                    shop_produkt_id="69",
+                ),
             ],
         )
 
@@ -551,7 +649,15 @@ def test_changed_shop_price_blocks_handover_with_an_exact_diff():
     cart, _ = adapter(
         pages={DUPONT_URL: PRODUCT_HTML},
         cart_page=cart_html(
-            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 6.10", "CHF 12.20", 42, "420027"),
+            cart_row(
+                DUPONT_URL,
+                "Dupont Jumper Cable Set 10cm",
+                2,
+                "CHF 6.10",
+                "CHF 12.20",
+                42,
+                "420027",
+            ),
             "CHF 12.20",
         ),
     )
@@ -573,8 +679,17 @@ def test_missing_position_blocks_handover_and_names_it():
     with pytest.raises(CartVerificationError) as error:
         cart.fill(
             SHOP_URL,
-            [item(), item(BREADBOARD_URL, offer_id=32, menge=1, preis="6.90",
-                          name="Breadboard Half Size", line_id=11)],
+            [
+                item(),
+                item(
+                    BREADBOARD_URL,
+                    offer_id=32,
+                    menge=1,
+                    preis="6.90",
+                    name="Breadboard Half Size",
+                    line_id=11,
+                ),
+            ],
         )
 
     message = str(error.value)
@@ -586,7 +701,15 @@ def test_quantity_mismatch_is_reported_per_position():
     cart, _ = adapter(
         pages={DUPONT_URL: PRODUCT_HTML},
         cart_page=cart_html(
-            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 1, "CHF 5.90", "CHF 5.90", 42, "420027"),
+            cart_row(
+                DUPONT_URL,
+                "Dupont Jumper Cable Set 10cm",
+                1,
+                "CHF 5.90",
+                "CHF 5.90",
+                42,
+                "420027",
+            ),
             "CHF 5.90",
         ),
     )
@@ -630,6 +753,7 @@ def test_shop_refusing_the_add_is_reported_without_a_cart():
 # ---------------------------------------------------------------------------
 # Gast-Session eröffnen und dabei erkennen
 # ---------------------------------------------------------------------------
+
 
 def test_starting_a_session_reports_the_completed_detection():
     session = FakeSession(pages={SHOP_URL: HOME_HTML})
@@ -681,12 +805,21 @@ def test_an_error_response_is_also_no_detection_result():
 # Vertraulichkeit
 # ---------------------------------------------------------------------------
 
+
 def test_no_session_cookie_leaks_into_any_failure_message():
     secret = "sess-abc-123"
     cart, _ = adapter(
         pages={DUPONT_URL: PRODUCT_HTML},
         cart_page=cart_html(
-            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 6.10", "CHF 12.20", 42, "420027"),
+            cart_row(
+                DUPONT_URL,
+                "Dupont Jumper Cable Set 10cm",
+                2,
+                "CHF 6.10",
+                "CHF 12.20",
+                42,
+                "420027",
+            ),
             "CHF 12.20",
         ),
     )

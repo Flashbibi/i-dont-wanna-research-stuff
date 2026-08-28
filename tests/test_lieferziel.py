@@ -9,7 +9,6 @@ from decimal import Decimal
 import pytest
 
 from app.procurement import ProcurementService, ValidationError
-
 from tests.test_procurement import FakeProcurementRepository
 
 
@@ -21,6 +20,7 @@ def service():
 # ---------------------------------------------------------------------------
 # Anlegen
 # ---------------------------------------------------------------------------
+
 
 def test_the_currency_follows_the_country_and_stays_overridable():
     procurement, _ = service()
@@ -40,7 +40,9 @@ def test_a_country_without_a_known_currency_must_state_one():
     with pytest.raises(ValidationError, match="keine Währung hinterlegt"):
         procurement.record_lieferziel("Irgendwo", "Strasse 1", "ZZ")
 
-    gesetzt = procurement.record_lieferziel("Irgendwo", "Strasse 1", "ZZ", waehrung="EUR")
+    gesetzt = procurement.record_lieferziel(
+        "Irgendwo", "Strasse 1", "ZZ", waehrung="EUR"
+    )
     assert gesetzt["waehrung"] == "EUR"
 
 
@@ -87,10 +89,19 @@ def test_the_home_address_is_marked_as_such():
 # Zuordnung beim Shop
 # ---------------------------------------------------------------------------
 
+
 def anlegen(procurement, name, url, land, **kwargs):
     return procurement.record_shop(
-        name, url, land, 5.0, None, None, 3,
-        f"{url}versand", "Versand 5", **kwargs,
+        name,
+        url,
+        land,
+        5.0,
+        None,
+        None,
+        3,
+        f"{url}versand",
+        "Versand 5",
+        **kwargs,
     )
 
 
@@ -122,17 +133,21 @@ def test_an_unknown_target_is_refused():
     procurement, _ = service()
 
     with pytest.raises(ValidationError, match="Lieferadresse 99 ist unbekannt"):
-        anlegen(procurement, "Reichelt", "https://www.reichelt.de/", "DE", lieferziel_id=99)
+        anlegen(
+            procurement, "Reichelt", "https://www.reichelt.de/", "DE", lieferziel_id=99
+        )
 
 
 # ---------------------------------------------------------------------------
 # Angebotswährung ist unabhängig von Shopland und Lieferziel
 # ---------------------------------------------------------------------------
 
+
 def euro_ready():
     procurement, repository = service()
     repository.kurse["EUR"] = {
-        "waehrung": "EUR", "kurs": "0.94",
+        "waehrung": "EUR",
+        "kurs": "0.94",
         "geholt_am": ProcurementService._heute(),
         "quelle_url": "https://api.frankfurter.app/latest?from=EUR&to=CHF",
     }
@@ -143,8 +158,13 @@ def test_a_euro_offer_at_a_shop_delivering_to_switzerland_is_converted():
     procurement, _ = euro_ready()
 
     gespeichert = procurement.record_offer(
-        10, 1, "Servo", "https://shop.example.ch/servo", "7.99",
-        lieferzeit_text="2 Tage", waehrung="EUR",
+        10,
+        1,
+        "Servo",
+        "https://shop.example.ch/servo",
+        "7.99",
+        lieferzeit_text="2 Tage",
+        waehrung="EUR",
     )
 
     assert gespeichert["waehrung"] == "EUR"
@@ -155,8 +175,13 @@ def test_a_chf_offer_at_a_shop_delivering_to_germany_stays_chf():
     procurement, _ = euro_ready()
 
     gespeichert = procurement.record_offer(
-        10, 2, "Servo", "https://www.reichelt.de/servo", "7.99",
-        lieferzeit_text="2 Tage", waehrung="CHF",
+        10,
+        2,
+        "Servo",
+        "https://www.reichelt.de/servo",
+        "7.99",
+        lieferzeit_text="2 Tage",
+        waehrung="CHF",
     )
 
     assert gespeichert["waehrung"] == "CHF"
@@ -167,11 +192,21 @@ def test_both_target_currencies_still_go_through():
     procurement, _ = euro_ready()
 
     schweiz = procurement.record_offer(
-        10, 1, "Servo", "https://shop.example.ch/servo", "12.50", lieferzeit_text="2 Tage",
+        10,
+        1,
+        "Servo",
+        "https://shop.example.ch/servo",
+        "12.50",
+        lieferzeit_text="2 Tage",
     )
     deutschland = procurement.record_offer(
-        10, 2, "Servo", "https://www.reichelt.de/servo", "7.99",
-        lieferzeit_text="2 Tage", waehrung="EUR",
+        10,
+        2,
+        "Servo",
+        "https://www.reichelt.de/servo",
+        "7.99",
+        lieferzeit_text="2 Tage",
+        waehrung="EUR",
     )
 
     assert schweiz["waehrung"] == "CHF"

@@ -23,7 +23,6 @@ from app.adapter import (
     parse_preis,
 )
 
-
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "adapters" / "demo"
 DEMO_YAML = FIXTURES / "demo.yaml"
 DEMO_HTML = FIXTURES / "produkt.html"
@@ -98,7 +97,12 @@ def test_an_unknown_key_is_a_load_error(tmp_path):
 
 
 def test_an_unknown_key_inside_a_field_is_a_load_error(tmp_path):
-    pfad = schreibe(tmp_path, GUELTIG.replace('      selector: "h1"', '      selector: "h1"\n      trim: true'))
+    pfad = schreibe(
+        tmp_path,
+        GUELTIG.replace(
+            '      selector: "h1"', '      selector: "h1"\n      trim: true'
+        ),
+    )
 
     with pytest.raises(AdapterLadefehler, match="product.fields.produktname"):
         lade_adapter(pfad)
@@ -114,7 +118,10 @@ def test_a_wrong_type_is_a_load_error(tmp_path):
 def test_a_regex_without_a_capture_group_is_a_load_error(tmp_path):
     pfad = schreibe(
         tmp_path,
-        GUELTIG.replace('      selector: ".preis"', '      selector: ".preis"\n      regex: "CHF .*"'),
+        GUELTIG.replace(
+            '      selector: ".preis"',
+            '      selector: ".preis"\n      regex: "CHF .*"',
+        ),
     )
 
     with pytest.raises(AdapterLadefehler) as fehler:
@@ -126,7 +133,10 @@ def test_a_regex_without_a_capture_group_is_a_load_error(tmp_path):
 def test_two_capture_groups_are_too_many_as_well(tmp_path):
     pfad = schreibe(
         tmp_path,
-        GUELTIG.replace('      selector: ".preis"', '      selector: ".preis"\n      regex: "(CHF) (.*)"'),
+        GUELTIG.replace(
+            '      selector: ".preis"',
+            '      selector: ".preis"\n      regex: "(CHF) (.*)"',
+        ),
     )
 
     with pytest.raises(AdapterLadefehler, match="genau eine Capture-Group"):
@@ -144,7 +154,12 @@ def test_an_invalid_id_is_a_load_error(tmp_path):
 
 
 def test_an_invalid_domain_is_a_load_error(tmp_path):
-    pfad = schreibe(tmp_path, GUELTIG.replace("domain: demoshop.example", "domain: https://Demoshop.example/"))
+    pfad = schreibe(
+        tmp_path,
+        GUELTIG.replace(
+            "domain: demoshop.example", "domain: https://Demoshop.example/"
+        ),
+    )
 
     with pytest.raises(AdapterLadefehler, match="domain"):
         lade_adapter(pfad)
@@ -159,21 +174,33 @@ def test_a_missing_mandatory_field_is_a_load_error(tmp_path):
 
 
 def test_mandatory_fields_may_not_be_declared_optional(tmp_path):
-    pfad = schreibe(tmp_path, GUELTIG.replace('      selector: "h1"', '      selector: "h1"\n      optional: true'))
+    pfad = schreibe(
+        tmp_path,
+        GUELTIG.replace(
+            '      selector: "h1"', '      selector: "h1"\n      optional: true'
+        ),
+    )
 
     with pytest.raises(AdapterLadefehler, match="darf nicht optional sein"):
         lade_adapter(pfad)
 
 
 def test_price_parsing_exists_only_for_the_price_field(tmp_path):
-    pfad = schreibe(tmp_path, GUELTIG.replace('      selector: "h1"', '      selector: "h1"\n      parse: price'))
+    pfad = schreibe(
+        tmp_path,
+        GUELTIG.replace(
+            '      selector: "h1"', '      selector: "h1"\n      parse: price'
+        ),
+    )
 
     with pytest.raises(AdapterLadefehler, match="nur «text»"):
         lade_adapter(pfad)
 
 
 def test_the_price_field_demands_parse_price(tmp_path):
-    pfad = schreibe(tmp_path, GUELTIG.replace("      parse: price", "      parse: text"))
+    pfad = schreibe(
+        tmp_path, GUELTIG.replace("      parse: price", "      parse: text")
+    )
 
     with pytest.raises(AdapterLadefehler, match="muss «price» sein"):
         lade_adapter(pfad)
@@ -286,9 +313,12 @@ def test_a_capture_group_that_catches_nothing_is_a_plain_error(tmp_path, seite):
     geladen = lade_adapter(schreibe(tmp_path, mit_regex))
 
     # Kein Absturz, kein Traceback - das Feld ist optional und bleibt leer.
-    assert extrahiere(geladen, seite.replace("an Lager (5 Stück)", "an Lager"))[
-        "lager_text"
-    ] is None
+    assert (
+        extrahiere(geladen, seite.replace("an Lager (5 Stück)", "an Lager"))[
+            "lager_text"
+        ]
+        is None
+    )
 
 
 def test_a_regex_without_a_match_counts_as_missing(tmp_path, seite):
@@ -439,9 +469,7 @@ def test_the_registry_reads_bundled_and_own_adapters(tmp_path, monkeypatch):
     assert uebersicht["fehler"] == []
 
 
-def test_the_user_directory_replaces_a_bundled_adapter(
-    tmp_path, monkeypatch, caplog
-):
+def test_the_user_directory_replaces_a_bundled_adapter(tmp_path, monkeypatch, caplog):
     gebuendelt = tmp_path / "gebuendelt"
     eigen = tmp_path / "eigen"
     gebuendelt.mkdir()

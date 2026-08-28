@@ -73,7 +73,9 @@ def _fetch() -> object:
 def _read_release() -> Release | None:
     try:
         payload = _fetch()
-        version = _parse_tag(payload.get("tag_name") if isinstance(payload, dict) else None)
+        version = _parse_tag(
+            payload.get("tag_name") if isinstance(payload, dict) else None
+        )
     except Exception:  # noqa: BLE001 - jeder Fehler heisst schlicht "kein Banner"
         return None
     if version is None:

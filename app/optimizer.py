@@ -6,7 +6,6 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from itertools import combinations, product
 
-
 TEMPO_COST_PER_DAY_CHF = Decimal("15.00")
 UNKNOWN_DELIVERY_SCORE_DAYS = 10_000
 UNKNOWN_DELIVERY_RANK = 10_000
@@ -98,7 +97,9 @@ def _filter_overrides(
     for line_id, line_offers in offers_by_line.items():
         candidates = [offer for offer in line_offers if offer.id not in excludes]
         if line_id in pins:
-            pinned = next((offer for offer in line_offers if offer.id == pins[line_id]), None)
+            pinned = next(
+                (offer for offer in line_offers if offer.id == pins[line_id]), None
+            )
             if pinned is None:
                 raise ValueError(f"Pin {pins[line_id]} passt nicht zu Zeile {line_id}")
             candidates = [
@@ -111,7 +112,9 @@ def _filter_overrides(
                 )
             ]
             if not candidates:
-                raise ValueError(f"Gepinntes Produkt für Zeile {line_id} ist vollständig ausgeschlossen")
+                raise ValueError(
+                    f"Gepinntes Produkt für Zeile {line_id} ist vollständig ausgeschlossen"
+                )
         result[line_id] = candidates
     unknown_pin_lines = set(pins) - set(offers_by_line)
     if unknown_pin_lines:
@@ -162,7 +165,9 @@ def _build_variant(
 
     total = (
         sum(subtotals.values(), Decimal("0.00"))
-        + sum((value for value in shipping.values() if value is not None), Decimal("0.00"))
+        + sum(
+            (value for value in shipping.values() if value is not None), Decimal("0.00")
+        )
         + sum((betrag for _, _, betrag in aufschlaege), Decimal("0.00"))
     )
     # Wartezeit bis zur Abholung liegt oben auf der Lieferzeit jedes Shops
@@ -256,7 +261,9 @@ def _guenstigste_zuordnung(
 def _subtotals(zuordnung: dict[int, Offer]) -> dict[int, Decimal]:
     summen: dict[int, Decimal] = {}
     for offer in zuordnung.values():
-        summen[offer.shop_id] = summen.get(offer.shop_id, Decimal("0.00")) + offer.positionspreis
+        summen[offer.shop_id] = (
+            summen.get(offer.shop_id, Decimal("0.00")) + offer.positionspreis
+        )
     return summen
 
 
@@ -347,7 +354,9 @@ def _konzentriert_auf(
             )
         ]
         if pool:
-            gebuendelt[line_id] = min(pool, key=lambda offer: (offer.positionspreis, offer.id))
+            gebuendelt[line_id] = min(
+                pool, key=lambda offer: (offer.positionspreis, offer.id)
+            )
     return gebuendelt
 
 
@@ -385,7 +394,10 @@ def _schwellen_varianten(
         varianten.append(repariert)
 
     # 2. Lohnende Grenze: Gratisversand, ausgehend von beiden Ständen.
-    for basis in [zuordnung, *( [repariert] if repariert is not None and repariert != zuordnung else [] )]:
+    for basis in [
+        zuordnung,
+        *([repariert] if repariert is not None and repariert != zuordnung else []),
+    ]:
         for shop_id, subtotal in _subtotals(basis).items():
             shop = shops_by_id[shop_id]
             grenze = shop.gratis_ab_chf
@@ -431,7 +443,11 @@ def _shop_teilmengen(shop_ids: list[int], max_shops: int) -> list[frozenset[int]
         for groesse in groessen
         for kombination in combinations(shop_ids, groesse)
     ]
-    voll = frozenset(shop_ids[:max_shops]) if len(shop_ids) > max_shops else frozenset(shop_ids)
+    voll = (
+        frozenset(shop_ids[:max_shops])
+        if len(shop_ids) > max_shops
+        else frozenset(shop_ids)
+    )
     if voll and voll not in mengen:
         mengen.append(voll)
     return mengen
@@ -463,7 +479,9 @@ def _complete_variants(
     aufstocken.
     """
     ordered_lines = sorted(set(required_line_ids))
-    if not ordered_lines or any(not offers_by_line.get(line_id) for line_id in ordered_lines):
+    if not ordered_lines or any(
+        not offers_by_line.get(line_id) for line_id in ordered_lines
+    ):
         return []
 
     # Solange die vollständige Aufzählung bezahlbar ist, wird sie genommen -
@@ -476,13 +494,23 @@ def _complete_variants(
     if kombinationen <= KOMBINATIONS_BUDGET:
         return [
             variant
-            for belegung in product(*(offers_by_line[line_id] for line_id in ordered_lines))
-            if (variant := _build_variant(dict(zip(ordered_lines, belegung)), shops_by_id, tempo))
+            for belegung in product(
+                *(offers_by_line[line_id] for line_id in ordered_lines)
+            )
+            if (
+                variant := _build_variant(
+                    dict(zip(ordered_lines, belegung)), shops_by_id, tempo
+                )
+            )
             is not None
         ]
 
     beteiligte_shops = sorted(
-        {offer.shop_id for line_id in ordered_lines for offer in offers_by_line[line_id]}
+        {
+            offer.shop_id
+            for line_id in ordered_lines
+            for offer in offers_by_line[line_id]
+        }
     )
     if not beteiligte_shops:
         return []
@@ -491,7 +519,9 @@ def _complete_variants(
     gesehen: set[tuple[tuple[int, int], ...]] = set()
     for menge in _shop_teilmengen(beteiligte_shops, len(ordered_lines)):
         kandidaten = {
-            line_id: [offer for offer in offers_by_line[line_id] if offer.shop_id in menge]
+            line_id: [
+                offer for offer in offers_by_line[line_id] if offer.shop_id in menge
+            ]
             for line_id in ordered_lines
         }
         if any(not pool for pool in kandidaten.values()):
@@ -508,7 +538,9 @@ def _complete_variants(
         obergrenzen.append(None)
 
         for grenze in obergrenzen:
-            zuordnung = _guenstigste_zuordnung(ordered_lines, kandidaten, shops_by_id, grenze)
+            zuordnung = _guenstigste_zuordnung(
+                ordered_lines, kandidaten, shops_by_id, grenze
+            )
             if zuordnung is None:
                 continue
             # Neben der billigsten Zuordnung auch je Shop eine, die möglichst
@@ -529,7 +561,9 @@ def _complete_variants(
                     _schwellen_varianten(basis, kandidaten, shops_by_id, grenze)
                 )
             for kandidat in erweitert:
-                schluessel = tuple(sorted((line_id, offer.id) for line_id, offer in kandidat.items()))
+                schluessel = tuple(
+                    sorted((line_id, offer.id) for line_id, offer in kandidat.items())
+                )
                 if schluessel in gesehen:
                     continue
                 gesehen.add(schluessel)
@@ -552,7 +586,9 @@ def optimize_orders(
     if not offers:
         return []
     shops_by_id, offers_by_line = _validated_inputs(offers, shops)
-    variants = _complete_variants(offers_by_line, shops_by_id, list(offers_by_line), tempo)
+    variants = _complete_variants(
+        offers_by_line, shops_by_id, list(offers_by_line), tempo
+    )
     best_by_shop_set: dict[tuple[int, ...], OrderVariant] = {}
     for variant in variants:
         key = variant.shop_ids
@@ -663,9 +699,7 @@ def plan_scenarios(
     # Heim-Lieferziel. Deckt sich das Ergebnis mit dem Gesamtoptimum - solange
     # es keine Auslandsangebote gibt, ist das der Normalfall - verschmelzen die
     # Labels weiter oben über die gemeinsame Identität.
-    heimat_shops = {
-        shop_id for shop_id, shop in shops_by_id.items() if shop.ist_heimat
-    }
+    heimat_shops = {shop_id for shop_id, shop in shops_by_id.items() if shop.ist_heimat}
     nur_heimat = {
         line_id: [offer for offer in offers if offer.shop_id in heimat_shops]
         for line_id, offers in filtered.items()
@@ -702,7 +736,9 @@ def plan_scenarios(
     for shop_id in sorted(shops_by_id):
         chosen: dict[int, Offer] = {}
         for line_id in required:
-            candidates = [offer for offer in filtered.get(line_id, []) if offer.shop_id == shop_id]
+            candidates = [
+                offer for offer in filtered.get(line_id, []) if offer.shop_id == shop_id
+            ]
             if candidates:
                 chosen[line_id] = min(
                     candidates,

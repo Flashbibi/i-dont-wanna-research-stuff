@@ -20,7 +20,9 @@ class Result:
 def assert_stock_invariant(stock_rows, movements):
     totals = {}
     for movement in movements:
-        totals[movement["stock_id"]] = totals.get(movement["stock_id"], 0) + movement["delta"]
+        totals[movement["stock_id"]] = (
+            totals.get(movement["stock_id"], 0) + movement["delta"]
+        )
     for stock in stock_rows:
         if stock["id"] in totals:
             assert stock["menge"] == totals[stock["id"]]
@@ -112,40 +114,54 @@ class JobDeletionConnection(Connection):
         normalized = " ".join(sql.split())
         self.statements.append((normalized, params))
         if "FROM job j" in normalized and "FOR UPDATE" in normalized:
-            return Result(one={
-                "id": self.job["id"],
-                "status": self.job["status"],
-                "is_test": self.job["is_test"],
-            })
+            return Result(
+                one={
+                    "id": self.job["id"],
+                    "status": self.job["status"],
+                    "is_test": self.job["is_test"],
+                }
+            )
         if "FROM bom_line" in normalized and "FOR UPDATE" in normalized:
             status = "in_arbeit" if self.job["has_progress"] else "offen"
             return Result(many=[{"id": 46, "status": status}])
         if "AS has_offers" in normalized:
-            return Result(one={
-                "has_offers": self.job["has_offers"],
-                "has_purchase": self.job["has_purchase"],
-            })
+            return Result(
+                one={
+                    "has_offers": self.job["has_offers"],
+                    "has_purchase": self.job["has_purchase"],
+                }
+            )
         return Result()
 
 
 def test_delete_unstarted_job_deletes_only_lines_and_exact_guarded_job():
     repository = PostgresRepository("unused")
-    connection = JobDeletionConnection({
-        "id": 13,
-        "status": "offen",
-        "is_test": False,
-        "has_offers": False,
-        "has_purchase": False,
-        "has_progress": False,
-    })
+    connection = JobDeletionConnection(
+        {
+            "id": 13,
+            "status": "offen",
+            "is_test": False,
+            "has_offers": False,
+            "has_purchase": False,
+            "has_progress": False,
+        }
+    )
     repository._connect = lambda: connection
 
     result = repository.delete_unstarted_job(13)
 
     assert result == {"job_id": 13, "deleted": True}
-    job_lock = next(i for i, (sql, _) in enumerate(connection.statements) if "FROM job j" in sql)
-    line_lock = next(i for i, (sql, _) in enumerate(connection.statements) if "FROM bom_line" in sql and "FOR UPDATE" in sql)
-    state_check = next(i for i, (sql, _) in enumerate(connection.statements) if "AS has_offers" in sql)
+    job_lock = next(
+        i for i, (sql, _) in enumerate(connection.statements) if "FROM job j" in sql
+    )
+    line_lock = next(
+        i
+        for i, (sql, _) in enumerate(connection.statements)
+        if "FROM bom_line" in sql and "FOR UPDATE" in sql
+    )
+    state_check = next(
+        i for i, (sql, _) in enumerate(connection.statements) if "AS has_offers" in sql
+    )
     assert job_lock < line_lock < state_check
     assert connection.statements[-2:] == [
         ("DELETE FROM bom_line WHERE job_id = %s", (13,)),
@@ -200,16 +216,23 @@ class StockJobDeletionConnection(JobDeletionConnection):
 
 def test_delete_open_job_refunds_stock_movements_before_deleting_lines():
     repository = PostgresRepository("unused")
-    connection = StockJobDeletionConnection({
-        "id": 13, "status": "offen", "is_test": False,
-        "has_offers": False, "has_purchase": False, "has_progress": False,
-    })
+    connection = StockJobDeletionConnection(
+        {
+            "id": 13,
+            "status": "offen",
+            "is_test": False,
+            "has_offers": False,
+            "has_purchase": False,
+            "has_progress": False,
+        }
+    )
     repository._connect = lambda: connection
 
     repository.delete_unstarted_job(13)
 
     refund = next(
-        (sql, params) for sql, params in connection.statements
+        (sql, params)
+        for sql, params in connection.statements
         if sql.startswith("INSERT INTO stock_bewegung")
     )
     assert refund[1] == (4, 3, "Rückbuchung: Job 13 gelöscht")
@@ -223,7 +246,8 @@ def test_delete_open_job_refunds_stock_movements_before_deleting_lines():
     )
     refund_index = connection.statements.index(refund)
     delete_index = next(
-        index for index, (sql, _) in enumerate(connection.statements)
+        index
+        for index, (sql, _) in enumerate(connection.statements)
         if sql == "DELETE FROM bom_line WHERE job_id = %s"
     )
     assert refund_index < delete_index
@@ -231,10 +255,16 @@ def test_delete_open_job_refunds_stock_movements_before_deleting_lines():
 
 def test_delete_job_with_stock_line_is_still_rejected_when_job_is_not_open():
     repository = PostgresRepository("unused")
-    connection = StockJobDeletionConnection({
-        "id": 13, "status": "in_arbeit", "is_test": False,
-        "has_offers": False, "has_purchase": False, "has_progress": False,
-    })
+    connection = StockJobDeletionConnection(
+        {
+            "id": 13,
+            "status": "in_arbeit",
+            "is_test": False,
+            "has_offers": False,
+            "has_purchase": False,
+            "has_progress": False,
+        }
+    )
     repository._connect = lambda: connection
 
     with pytest.raises(ValueError, match="nicht mehr unberührt"):
@@ -285,7 +315,9 @@ def test_optimization_input_selects_the_columns_the_cart_handover_needs():
 
     repository.optimization_input(1)
 
-    shop_query = next(sql for sql in statements if "FROM shop s LEFT JOIN lieferziel" in sql)
+    shop_query = next(
+        sql for sql in statements if "FROM shop s LEFT JOIN lieferziel" in sql
+    )
     for column in (
         "plattform",
         "plattform_beleg",
@@ -304,7 +336,13 @@ def test_optimization_input_selects_the_columns_the_cart_handover_needs():
     ):
         assert column in shop_query
     offer_query = next(sql for sql in statements if "FROM offer o" in sql)
-    for column in ("o.shop_produkt_id", "o.artikelnummer", "o.preis_original", "o.waehrung", "o.kurs"):
+    for column in (
+        "o.shop_produkt_id",
+        "o.artikelnummer",
+        "o.preis_original",
+        "o.waehrung",
+        "o.kurs",
+    ):
         assert column in offer_query
 
 
@@ -404,12 +442,16 @@ class ArrivalConnection(Connection):
         normalized = " ".join(sql.split())
         self.statements.append((normalized, params))
         if "FROM purchase WHERE id" in normalized:
-            return Result(one={"id": 7, "angekommen_am": "now" if self.arrived else None})
+            return Result(
+                one={"id": 7, "angekommen_am": "now" if self.arrived else None}
+            )
         if normalized.startswith("UPDATE purchase SET angekommen_am"):
             self.arrived = True
             return Result(one={"id": 7, "angekommen_am": "now"})
         if "FROM purchase_item pi" in normalized:
-            return Result(many=[{"id": 9, "line_id": 12, "menge": 3, "suchtext": "Servo"}])
+            return Result(
+                many=[{"id": 9, "line_id": 12, "menge": 3, "suchtext": "Servo"}]
+            )
         if normalized.startswith("INSERT INTO stock("):
             return Result(one={"id": 4})
         return Result()
@@ -423,14 +465,18 @@ def test_mark_purchase_arrived_writes_one_access_ledger_entry_and_is_idempotent(
     repository.mark_purchase_arrived(7)
     repository.mark_purchase_arrived(7)
 
-    ledger = [entry for entry in connection.statements if entry[0].startswith("INSERT INTO stock_bewegung")]
-    assert ledger == [(
-        "INSERT INTO stock_bewegung(stock_id, line_id, delta, grund) VALUES (%s, %s, %s, 'zugang_lieferung')",
-        (4, 12, 3),
-    )]
-    assert_stock_invariant(
-        [{"id": 4, "menge": 3}], [{"stock_id": 4, "delta": 3}]
-    )
+    ledger = [
+        entry
+        for entry in connection.statements
+        if entry[0].startswith("INSERT INTO stock_bewegung")
+    ]
+    assert ledger == [
+        (
+            "INSERT INTO stock_bewegung(stock_id, line_id, delta, grund) VALUES (%s, %s, %s, 'zugang_lieferung')",
+            (4, 12, 3),
+        )
+    ]
+    assert_stock_invariant([{"id": 4, "menge": 3}], [{"stock_id": 4, "delta": 3}])
 
 
 class MarkStockConnection(Connection):
@@ -447,9 +493,17 @@ class MarkStockConnection(Connection):
         normalized = " ".join(sql.split())
         self.statements.append((normalized, params))
         if "FROM bom_line bl JOIN job" in normalized:
-            return Result(one={"suchtext": "Servo MG90S", "menge": 3,
-                               "status": self.status, "is_test": self.is_test})
-        if normalized.startswith("SELECT s.id") or normalized.startswith("SELECT id, menge FROM stock"):
+            return Result(
+                one={
+                    "suchtext": "Servo MG90S",
+                    "menge": 3,
+                    "status": self.status,
+                    "is_test": self.is_test,
+                }
+            )
+        if normalized.startswith("SELECT s.id") or normalized.startswith(
+            "SELECT id, menge FROM stock"
+        ):
             return Result(many=self.stock)
         if normalized.startswith("UPDATE bom_line"):
             return Result(one={"id": 12, "status": "bestand", "kommentar": None})
@@ -463,7 +517,9 @@ def test_mark_line_uses_article_and_trimmed_text_matching_and_writes_negative_le
 
     repository.mark_line(12, "bestand", None)
 
-    match_sql = next(sql for sql, _ in connection.statements if sql.startswith("SELECT s.id"))
+    match_sql = next(
+        sql for sql, _ in connection.statements if sql.startswith("SELECT s.id")
+    )
     assert "quelle.artikelnummer IS NOT NULL" in match_sql
     assert "quelle.shop_id = ziel.shop_id" in match_sql
     assert "lower(btrim(s.bezeichnung)) = lower(btrim(CAST(%s AS TEXT)))" in match_sql
@@ -493,7 +549,9 @@ def test_mark_line_explicit_selection_and_guards_reject_without_stock_write():
         repository._connect = lambda connection=connection: connection
         with pytest.raises(ValueError, match=message):
             repository.mark_line(12, "bestand", None)
-        assert not any(sql.startswith("UPDATE stock") for sql, _ in connection.statements)
+        assert not any(
+            sql.startswith("UPDATE stock") for sql, _ in connection.statements
+        )
 
     unknown = MarkStockConnection(stock=[])
     repository._connect = lambda: unknown
@@ -511,21 +569,42 @@ class CheckStockConnection(Connection):
         if normalized.startswith("SELECT id, suchtext"):
             return Result(one={"id": 12, "suchtext": "Servo MG90S", "menge": 8})
         if "CASE WHEN EXISTS" in normalized:
-            return Result(many=[{
-                "stock_id": 4, "bezeichnung": "MG90S Motor", "menge": 5,
-                "aktualisiert_am": datetime(2026, 8, 1), "match": "artikelnummer",
-            }])
-        return Result(many=[
-            {"stock_id": 4, "bezeichnung": "MG90S Motor", "menge": 5,
-             "aktualisiert_am": datetime(2026, 8, 1)},
-            *[
-                {"stock_id": index, "bezeichnung": f"Servo MG90S {index}", "menge": 1,
-                 "aktualisiert_am": datetime(2026, 8, index)}
-                for index in range(5, 12)
-            ],
-            {"stock_id": 20, "bezeichnung": "Netzteil", "menge": 9,
-             "aktualisiert_am": datetime(2026, 8, 20)},
-        ])
+            return Result(
+                many=[
+                    {
+                        "stock_id": 4,
+                        "bezeichnung": "MG90S Motor",
+                        "menge": 5,
+                        "aktualisiert_am": datetime(2026, 8, 1),
+                        "match": "artikelnummer",
+                    }
+                ]
+            )
+        return Result(
+            many=[
+                {
+                    "stock_id": 4,
+                    "bezeichnung": "MG90S Motor",
+                    "menge": 5,
+                    "aktualisiert_am": datetime(2026, 8, 1),
+                },
+                *[
+                    {
+                        "stock_id": index,
+                        "bezeichnung": f"Servo MG90S {index}",
+                        "menge": 1,
+                        "aktualisiert_am": datetime(2026, 8, index),
+                    }
+                    for index in range(5, 12)
+                ],
+                {
+                    "stock_id": 20,
+                    "bezeichnung": "Netzteil",
+                    "menge": 9,
+                    "aktualisiert_am": datetime(2026, 8, 20),
+                },
+            ]
+        )
 
 
 def test_check_stock_separates_matches_candidates_limits_and_calculates_shortage():
@@ -569,7 +648,8 @@ def test_correct_stock_locks_updates_and_writes_correction_ledger_atomically():
 
     assert result["menge"] == 3
     assert connection.statements[0] == (
-        "SELECT id, menge FROM stock WHERE id = %s FOR UPDATE", (4,)
+        "SELECT id, menge FROM stock WHERE id = %s FOR UPDATE",
+        (4,),
     )
     assert any(
         sql.startswith("INSERT INTO stock_bewegung") and params == (4, -2, "Inventur")
@@ -588,7 +668,9 @@ def test_correct_stock_rejects_unknown_or_negative_result_without_write():
         repository._connect = lambda connection=connection: connection
         with pytest.raises(ValueError, match=message):
             repository.korrigiere_bestand(4, -2, "Inventur")
-        assert not any(sql.startswith("UPDATE stock") for sql, _ in connection.statements)
+        assert not any(
+            sql.startswith("UPDATE stock") for sql, _ in connection.statements
+        )
 
 
 def test_shop_writes_original_shipping_currency_and_rate_evidence():
@@ -605,27 +687,46 @@ def test_shop_writes_original_shipping_currency_and_rate_evidence():
     connection = ShopConnection()
     repository._connect = lambda: connection
     values = {
-        "name": "Amazon.de", "url": "https://amazon.de", "domain": "amazon.de",
-        "land": "DE", "lieferziel_id": 1,
-        "versand_chf": "6.57", "gratis_ab_chf": "46.06",
-        "mindestbestellwert_chf": None, "lieferzeit_default_tage": 5,
-        "profil_quelle_url": "https://amazon.de/hilfe", "versand_text": "6,99 EUR",
-        "versand_original": "6.99", "gratis_ab_original": "49.00",
-        "mindestbestellwert_original": None, "versand_waehrung": "EUR",
-        "versand_kurs": "0.94", "versand_kurs_am": date(2026, 8, 11),
+        "name": "Amazon.de",
+        "url": "https://amazon.de",
+        "domain": "amazon.de",
+        "land": "DE",
+        "lieferziel_id": 1,
+        "versand_chf": "6.57",
+        "gratis_ab_chf": "46.06",
+        "mindestbestellwert_chf": None,
+        "lieferzeit_default_tage": 5,
+        "profil_quelle_url": "https://amazon.de/hilfe",
+        "versand_text": "6,99 EUR",
+        "versand_original": "6.99",
+        "gratis_ab_original": "49.00",
+        "mindestbestellwert_original": None,
+        "versand_waehrung": "EUR",
+        "versand_kurs": "0.94",
+        "versand_kurs_am": date(2026, 8, 11),
         "versand_kurs_quelle": "https://api.frankfurter.app/latest",
     }
 
     repository.create_shop(**values)
-    repository.update_shop_profile(8, **{key: value for key, value in values.items() if key not in {
-        "name", "url", "domain", "land", "lieferziel_id"
-    }})
+    repository.update_shop_profile(
+        8,
+        **{
+            key: value
+            for key, value in values.items()
+            if key not in {"name", "url", "domain", "land", "lieferziel_id"}
+        },
+    )
 
     insert_sql, _ = connection.statements[0]
     update_sql, _ = connection.statements[1]
     for column in (
-        "versand_original", "gratis_ab_original", "mindestbestellwert_original",
-        "versand_waehrung", "versand_kurs", "versand_kurs_am", "versand_kurs_quelle",
+        "versand_original",
+        "gratis_ab_original",
+        "mindestbestellwert_original",
+        "versand_waehrung",
+        "versand_kurs",
+        "versand_kurs_am",
+        "versand_kurs_quelle",
     ):
         assert column in insert_sql
         assert column in update_sql
@@ -715,5 +816,11 @@ def test_create_offer_updates_same_day_but_inserts_new_daily_observation():
     assert first["id"] == corrected["id"]
     assert next_day["id"] != corrected["id"]
     assert len(connection.rows) == 2
-    assert connection.rows[(1, "https://shop.ch/servo", date(2026, 8, 9))]["preis_chf"] == "60.00"
-    assert connection.rows[(1, "https://shop.ch/servo", date(2026, 8, 10))]["preis_chf"] == "59.00"
+    assert (
+        connection.rows[(1, "https://shop.ch/servo", date(2026, 8, 9))]["preis_chf"]
+        == "60.00"
+    )
+    assert (
+        connection.rows[(1, "https://shop.ch/servo", date(2026, 8, 10))]["preis_chf"]
+        == "59.00"
+    )

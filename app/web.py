@@ -8,7 +8,7 @@ import secrets
 import zipfile
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
@@ -27,7 +27,6 @@ from .procurement import ProcurementService, ValidationError
 from .updates import update_available
 from .version import __version__
 
-
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = Jinja2Templates(directory=ROOT / "templates")
 TEMPLATES.env.globals["app_version"] = __version__
@@ -36,10 +35,14 @@ EXTENSION_DIR = ROOT / "extension"
 
 
 def relative_time(value: datetime | str) -> str:
-    moment = datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
+    moment = (
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if isinstance(value, str)
+        else value
+    )
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
-    days = max((datetime.now(timezone.utc) - moment).days, 0)
+        moment = moment.replace(tzinfo=UTC)
+    days = max((datetime.now(UTC) - moment).days, 0)
     if days >= 365:
         years = days // 365
         return f"vor {years} {'Jahr' if years == 1 else 'Jahren'}"
@@ -261,9 +264,7 @@ def create_app(
     def variants_page(request: Request, job_id: int):
         if active_repository.get_job(job_id) is None:
             raise HTTPException(404, "Job nicht gefunden")
-        return TEMPLATES.TemplateResponse(
-            request, "variants.html", {"job_id": job_id}
-        )
+        return TEMPLATES.TemplateResponse(request, "variants.html", {"job_id": job_id})
 
     @application.get("/history", response_class=HTMLResponse)
     def history(request: Request):
@@ -377,7 +378,9 @@ def create_app(
         return RedirectResponse("/shops", status_code=303)
 
     @application.put("/api/shops/{shop_id}/profile")
-    def update_shop_profile(shop_id: int, profile: ShopProfileRequest) -> dict[str, Any]:
+    def update_shop_profile(
+        shop_id: int, profile: ShopProfileRequest
+    ) -> dict[str, Any]:
         try:
             return procurement.record_shop_profile(
                 shop_id,
@@ -409,7 +412,9 @@ def create_app(
             raise HTTPException(404, "Nicht gefunden")
 
     @application.post("/api/e2e/jobs", status_code=201)
-    def create_e2e_job(x_e2e_marker: str | None = Header(default=None)) -> dict[str, Any]:
+    def create_e2e_job(
+        x_e2e_marker: str | None = Header(default=None),
+    ) -> dict[str, Any]:
         require_e2e_marker(x_e2e_marker)
         try:
             return active_repository.create_e2e_test_job()
@@ -435,7 +440,9 @@ def create_app(
         return job
 
     @application.post("/offers/{offer_id}/decision")
-    def decide_offer_form(offer_id: int, status: str = Form(...), job_id: int = Form(...)):
+    def decide_offer_form(
+        offer_id: int, status: str = Form(...), job_id: int = Form(...)
+    ):
         if status not in {"pin", "exclude", "neutral"}:
             raise HTTPException(422, "Ungültige Entscheidung")
         try:
@@ -558,8 +565,7 @@ def create_app(
             "version": extension_version(),
             "download_url": "/extension.zip",
             "dateien": [
-                path.relative_to(EXTENSION_DIR).as_posix()
-                for path in extension_files()
+                path.relative_to(EXTENSION_DIR).as_posix() for path in extension_files()
             ],
         }
 
@@ -625,7 +631,7 @@ def create_app(
             return procurement.record_purchase(
                 job_id,
                 request.variante,
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 request.zugesagt_liefertage_pro_shop,
             )
         except (ValidationError, ValueError) as error:

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
 import re
-from typing import Any, Mapping, Protocol
+from collections.abc import Mapping
+from datetime import UTC, date, datetime
+from decimal import Decimal, InvalidOperation
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 from .adapter import (
@@ -12,11 +13,12 @@ from .adapter import (
     finde_adapter,
     nennt_waehrung,
     parse_preis,
+)
+from .adapter import (
     uebersicht as adapter_uebersicht,
 )
 from .cart import (
     SUPPORTED_PLATFORMS,
-    CartError,
     CartItem,
     build_adapter,
     build_stub_session,
@@ -25,19 +27,21 @@ from .cart import (
 )
 from .fetch import FetchFehler, hole_seite
 from .jobs import BomInputLine, parse_bom
+from .optimizer import (
+    Offer,
+    ShopProfile,
+    filter_dominated_variants,
+    optimize_orders,
+)
+from .optimizer import (
+    plan_scenarios as build_scenarios,
+)
 from .waehrung import (
     HOME_CURRENCY,
     KursError,
     aktueller_kurs,
     nach_chf,
     waehrung_fuer_land,
-)
-from .optimizer import (
-    Offer,
-    ShopProfile,
-    filter_dominated_variants,
-    optimize_orders,
-    plan_scenarios as build_scenarios,
 )
 
 
@@ -92,7 +96,9 @@ class ProcurementRepository(Protocol):
     def get_lieferziel(self, lieferziel_id: int) -> dict[str, Any] | None: ...
     def lieferziele_fuer_land(self, land: str) -> list[dict[str, Any]]: ...
     def create_lieferziel(self, **values: Any) -> dict[str, Any]: ...
-    def update_lieferziel(self, lieferziel_id: int, **values: Any) -> dict[str, Any]: ...
+    def update_lieferziel(
+        self, lieferziel_id: int, **values: Any
+    ) -> dict[str, Any]: ...
     def get_kurs(self, waehrung: str) -> dict[str, Any] | None: ...
     def save_kurs(
         self, waehrung: str, kurs: Any, geholt_am: Any, quelle_url: str
@@ -130,7 +136,9 @@ def _hostname(url: str, field: str) -> str:
         or parsed.username is not None
         or parsed.password is not None
     ):
-        raise ValidationError(f"{field} muss eine gueltige HTTP(S)-URL ohne Zugangsdaten sein")
+        raise ValidationError(
+            f"{field} muss eine gueltige HTTP(S)-URL ohne Zugangsdaten sein"
+        )
     host = parsed.hostname.lower().rstrip(".")
     return host.removeprefix("www.")
 
@@ -270,7 +278,10 @@ class ProcurementService:
 
     def get_shops(self) -> list[dict[str, Any]]:
         shops = [
-            {"shop_id": shop["id"], **{key: value for key, value in shop.items() if key != "id"}}
+            {
+                "shop_id": shop["id"],
+                **{key: value for key, value in shop.items() if key != "id"},
+            }
             for shop in self.repository.list_shops()
         ]
         return sorted(
@@ -304,7 +315,9 @@ class ProcurementService:
         if not normalized_comment:
             raise ValidationError("Kommentar ist erforderlich")
         try:
-            return self.repository.korrigiere_bestand(stock_id, delta, normalized_comment)
+            return self.repository.korrigiere_bestand(
+                stock_id, delta, normalized_comment
+            )
         except ValueError as error:
             raise ValidationError(str(error)) from error
 
@@ -325,7 +338,9 @@ class ProcurementService:
         if not versand_text or not versand_text.strip():
             raise ValidationError("Versand-Originaltext fehlt")
         shipping = None if versand_chf is None else _decimal(versand_chf, "Versand")
-        free_from = None if gratis_ab_chf is None else _decimal(gratis_ab_chf, "Gratisgrenze")
+        free_from = (
+            None if gratis_ab_chf is None else _decimal(gratis_ab_chf, "Gratisgrenze")
+        )
         minimum = (
             None
             if mindestbestellwert_chf is None
@@ -334,7 +349,9 @@ class ProcurementService:
         if lieferzeit_default_tage is not None and (
             not isinstance(lieferzeit_default_tage, int) or lieferzeit_default_tage <= 0
         ):
-            raise ValidationError("Standard-Lieferzeit muss leer oder eine positive ganze Tageszahl sein")
+            raise ValidationError(
+                "Standard-Lieferzeit muss leer oder eine positive ganze Tageszahl sein"
+            )
         code = (waehrung or HOME_CURRENCY).strip().upper()
         originals = {
             "versand": shipping,
@@ -360,7 +377,9 @@ class ProcurementService:
             "versand_waehrung": code,
             "versand_kurs": None if evidence is None else evidence["kurs"],
             "versand_kurs_am": None if evidence is None else evidence["kurs_am"],
-            "versand_kurs_quelle": None if evidence is None else evidence["kurs_quelle"],
+            "versand_kurs_quelle": None
+            if evidence is None
+            else evidence["kurs_quelle"],
             "lieferzeit_default_tage": lieferzeit_default_tage,
             "profil_quelle_url": profil_quelle_url.strip(),
             "versand_text": versand_text.strip(),
@@ -404,7 +423,11 @@ class ProcurementService:
                 f"Für Land {code} ist keine Währung hinterlegt; bitte explizit angeben"
             )
         aufschlag = _decimal(aufschlag_chf, "Aufschlag")
-        if not isinstance(zuschlag_tage, int) or isinstance(zuschlag_tage, bool) or zuschlag_tage < 0:
+        if (
+            not isinstance(zuschlag_tage, int)
+            or isinstance(zuschlag_tage, bool)
+            or zuschlag_tage < 0
+        ):
             raise ValidationError("Zuschlag-Tage müssen eine Zahl ab 0 sein")
         return self.repository.create_lieferziel(
             name=name.strip(),
@@ -428,7 +451,11 @@ class ProcurementService:
             raise ValidationError(f"Lieferadresse {lieferziel_id} ist unbekannt")
         if not adresse.strip():
             raise ValidationError("Adresse fehlt")
-        if not isinstance(zuschlag_tage, int) or isinstance(zuschlag_tage, bool) or zuschlag_tage < 0:
+        if (
+            not isinstance(zuschlag_tage, int)
+            or isinstance(zuschlag_tage, bool)
+            or zuschlag_tage < 0
+        ):
             raise ValidationError("Zuschlag-Tage müssen eine Zahl ab 0 sein")
         return self.repository.update_lieferziel(
             lieferziel_id,
@@ -438,7 +465,9 @@ class ProcurementService:
             zuschlag_tage=zuschlag_tage,
         )
 
-    def _ziel_fuer_land(self, land: str, lieferziel_id: int | None = None) -> dict[str, Any]:
+    def _ziel_fuer_land(
+        self, land: str, lieferziel_id: int | None = None
+    ) -> dict[str, Any]:
         """Lieferziel bestimmen; Shopland und Ziel dürfen verschieden sein."""
         code = (land or "").strip().upper()
         if lieferziel_id is not None:
@@ -547,7 +576,9 @@ class ProcurementService:
             raise ValidationError(f"Zeile {line_id} ist unbekannt")
         shop = self.repository.get_shop(shop_id)
         if shop is None:
-            raise ValidationError(f"Shop {shop_id} ist unbekannt; zuerst record_shop aufrufen")
+            raise ValidationError(
+                f"Shop {shop_id} ist unbekannt; zuerst record_shop aufrufen"
+            )
         if shop["status"] == "gesperrt":
             raise ValidationError(f"Shop {shop_id} ist gesperrt")
         if not produktname.strip():
@@ -843,7 +874,7 @@ class ProcurementService:
 
     @staticmethod
     def _heute() -> date:
-        return datetime.now(timezone.utc).date()
+        return datetime.now(UTC).date()
 
     def mark_line(
         self,
@@ -865,14 +896,21 @@ class ProcurementService:
             raise ValidationError(str(error)) from error
 
     def plan_order(self, job_id: int, tempo: float) -> list[dict[str, Any]]:
-        if not isinstance(tempo, (int, float)) or isinstance(tempo, bool) or not 0 <= tempo <= 1:
+        if (
+            not isinstance(tempo, (int, float))
+            or isinstance(tempo, bool)
+            or not 0 <= tempo <= 1
+        ):
             raise ValidationError("tempo muss zwischen 0 und 1 liegen")
         data = self.repository.optimization_input(job_id)
         offers, shops = self._optimizer_objects(data)
         pins, excludes = self._overrides(data)
         offers = self._apply_overrides(offers, pins, excludes)
         required_line_ids = {
-            int(value) for value in data.get("required_line_ids", [offer.line_id for offer in offers])
+            int(value)
+            for value in data.get(
+                "required_line_ids", [offer.line_id for offer in offers]
+            )
         }
         if required_line_ids - {offer.line_id for offer in offers}:
             return []
@@ -889,13 +927,22 @@ class ProcurementService:
         excludes: list[int] | set[int] | None = None,
         tempo: float = 0.5,
     ) -> dict[str, Any]:
-        if not isinstance(tempo, (int, float)) or isinstance(tempo, bool) or not 0 <= tempo <= 1:
+        if (
+            not isinstance(tempo, (int, float))
+            or isinstance(tempo, bool)
+            or not 0 <= tempo <= 1
+        ):
             raise ValidationError("tempo muss zwischen 0 und 1 liegen")
         data = self.repository.optimization_input(job_id)
         offers, shops = self._optimizer_objects(data)
         persisted_pins, persisted_excludes = self._overrides(data)
-        effective_pins = {**persisted_pins, **{int(key): int(value) for key, value in (pins or {}).items()}}
-        effective_excludes = persisted_excludes | {int(value) for value in (excludes or [])}
+        effective_pins = {
+            **persisted_pins,
+            **{int(key): int(value) for key, value in (pins or {}).items()},
+        }
+        effective_excludes = persisted_excludes | {
+            int(value) for value in (excludes or [])
+        }
         required = [int(value) for value in data.get("required_line_ids", [])]
         try:
             presets = build_scenarios(
@@ -905,7 +952,9 @@ class ProcurementService:
                 pins=effective_pins,
                 excludes=effective_excludes,
             )
-            tuned_offers = self._apply_overrides(offers, effective_pins, effective_excludes)
+            tuned_offers = self._apply_overrides(
+                offers, effective_pins, effective_excludes
+            )
             tuned_variants = optimize_orders(tuned_offers, shops, tempo)
         except ValueError as error:
             raise ValidationError(str(error)) from error
@@ -1012,7 +1061,9 @@ class ProcurementService:
                 continue
             line_key = str(int(row["line_id"]))
             product_key = self._product_key(row.get("produktname"))
-            existing_keys = {choice["product_key"] for choice in choices.get(line_key, [])}
+            existing_keys = {
+                choice["product_key"] for choice in choices.get(line_key, [])
+            }
             if product_key in existing_keys:
                 continue
             choices.setdefault(line_key, []).append(
@@ -1040,7 +1091,8 @@ class ProcurementService:
         )
         return {
             "job_id": job_id,
-            "ready": bool(required) and all(
+            "ready": bool(required)
+            and all(
                 any(not candidate["excluded"] for candidate in line["candidates"])
                 for line in matrix_lines
                 if line["required"]
@@ -1049,9 +1101,7 @@ class ProcurementService:
             "excludes": sorted(effective_excludes),
             "choices": choices,
             "lines": matrix_lines,
-            "open_lines": [
-                line for line in matrix_lines if not line["required"]
-            ],
+            "open_lines": [line for line in matrix_lines if not line["required"]],
             "selected_assignments": (
                 selected["assignments"] if selected is not None else None
             ),
@@ -1126,7 +1176,9 @@ class ProcurementService:
         }
 
     @staticmethod
-    def _delivery_fields(row: Mapping[str, Any], shop: Mapping[str, Any]) -> dict[str, Any]:
+    def _delivery_fields(
+        row: Mapping[str, Any], shop: Mapping[str, Any]
+    ) -> dict[str, Any]:
         direct_days = row.get("lieferzeit_tage")
         shop_days = shop.get("lieferzeit_default_tage")
         conditional = bool(
@@ -1228,7 +1280,9 @@ class ProcurementService:
         try:
             ordered_at = datetime.fromisoformat(bestellt_am.replace("Z", "+00:00"))
         except (TypeError, ValueError) as error:
-            raise ValidationError("bestellt_am muss ein ISO-8601-Zeitpunkt sein") from error
+            raise ValidationError(
+                "bestellt_am muss ein ISO-8601-Zeitpunkt sein"
+            ) from error
         if ordered_at.tzinfo is None:
             raise ValidationError("bestellt_am braucht eine Zeitzone")
         data = self.repository.optimization_input(job_id)
@@ -1236,10 +1290,15 @@ class ProcurementService:
         pins, excludes = self._overrides(data)
         offers = self._apply_overrides(offers, pins, excludes)
         required_line_ids = {
-            int(value) for value in data.get("required_line_ids", [offer.line_id for offer in offers])
+            int(value)
+            for value in data.get(
+                "required_line_ids", [offer.line_id for offer in offers]
+            )
         }
         if required_line_ids - {offer.line_id for offer in offers}:
-            raise ValidationError("Variante ist nicht komplett; mindestens eine Zeile ist unbestaetigt")
+            raise ValidationError(
+                "Variante ist nicht komplett; mindestens eine Zeile ist unbestaetigt"
+            )
         valid_variants = [
             self._serialize_variant(item)
             for item in optimize_orders(offers, shops, tempo=0, limit=max(1, 1000))
@@ -1252,7 +1311,9 @@ class ProcurementService:
             and item["total_chf"] == variante.get("total_chf")
         ]
         if not matches:
-            raise ValidationError("Variante ist unvollstaendig, veraendert oder nicht mehr gueltig")
+            raise ValidationError(
+                "Variante ist unvollstaendig, veraendert oder nicht mehr gueltig"
+            )
         canonical_variant = matches[0]
         if canonical_variant.get("contains_unknown_shipping"):
             raise ValidationError(
@@ -1263,7 +1324,9 @@ class ProcurementService:
             not isinstance(days, int) or days <= 0
             for days in zugesagt_liefertage_pro_shop.values()
         ):
-            raise ValidationError("Liefertage muessen fuer jeden Shop positiv angegeben sein")
+            raise ValidationError(
+                "Liefertage muessen fuer jeden Shop positiv angegeben sein"
+            )
         return self.repository.create_purchase(
             job_id, canonical_variant, ordered_at, zugesagt_liefertage_pro_shop
         )
@@ -1360,7 +1423,9 @@ class ProcurementService:
 
         if plattform not in SUPPORTED_PLATFORMS:
             # Erwartbarer Ausgang, kein Fehler: die Linkliste bleibt der Weg.
-            benannt = self.PLATFORM_LABELS.get(plattform or "", "keine bekannte Plattform")
+            benannt = self.PLATFORM_LABELS.get(
+                plattform or "", "keine bekannte Plattform"
+            )
             return {
                 "status": "nicht_unterstuetzt",
                 "job_id": job_id,
@@ -1463,7 +1528,11 @@ class ProcurementService:
         """
         code = str(row.get("waehrung") or HOME_CURRENCY).upper()
         if code == HOME_CURRENCY or row.get("preis_original") is None:
-            return {"waehrung": HOME_CURRENCY, "waehrung_fremd": False, "waehrung_beleg": None}
+            return {
+                "waehrung": HOME_CURRENCY,
+                "waehrung_fremd": False,
+                "waehrung_beleg": None,
+            }
         symbol = ProcurementService.WAEHRUNGSSYMBOLE.get(code, code)
         original = Decimal(str(row["preis_original"]))
         kurs = row.get("kurs")
@@ -1509,7 +1578,11 @@ class ProcurementService:
         available = [offer for offer in offers if offer.id not in excludes]
         pinned_keys = {
             line_id: next(
-                (offer.product_key for offer in offers if offer.id == offer_id and offer.line_id == line_id),
+                (
+                    offer.product_key
+                    for offer in offers
+                    if offer.id == offer_id and offer.line_id == line_id
+                ),
                 None,
             )
             for line_id, offer_id in pins.items()
@@ -1526,13 +1599,17 @@ class ProcurementService:
         ]
 
     @staticmethod
-    def _enrich_variant(variant: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
+    def _enrich_variant(
+        variant: dict[str, Any], data: dict[str, Any]
+    ) -> dict[str, Any]:
         offer_rows = {int(row["id"]): row for row in data.get("offers", [])}
         shop_rows = {int(row["id"]): row for row in data.get("shops", [])}
         line_rows = {int(row["id"]): row for row in data.get("lines", [])}
         product_keys: dict[int, set[str]] = {}
         for row in data.get("offers", []):
-            key = re.sub(r"[^a-z0-9]+", " ", str(row.get("produktname", "")).lower()).strip()
+            key = re.sub(
+                r"[^a-z0-9]+", " ", str(row.get("produktname", "")).lower()
+            ).strip()
             product_keys.setdefault(int(row["line_id"]), set()).add(key)
 
         assignment_shop_counts: dict[int, int] = {}
@@ -1587,8 +1664,13 @@ class ProcurementService:
                 ),
                 "versand_unbekannt": variant["shipping"][str(shop_id)] is None,
                 "lieferziel_name": shop_rows[shop_id].get("lieferziel_name"),
-                "lieferziel_land": str(shop_rows[shop_id].get("lieferziel_land") or "CH").upper(),
-                "abholung": str(shop_rows[shop_id].get("lieferziel_land") or "CH").upper() != "CH",
+                "lieferziel_land": str(
+                    shop_rows[shop_id].get("lieferziel_land") or "CH"
+                ).upper(),
+                "abholung": str(
+                    shop_rows[shop_id].get("lieferziel_land") or "CH"
+                ).upper()
+                != "CH",
             }
             for shop_id in variant["shop_ids"]
         ]
@@ -1606,9 +1688,14 @@ class ProcurementService:
             lines.append(
                 {
                     "line_id": line_id,
-                    "position": int(row.get("position", line_rows.get(line_id, {}).get("position", 0))),
+                    "position": int(
+                        row.get(
+                            "position", line_rows.get(line_id, {}).get("position", 0)
+                        )
+                    ),
                     "offer_id": offer_id,
-                    "suchtext": row.get("suchtext") or line_rows.get(line_id, {}).get("suchtext"),
+                    "suchtext": row.get("suchtext")
+                    or line_rows.get(line_id, {}).get("suchtext"),
                     "menge": int(row["menge"]),
                     "shop_id": int(row["shop_id"]),
                     "produktname": row.get("produktname"),
@@ -1625,20 +1712,26 @@ class ProcurementService:
                     "lieferzeit_geschaetzt": delivery["lieferzeit_geschaetzt"],
                     "lieferzeit_bedingt": delivery["lieferzeit_bedingt"],
                     "assumption": assumption,
-                    "assumption_text": f"Annahme: {row.get('produktname')}" if assumption else None,
+                    "assumption_text": f"Annahme: {row.get('produktname')}"
+                    if assumption
+                    else None,
                     "erfasst_via": row.get("erfasst_via"),
                     "pinned": row.get("override_status") == "pin",
                     # Abholung: Shops mit fremdem Ziel tragen den Vermerk mit.
                     "lieferziel_name": shop.get("lieferziel_name"),
                     "lieferziel_land": str(shop.get("lieferziel_land") or "CH").upper(),
-                    "abholung": str(shop.get("lieferziel_land") or "CH").upper() != "CH",
+                    "abholung": str(shop.get("lieferziel_land") or "CH").upper()
+                    != "CH",
                     **ProcurementService._waehrungs_felder(row),
                 }
             )
-        variant["lines"] = sorted(lines, key=lambda row: (row["position"], row["line_id"]))
+        variant["lines"] = sorted(
+            lines, key=lambda row: (row["position"], row["line_id"])
+        )
         max_days = variant.get("max_liefertage")
         max_lines = [
-            row for row in lines
+            row
+            for row in lines
             if max_days is not None and row["lieferzeit_tage"] == max_days
         ]
         variant["max_delivery_only_estimated"] = bool(max_lines) and all(
@@ -1660,7 +1753,11 @@ class ProcurementService:
                 Decimal("0.00"),
             )
             eintrag = next(
-                (item for item in einfuhr if item["lieferziel_id"] == shop_row["lieferziel_id"]),
+                (
+                    item
+                    for item in einfuhr
+                    if item["lieferziel_id"] == shop_row["lieferziel_id"]
+                ),
                 None,
             )
             if eintrag is None:
@@ -1682,8 +1779,7 @@ class ProcurementService:
                 f"{eintrag['land']}-Anteil netto ≈ CHF {netto} — über der Wertfreigrenze "
                 f"von CHF {WERTFREIGRENZE_CHF}; bei Einfuhr 8.1 % MwSt auf den Gesamtwert"
                 if ueber
-                else
-                f"{eintrag['land']}-Anteil netto ≈ CHF {netto} — unter der Wertfreigrenze "
+                else f"{eintrag['land']}-Anteil netto ≈ CHF {netto} — unter der Wertfreigrenze "
                 f"von CHF {WERTFREIGRENZE_CHF}"
             )
         variant["einfuhr"] = einfuhr
@@ -1711,7 +1807,9 @@ class ProcurementService:
         return variant
 
     @staticmethod
-    def _optimizer_objects(data: dict[str, Any]) -> tuple[list[Offer], list[ShopProfile]]:
+    def _optimizer_objects(
+        data: dict[str, Any],
+    ) -> tuple[list[Offer], list[ShopProfile]]:
         offers = [
             Offer(
                 id=int(row["id"]),
@@ -1749,10 +1847,14 @@ class ProcurementService:
                     else int(row["lieferzeit_default_tage"])
                 ),
                 lieferziel_id=(
-                    None if row.get("lieferziel_id") is None else int(row["lieferziel_id"])
+                    None
+                    if row.get("lieferziel_id") is None
+                    else int(row["lieferziel_id"])
                 ),
                 lieferziel_name=row.get("lieferziel_name"),
-                aufschlag_chf=Decimal(str(row.get("lieferziel_aufschlag_chf") or "0.00")),
+                aufschlag_chf=Decimal(
+                    str(row.get("lieferziel_aufschlag_chf") or "0.00")
+                ),
                 zuschlag_tage=int(row.get("lieferziel_zuschlag_tage") or 0),
                 # Ohne Zielangabe gilt Heimat - so verhalten sich Bestandsdaten
                 # wie vor der Einfuehrung der Lieferziele.
@@ -1766,8 +1868,12 @@ class ProcurementService:
     def _serialize_variant(variant: Any) -> dict[str, Any]:
         return {
             "shop_ids": list(variant.shop_ids),
-            "assignments": {str(key): value for key, value in variant.assignments.items()},
-            "subtotals": {str(key): str(value) for key, value in variant.subtotals.items()},
+            "assignments": {
+                str(key): value for key, value in variant.assignments.items()
+            },
+            "subtotals": {
+                str(key): str(value) for key, value in variant.subtotals.items()
+            },
             "shipping": {
                 str(key): (None if value is None else str(value))
                 for key, value in variant.shipping.items()

@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-
 QUANTITY_PREFIX = re.compile(r"^\s*(?P<quantity>\d+)\s*[xX×]\s*(?P<text>.+?)\s*$")
 
 

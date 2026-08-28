@@ -11,7 +11,6 @@ from psycopg.types.json import Jsonb
 
 from .jobs import BomInputLine
 
-
 #: Marker, an dem jede Zeile des E2E-Testgraphen als Testdatum erkennbar ist.
 E2E_MARKER = "[E2E-TEST]"
 
@@ -48,8 +47,7 @@ def decoded_dict_row(cursor):
 
     def decode_row(values):
         return {
-            key: decode_database_value(value)
-            for key, value in make_row(values).items()
+            key: decode_database_value(value) for key, value in make_row(values).items()
         }
 
     return decode_row
@@ -77,7 +75,13 @@ class PostgresRepository:
                             job_id, position, originaltext, suchtext, menge
                         ) VALUES (%s, %s, %s, %s, %s)
                         """,
-                        (job_id, line.position, line.originaltext, line.suchtext, line.menge),
+                        (
+                            job_id,
+                            line.position,
+                            line.originaltext,
+                            line.suchtext,
+                            line.menge,
+                        ),
                     )
         return job_id
 
@@ -97,7 +101,9 @@ class PostgresRepository:
                 if job is None:
                     raise ValueError(f"Job {job_id} ist unbekannt")
                 if job["is_test"]:
-                    raise ValueError("Test-Jobs müssen über den E2E-Cleanup gelöscht werden")
+                    raise ValueError(
+                        "Test-Jobs müssen über den E2E-Cleanup gelöscht werden"
+                    )
 
                 lines = connection.execute(
                     """
@@ -129,7 +135,9 @@ class PostgresRepository:
                     or state["has_offers"]
                     or state["has_purchase"]
                 ):
-                    raise ValueError("Job ist nicht mehr unberührt und darf nicht gelöscht werden")
+                    raise ValueError(
+                        "Job ist nicht mehr unberührt und darf nicht gelöscht werden"
+                    )
                 refunds = connection.execute(
                     """
                     SELECT b.stock_id, SUM(b.delta)::int AS delta_sum
@@ -159,7 +167,11 @@ class PostgresRepository:
                             stock_id, delta, grund, kommentar
                         ) VALUES (%s, %s, 'rueckbuchung_job_geloescht', %s)
                         """,
-                        (refund["stock_id"], amount, f"Rückbuchung: Job {job_id} gelöscht"),
+                        (
+                            refund["stock_id"],
+                            amount,
+                            f"Rückbuchung: Job {job_id} gelöscht",
+                        ),
                     )
                 connection.execute("DELETE FROM bom_line WHERE job_id = %s", (job_id,))
                 connection.execute(
@@ -345,7 +357,9 @@ class PostgresRepository:
                     (job_id,),
                 )
                 connection.execute("DELETE FROM bom_line WHERE job_id = %s", (job_id,))
-                connection.execute("DELETE FROM job WHERE id = %s AND is_test", (job_id,))
+                connection.execute(
+                    "DELETE FROM job WHERE id = %s AND is_test", (job_id,)
+                )
                 # Die selbst angelegten Wegwerf-Shops hinterher, erkennbar an
                 # Marker UND ``.invalid``-Domain. Der Wächter ist bewusst
                 # strenger als «kein echtes Angebot mehr»: zeigt noch
@@ -548,7 +562,14 @@ class PostgresRepository:
             common = line_tokens & self._stock_tokens(source["bezeichnung"])
             common = {token for token in common if len(token) >= 3}
             if common:
-                candidates.append((len(common), source["aktualisiert_am"], source["stock_id"], dict(source)))
+                candidates.append(
+                    (
+                        len(common),
+                        source["aktualisiert_am"],
+                        source["stock_id"],
+                        dict(source),
+                    )
+                )
         candidates.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
         total = sum(row["menge"] for row in matches)
         needed = line["menge"]
@@ -623,7 +644,9 @@ class PostgresRepository:
 
     def get_shop(self, shop_id: int) -> dict[str, Any] | None:
         with self._connect() as connection:
-            row = connection.execute("SELECT * FROM shop WHERE id = %s", (shop_id,)).fetchone()
+            row = connection.execute(
+                "SELECT * FROM shop WHERE id = %s", (shop_id,)
+            ).fetchone()
             return dict(row) if row else None
 
     def update_shop_profile(self, shop_id: int, **values: Any) -> dict[str, Any]:
@@ -750,7 +773,9 @@ class PostgresRepository:
                 ).fetchone()
                 return dict(row)
         except UniqueViolation as error:
-            raise ValueError(f"Lieferadresse «{values['name']}» gibt es schon") from error
+            raise ValueError(
+                f"Lieferadresse «{values['name']}» gibt es schon"
+            ) from error
 
     def update_lieferziel(self, lieferziel_id: int, **values: Any) -> dict[str, Any]:
         with self._connect() as connection:
@@ -826,7 +851,9 @@ class PostgresRepository:
         # Bestehende Aufrufer kennen den Erfassungsweg nicht; NULL heisst dort
         # weiterhin "von Hand bzw. via KI erfasst".
         values.setdefault("erfasst_via", None)
-        if values.get("lieferzeit_tage") is not None and not values.get("lieferzeit_text"):
+        if values.get("lieferzeit_tage") is not None and not values.get(
+            "lieferzeit_text"
+        ):
             raise ValueError(
                 "Lieferzeit darf nicht ohne wörtlichen Originaltext der Produktseite gesetzt sein"
             )
@@ -886,7 +913,9 @@ class PostgresRepository:
                     )
                     return dict(row)
         except UniqueViolation as error:
-            raise ValueError("Dieses Angebot ist fuer die Zeile bereits erfasst") from error
+            raise ValueError(
+                "Dieses Angebot ist fuer die Zeile bereits erfasst"
+            ) from error
 
     def mark_line(
         self,
@@ -913,7 +942,9 @@ class PostgresRepository:
                     if line["status"] == "bestand":
                         raise ValueError("Zeile ist bereits als Bestand markiert")
                     if line["is_test"]:
-                        raise ValueError("Testjobs dürfen echten Bestand nicht verändern")
+                        raise ValueError(
+                            "Testjobs dürfen echten Bestand nicht verändern"
+                        )
                     if stock_ids is not None:
                         requested = {int(stock_id) for stock_id in stock_ids}
                         stock_rows = connection.execute(
@@ -925,7 +956,9 @@ class PostgresRepository:
                             (list(requested),),
                         ).fetchall()
                         if {row["id"] for row in stock_rows} != requested:
-                            raise ValueError("Ausgewählte Bestands-ID ist unbekannt oder leer")
+                            raise ValueError(
+                                "Ausgewählte Bestands-ID ist unbekannt oder leer"
+                            )
                     else:
                         stock_rows = connection.execute(
                             """
@@ -1119,7 +1152,13 @@ class PostgresRepository:
                             purchase_id, line_id, offer_id, menge, einzelpreis_chf
                         ) VALUES (%s, %s, %s, %s, %s)
                         """,
-                        (purchase["id"], line_id, offer_id, item["menge"], item["preis_chf"]),
+                        (
+                            purchase["id"],
+                            line_id,
+                            offer_id,
+                            item["menge"],
+                            item["preis_chf"],
+                        ),
                     )
                 connection.execute(
                     "UPDATE job SET status = 'bestellt', aktualisiert_am = NOW() WHERE id = %s",
@@ -1266,7 +1305,9 @@ class PostgresRepository:
             row = dict(source)
             promised = row.pop("zugesagt_liefertage_pro_shop") or {}
             shop_id = row["shop_id"]
-            row["zugesagt_liefertage"] = promised.get(str(shop_id), promised.get(shop_id))
+            row["zugesagt_liefertage"] = promised.get(
+                str(shop_id), promised.get(shop_id)
+            )
             result.append(row)
         return result
 
@@ -1338,7 +1379,9 @@ class PostgresRepository:
             raise ValueError(f"Kauf {purchase_id} ist unbekannt")
         from .jobs import parse_bom
 
-        new_job_id = self.create_job(source["quelltext"], parse_bom(source["quelltext"]))
+        new_job_id = self.create_job(
+            source["quelltext"], parse_bom(source["quelltext"])
+        )
         with self._connect() as connection:
             connection.execute(
                 "UPDATE job SET wiederholt_von_purchase_id = %s WHERE id = %s",

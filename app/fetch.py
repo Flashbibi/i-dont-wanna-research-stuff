@@ -36,7 +36,6 @@ import httpx
 
 from .version import __version__
 
-
 #: Ehrlicher Absender: Name, Version und die Adresse, unter der nachlesbar ist,
 #: was dieses Werkzeug tut. Gleiche Machart wie im Update-Check.
 USER_AGENT = (
@@ -493,7 +492,9 @@ def _lies_text(antwort: httpx.Response, url: str) -> str:
     for stueck in antwort.iter_bytes():
         groesse += len(stueck)
         if groesse > MAX_BYTES:
-            raise FetchAbgelehnt(f"Seite grösser als {MAX_BYTES // 1_000_000} MB: {url}")
+            raise FetchAbgelehnt(
+                f"Seite grösser als {MAX_BYTES // 1_000_000} MB: {url}"
+            )
         stuecke.append(stueck)
     return _dekodiere(b"".join(stuecke), antwort.charset_encoding)
 

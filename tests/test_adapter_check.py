@@ -15,7 +15,6 @@ import pytest
 from app import fetch
 from app.adapter_check import main
 
-
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "adapters" / "demo"
 DEMO_YAML = str(FIXTURES / "demo.yaml")
 DEMO_HTML = str(FIXTURES / "produkt.html")
@@ -42,9 +41,7 @@ def netz(monkeypatch):
         aufrufe.append(request)
         if request.url.path == "/robots.txt":
             return httpx.Response(200, text=ROBOTS_ALLES)
-        return httpx.Response(
-            200, html=Path(DEMO_HTML).read_text(encoding="utf-8")
-        )
+        return httpx.Response(200, html=Path(DEMO_HTML).read_text(encoding="utf-8"))
 
     monkeypatch.setattr(fetch, "_transport", lambda: httpx.MockTransport(handler))
     monkeypatch.setattr(fetch, "_jetzt", lambda: 1_000.0)
@@ -71,7 +68,9 @@ def test_the_fixture_mode_shows_raw_text_next_to_the_parsed_value(capsys):
 def test_a_missing_optional_field_is_named_as_missing(capsys, tmp_path):
     seite = tmp_path / "ohne-lager.html"
     seite.write_text(
-        Path(DEMO_HTML).read_text(encoding="utf-8").replace('class="lager"', 'class="weg"'),
+        Path(DEMO_HTML)
+        .read_text(encoding="utf-8")
+        .replace('class="lager"', 'class="weg"'),
         encoding="utf-8",
     )
 

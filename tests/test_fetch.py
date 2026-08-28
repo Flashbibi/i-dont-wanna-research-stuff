@@ -15,7 +15,6 @@ import pytest
 
 from app import fetch
 
-
 ROBOTS_ALLES = "User-agent: *\nAllow: /\n"
 ROBOTS_VERBIETET = "User-agent: *\nDisallow: /produkt/\n"
 SEITE = "<html><body><h1>Servo</h1></body></html>"
@@ -109,7 +108,9 @@ def test_every_request_names_the_tool_its_version_and_its_address(uhr, monkeypat
 
 
 def test_two_pages_from_the_same_domain_keep_the_minimum_delay(uhr, monkeypatch):
-    monkeypatch.setattr(fetch, "_robots_cache", erlaubte_robots(uhr, "https://shop.example.ch"))
+    monkeypatch.setattr(
+        fetch, "_robots_cache", erlaubte_robots(uhr, "https://shop.example.ch")
+    )
     netz(monkeypatch, shop())
 
     fetch.hole_seite(PRODUKT_URL)
@@ -148,7 +149,9 @@ def test_www_and_the_bare_host_count_as_one_domain(uhr, monkeypatch):
 
 
 def test_an_adapter_may_raise_the_delay(uhr, monkeypatch):
-    monkeypatch.setattr(fetch, "_robots_cache", erlaubte_robots(uhr, "https://shop.example.ch"))
+    monkeypatch.setattr(
+        fetch, "_robots_cache", erlaubte_robots(uhr, "https://shop.example.ch")
+    )
     netz(monkeypatch, shop())
 
     fetch.hole_seite(PRODUKT_URL, min_delay_s=8)
@@ -158,7 +161,9 @@ def test_an_adapter_may_raise_the_delay(uhr, monkeypatch):
 
 
 def test_an_adapter_may_not_lower_the_delay(uhr, monkeypatch):
-    monkeypatch.setattr(fetch, "_robots_cache", erlaubte_robots(uhr, "https://shop.example.ch"))
+    monkeypatch.setattr(
+        fetch, "_robots_cache", erlaubte_robots(uhr, "https://shop.example.ch")
+    )
     netz(monkeypatch, shop())
 
     fetch.hole_seite(PRODUKT_URL, min_delay_s=1)
@@ -189,7 +194,10 @@ def test_a_missing_robots_txt_allows_everything(uhr, monkeypatch):
     ergebnis = fetch.hole_seite(PRODUKT_URL)
 
     assert ergebnis.status == 200
-    assert pfade(aufrufe) == ["shop.example.ch/robots.txt", "shop.example.ch/produkt/servo"]
+    assert pfade(aufrufe) == [
+        "shop.example.ch/robots.txt",
+        "shop.example.ch/produkt/servo",
+    ]
 
 
 def test_an_unreachable_robots_txt_is_not_guessed_around(uhr, monkeypatch):
@@ -326,7 +334,9 @@ def test_a_byte_order_mark_does_not_void_robots_txt(uhr, monkeypatch):
     assert pfade(aufrufe) == ["shop.example.ch/robots.txt"]
 
 
-def test_a_compressed_answer_is_refused_because_the_limit_could_not_hold(uhr, monkeypatch):
+def test_a_compressed_answer_is_refused_because_the_limit_could_not_hold(
+    uhr, monkeypatch
+):
     """Entpackt zählt httpx erst nach dem Auspacken - dann bindet kein Limit mehr."""
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -349,9 +359,7 @@ def test_the_client_asks_for_an_uncompressed_answer(uhr, monkeypatch):
 
     fetch.hole_seite(PRODUKT_URL)
 
-    assert all(
-        request.headers["Accept-Encoding"] == "identity" for request in aufrufe
-    )
+    assert all(request.headers["Accept-Encoding"] == "identity" for request in aufrufe)
 
 
 def test_an_unusable_address_is_refused_before_anything_is_requested(uhr, monkeypatch):
@@ -548,7 +556,9 @@ def test_an_adapter_cannot_undercut_a_crawl_delay(uhr, monkeypatch):
     assert uhr.schlaefe == [20.0]
 
 
-def test_an_absurd_crawl_delay_is_refused_instead_of_silently_shortened(uhr, monkeypatch):
+def test_an_absurd_crawl_delay_is_refused_instead_of_silently_shortened(
+    uhr, monkeypatch
+):
     aufrufe = netz(monkeypatch, shop(robots="User-agent: *\nCrawl-delay: 900\n"))
 
     with pytest.raises(fetch.FetchAbgelehnt) as fehler:
@@ -610,7 +620,8 @@ def test_a_redirect_inside_the_domain_yields_the_final_url(uhr, monkeypatch):
             return httpx.Response(200, text=ROBOTS_ALLES)
         if request.url.path == "/produkt/servo":
             return httpx.Response(
-                301, headers={"Location": "https://shop.example.ch/produkt/servo-mg996r"}
+                301,
+                headers={"Location": "https://shop.example.ch/produkt/servo-mg996r"},
             )
         return httpx.Response(200, html=SEITE)
 
@@ -624,7 +635,10 @@ def test_a_redirect_inside_the_domain_yields_the_final_url(uhr, monkeypatch):
 def test_an_unusable_url_never_reaches_the_network(uhr, monkeypatch):
     aufrufe = netz(monkeypatch, shop())
 
-    for kaputt in ("ftp://shop.example.ch/servo", "https://nutzer:geheim@shop.example.ch/servo"):
+    for kaputt in (
+        "ftp://shop.example.ch/servo",
+        "https://nutzer:geheim@shop.example.ch/servo",
+    ):
         with pytest.raises(fetch.FetchAbgelehnt, match="HTTP\\(S\\)-URL"):
             fetch.hole_seite(kaputt)
     assert aufrufe == []

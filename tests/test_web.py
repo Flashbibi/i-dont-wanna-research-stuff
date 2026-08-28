@@ -1,5 +1,4 @@
 from datetime import date
-from decimal import Decimal
 from pathlib import Path
 
 import httpx
@@ -48,18 +47,29 @@ class FakeRepository:
         return {"id": stock_id, "menge": delta}
 
     def get_stock(self):
-        return [{
-            "id": 4, "bezeichnung": "Servo", "menge": 3, "einheit": "Stk",
-            "artikelnummer": "MG90S", "shop_name": "Servo Shop",
-            "produkt_url": "https://shop.example/servo",
-            "aktualisiert_am": "2026-08-20T10:00:00+00:00",
-        }]
+        return [
+            {
+                "id": 4,
+                "bezeichnung": "Servo",
+                "menge": 3,
+                "einheit": "Stk",
+                "artikelnummer": "MG90S",
+                "shop_name": "Servo Shop",
+                "produkt_url": "https://shop.example/servo",
+                "aktualisiert_am": "2026-08-20T10:00:00+00:00",
+            }
+        ]
 
     def get_stock_bewegungen(self, limit=20):
-        return [{
-            "bezeichnung": "Servo", "delta": 3, "grund": "zugang_lieferung",
-            "kommentar": None, "erstellt_am": "2026-08-20T10:00:00+00:00",
-        }]
+        return [
+            {
+                "bezeichnung": "Servo",
+                "delta": 3,
+                "grund": "zugang_lieferung",
+                "kommentar": None,
+                "erstellt_am": "2026-08-20T10:00:00+00:00",
+            }
+        ]
 
 
 def test_parse_bom_accepts_optional_quantity_prefix_and_skips_blank_lines():
@@ -149,7 +159,15 @@ def test_stock_page_renders_origin_amount_relative_time_and_movements():
     response = client.get("/bestand")
 
     assert response.status_code == 200
-    for text in ("Servo", "MG90S", "Servo Shop", "3 Stk", "Letzte Bewegungen", "+3", "vor"):
+    for text in (
+        "Servo",
+        "MG90S",
+        "Servo Shop",
+        "3 Stk",
+        "Letzte Bewegungen",
+        "+3",
+        "vor",
+    ):
         assert text in response.text
     assert 'href="https://shop.example/servo"' in response.text
 
@@ -188,20 +206,43 @@ class OfferRepository(FakeRepository):
             "id": 7,
             "status": "in_arbeit",
             "quelltext": "1x Servo",
-            "lines": [{
-                "id": 100, "position": 1, "originaltext": "1x Servo",
-                "suchtext": "Servo", "menge": 1, "status": "kandidaten",
-                "kommentar": None,
-            }],
+            "lines": [
+                {
+                    "id": 100,
+                    "position": 1,
+                    "originaltext": "1x Servo",
+                    "suchtext": "Servo",
+                    "menge": 1,
+                    "status": "kandidaten",
+                    "kommentar": None,
+                }
+            ],
         }
-        self.jobs[8] = {"id": 8, "status": "offen", "quelltext": "1x Kabel", "lines": []}
+        self.jobs[8] = {
+            "id": 8,
+            "status": "offen",
+            "quelltext": "1x Kabel",
+            "lines": [],
+        }
         self.shops = {
-            1: {"id": 1, "name": "Demoshop", "url": "https://demoshop.example",
-                "domain": "demoshop.example", "land": "CH", "status": shop_status,
-                "versand_waehrung": "CHF"},
-            2: {"id": 2, "name": "Andershop", "url": "https://andershop.example",
-                "domain": "andershop.example", "land": "CH", "status": "bestaetigt",
-                "versand_waehrung": "CHF"},
+            1: {
+                "id": 1,
+                "name": "Demoshop",
+                "url": "https://demoshop.example",
+                "domain": "demoshop.example",
+                "land": "CH",
+                "status": shop_status,
+                "versand_waehrung": "CHF",
+            },
+            2: {
+                "id": 2,
+                "name": "Andershop",
+                "url": "https://andershop.example",
+                "domain": "andershop.example",
+                "land": "CH",
+                "status": "bestaetigt",
+                "versand_waehrung": "CHF",
+            },
         }
         self.offers: dict[tuple, dict] = {}
         self.next_offer_id = 20
@@ -219,8 +260,12 @@ class OfferRepository(FakeRepository):
         return None
 
     def save_kurs(self, waehrung, kurs, geholt_am, quelle_url):
-        return {"waehrung": waehrung, "kurs": kurs, "geholt_am": geholt_am,
-                "quelle_url": quelle_url}
+        return {
+            "waehrung": waehrung,
+            "kurs": kurs,
+            "geholt_am": geholt_am,
+            "quelle_url": quelle_url,
+        }
 
     def create_offer(self, **values):
         schluessel = (int(values["line_id"]), str(values["produkt_url"]), HEUTE)
@@ -237,12 +282,17 @@ class OfferRepository(FakeRepository):
         return dict(row)
 
     def get_offer(self, offer_id):
-        treffer = next((row for row in self.offers.values() if row["id"] == offer_id), None)
+        treffer = next(
+            (row for row in self.offers.values() if row["id"] == offer_id), None
+        )
         if treffer is None:
             return None
-        reihe = [row for row in self.offers.values()
-                 if row["line_id"] == treffer["line_id"]
-                 and row["produkt_url"] == treffer["produkt_url"]]
+        reihe = [
+            row
+            for row in self.offers.values()
+            if row["line_id"] == treffer["line_id"]
+            and row["produkt_url"] == treffer["produkt_url"]
+        ]
         return dict(max(reihe, key=lambda row: (row["beobachtungstag"], row["id"])))
 
     def optimization_input(self, job_id):
@@ -250,8 +300,7 @@ class OfferRepository(FakeRepository):
         # Optimierer nicht.
         return {
             "offers": [
-                {**row, "menge": 1, "suchtext": "Servo"}
-                for row in self.offers.values()
+                {**row, "menge": 1, "suchtext": "Servo"} for row in self.offers.values()
             ],
             "shops": [dict(shop) for shop in self.shops.values()],
             "required_line_ids": [100],
@@ -352,8 +401,12 @@ def test_a_manual_offer_for_an_unknown_shop_names_the_missing_step(offer_client)
 
     response = client.post(
         "/api/jobs/7/lines/100/offers",
-        json={"produkt_url": "https://nochnie.example/p/1",
-              "produktname": "Servo", "preis": "7.50", "waehrung": "CHF"},
+        json={
+            "produkt_url": "https://nochnie.example/p/1",
+            "produktname": "Servo",
+            "preis": "7.50",
+            "waehrung": "CHF",
+        },
     )
 
     assert response.status_code == 422
@@ -367,8 +420,12 @@ def test_a_manual_offer_for_a_line_of_another_job_is_refused(offer_client):
 
     response = client.post(
         "/api/jobs/8/lines/100/offers",
-        json={"produkt_url": FREMD_URL, "produktname": "Servo",
-              "preis": "7.50", "waehrung": "CHF"},
+        json={
+            "produkt_url": FREMD_URL,
+            "produktname": "Servo",
+            "preis": "7.50",
+            "waehrung": "CHF",
+        },
     )
 
     assert response.status_code == 404
@@ -405,8 +462,12 @@ def test_the_refresh_list_is_sorted_and_marks_adapter_coverage(offer_client):
     client.post("/api/jobs/7/lines/100/offers/fetch", json={"produkt_url": PRODUKT_URL})
     client.post(
         "/api/jobs/7/lines/100/offers",
-        json={"produkt_url": FREMD_URL, "produktname": "Servo XL",
-              "preis": "7.50", "waehrung": "CHF"},
+        json={
+            "produkt_url": FREMD_URL,
+            "produktname": "Servo XL",
+            "preis": "7.50",
+            "waehrung": "CHF",
+        },
     )
 
     response = client.get("/api/jobs/7/refreshable")
@@ -424,8 +485,12 @@ def test_the_job_offer_payload_carries_the_capture_path(offer_client):
     client.post("/api/jobs/7/lines/100/offers/fetch", json={"produkt_url": PRODUKT_URL})
     client.post(
         "/api/jobs/7/lines/100/offers",
-        json={"produkt_url": FREMD_URL, "produktname": "Servo XL",
-              "preis": "7.50", "waehrung": "CHF"},
+        json={
+            "produkt_url": FREMD_URL,
+            "produktname": "Servo XL",
+            "preis": "7.50",
+            "waehrung": "CHF",
+        },
     )
 
     matrix = client.post("/api/jobs/7/scenarios", json={"tempo": 0.5}).json()

@@ -1,18 +1,36 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
-from app.procurement import ProcurementService, ValidationError, parse_delivery_upper_days
+from app.procurement import (
+    ProcurementService,
+    ValidationError,
+    parse_delivery_upper_days,
+)
 
 
 class FakeProcurementRepository:
     def __init__(self):
         self.lieferziele = {
-            1: {"id": 1, "name": "Zuhause (CH)", "adresse": "Heimadresse", "land": "CH",
-                "waehrung": "CHF", "aufschlag_chf": Decimal("0"), "zuschlag_tage": 0},
-            2: {"id": 2, "name": "Postfach (DE)", "adresse": "Grenzstrasse 1", "land": "DE",
-                "waehrung": "EUR", "aufschlag_chf": Decimal("25.00"), "zuschlag_tage": 3},
+            1: {
+                "id": 1,
+                "name": "Zuhause (CH)",
+                "adresse": "Heimadresse",
+                "land": "CH",
+                "waehrung": "CHF",
+                "aufschlag_chf": Decimal("0"),
+                "zuschlag_tage": 0,
+            },
+            2: {
+                "id": 2,
+                "name": "Postfach (DE)",
+                "adresse": "Grenzstrasse 1",
+                "land": "DE",
+                "waehrung": "EUR",
+                "aufschlag_chf": Decimal("25.00"),
+                "zuschlag_tage": 3,
+            },
         }
         self.shops = {
             1: {
@@ -92,7 +110,12 @@ class FakeProcurementRepository:
     def check_line(self, line_id):
         if line_id not in self.lines:
             return None
-        return {"line": self.lines[line_id], "stock": [], "previous_purchases": [], "cached_offers": []}
+        return {
+            "line": self.lines[line_id],
+            "stock": [],
+            "previous_purchases": [],
+            "cached_offers": [],
+        }
 
     def list_lieferziele(self):
         return [dict(z) for z in self.lieferziele.values()]
@@ -117,7 +140,12 @@ class FakeProcurementRepository:
         return self.kurse.get(waehrung)
 
     def save_kurs(self, waehrung, kurs, geholt_am, quelle_url):
-        row = {"waehrung": waehrung, "kurs": kurs, "geholt_am": geholt_am, "quelle_url": quelle_url}
+        row = {
+            "waehrung": waehrung,
+            "kurs": kurs,
+            "geholt_am": geholt_am,
+            "quelle_url": quelle_url,
+        }
         self.kurse[waehrung] = row
         self.saved_kurse.append(row)
         return row
@@ -187,7 +215,15 @@ class FakeProcurementRepository:
                 }
             ],
             "shops": [
-                {"id": 1, "name": "Servo Shop", "url": "https://shop.example.ch", "versand_chf": "8", "gratis_ab_chf": None, "mindestbestellwert_chf": None, "lieferzeit_default_tage": 3}
+                {
+                    "id": 1,
+                    "name": "Servo Shop",
+                    "url": "https://shop.example.ch",
+                    "versand_chf": "8",
+                    "gratis_ab_chf": None,
+                    "mindestbestellwert_chf": None,
+                    "lieferzeit_default_tage": 3,
+                }
             ],
             "required_line_ids": [10],
             "lines": [{"id": 10, "position": 1, "suchtext": "Servo"}],
@@ -363,8 +399,15 @@ def test_record_shop_maps_the_country_to_a_configured_delivery_target():
     assert shop["land"] == "CH"
 
     deutsch = procurement.record_shop(
-        "Reichelt DE", "https://www.reichelt.de/", "DE", 5.95, 100, None, 3,
-        "https://www.reichelt.de/versand", "Versand 5,95 EUR",
+        "Reichelt DE",
+        "https://www.reichelt.de/",
+        "DE",
+        5.95,
+        100,
+        None,
+        3,
+        "https://www.reichelt.de/versand",
+        "Versand 5,95 EUR",
     )
     assert deutsch["lieferziel_id"] == 2
     assert deutsch["land"] == "DE"
@@ -372,17 +415,39 @@ def test_record_shop_maps_the_country_to_a_configured_delivery_target():
     # Ein Land ohne konfigurierte Adresse wird abgewiesen, nicht erfunden.
     with pytest.raises(ValidationError, match="Keine Lieferadresse für Land US"):
         procurement.record_shop(
-            "US Shop", "https://us.example", "US", 5, None, None, 3,
-            "https://us.example/versand", "Versand 5 USD",
+            "US Shop",
+            "https://us.example",
+            "US",
+            5,
+            None,
+            None,
+            3,
+            "https://us.example/versand",
+            "Versand 5 USD",
         )
     with pytest.raises(ValidationError, match="Profil-Quelle"):
         procurement.record_shop(
-            "Ohne Quelle", "https://ohne.ch", "CH", 5, None, None, None, "", "Versand CHF 5",
+            "Ohne Quelle",
+            "https://ohne.ch",
+            "CH",
+            5,
+            None,
+            None,
+            None,
+            "",
+            "Versand CHF 5",
         )
     with pytest.raises(ValidationError, match="Versand-Originaltext"):
         procurement.record_shop(
-            "Ohne Text", "https://ohne.ch", "CH", 5, None, None, None,
-            "https://ohne.ch/versand", "",
+            "Ohne Text",
+            "https://ohne.ch",
+            "CH",
+            5,
+            None,
+            None,
+            None,
+            "https://ohne.ch/versand",
+            "",
         )
 
 
@@ -519,7 +584,10 @@ def test_mark_line_rejects_unknown_status():
 
     with pytest.raises(ValidationError, match="Status"):
         procurement.mark_line(10, "irgendwas")
-    assert procurement.mark_line(10, "nichts_gefunden", "Keine CH-Quelle")["status"] == "nichts_gefunden"
+    assert (
+        procurement.mark_line(10, "nichts_gefunden", "Keine CH-Quelle")["status"]
+        == "nichts_gefunden"
+    )
 
 
 def test_mark_line_validates_and_forwards_explicit_stock_selection():
@@ -571,15 +639,24 @@ def test_plan_scenarios_serializes_unknown_shipping_without_stringifying_none():
     repository = FakeProcurementRepository()
     repository.optimization_input = lambda _: {
         **FakeProcurementRepository().optimization_input(5),
-        "shops": [{
-            "id": 1, "name": "Checkout", "url": "https://shop.example.ch",
-            "versand_chf": None, "gratis_ab_chf": None,
-            "mindestbestellwert_chf": None, "lieferzeit_default_tage": 3,
-            "versand_original": None, "gratis_ab_original": None,
-            "mindestbestellwert_original": None, "versand_waehrung": "USD",
-            "versand_kurs": None, "versand_kurs_am": None,
-            "versand_kurs_quelle": None,
-        }],
+        "shops": [
+            {
+                "id": 1,
+                "name": "Checkout",
+                "url": "https://shop.example.ch",
+                "versand_chf": None,
+                "gratis_ab_chf": None,
+                "mindestbestellwert_chf": None,
+                "lieferzeit_default_tage": 3,
+                "versand_original": None,
+                "gratis_ab_original": None,
+                "mindestbestellwert_original": None,
+                "versand_waehrung": "USD",
+                "versand_kurs": None,
+                "versand_kurs_am": None,
+                "versand_kurs_quelle": None,
+            }
+        ],
     }
 
     result = ProcurementService(repository).plan_scenarios(5)
@@ -606,7 +683,13 @@ def test_plan_scenarios_groups_identical_presets_and_keeps_badges():
 
     assert len(result["scenarios"]) == 1
     scenario = result["scenarios"][0]
-    assert scenario["keys"] == ["cheapest", "fastest", "one_shop", "balanced", "only_ch"]
+    assert scenario["keys"] == [
+        "cheapest",
+        "fastest",
+        "one_shop",
+        "balanced",
+        "only_ch",
+    ]
     assert scenario["labels"] == [
         "Am günstigsten",
         "Am schnellsten",
@@ -675,9 +758,7 @@ def test_shop_breakdown_is_sorted_by_subtotal_descending_like_reference():
         }
     )
     data["required_line_ids"] = [10, 11]
-    data["lines"].append(
-        {"id": 11, "position": 2, "suchtext": "Netzteil", "menge": 1}
-    )
+    data["lines"].append({"id": 11, "position": 2, "suchtext": "Netzteil", "menge": 1})
     repository.optimization_input = lambda job_id: data
 
     scenario = ProcurementService(repository).plan_scenarios(5)["scenarios"][0]
@@ -840,7 +921,6 @@ def test_plan_order_returns_no_partial_variant_when_a_required_line_lacks_confir
     assert procurement.plan_order(5, 0.5) == []
 
 
-
 def test_record_purchase_requires_valid_timestamp_shop_promises_and_variant():
     repository = FakeProcurementRepository()
     procurement = ProcurementService(repository)
@@ -851,7 +931,7 @@ def test_record_purchase_requires_valid_timestamp_shop_promises_and_variant():
     purchase = procurement.record_purchase(
         5,
         variant,
-        datetime(2026, 8, 9, tzinfo=timezone.utc).isoformat(),
+        datetime(2026, 8, 9, tzinfo=UTC).isoformat(),
         {"1": 3},
     )
 
@@ -862,7 +942,9 @@ def test_record_purchase_requires_valid_timestamp_shop_promises_and_variant():
     with pytest.raises(ValidationError, match="Liefertage"):
         procurement.record_purchase(5, variant, "2026-08-09T12:00:00+00:00", {})
     with pytest.raises(ValidationError, match="Variante"):
-        procurement.record_purchase(5, {"shop_ids": [1]}, "2026-08-09T12:00:00+00:00", {"1": 3})
+        procurement.record_purchase(
+            5, {"shop_ids": [1]}, "2026-08-09T12:00:00+00:00", {"1": 3}
+        )
 
 
 def test_record_purchase_rejects_a_plan_with_unknown_shipping():

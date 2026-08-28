@@ -58,15 +58,21 @@ def test_duplicate_migration_version_is_rejected(tmp_path: Path):
 
 
 def test_applies_only_missing_migrations_and_records_each_version(tmp_path: Path):
-    (tmp_path / "001_first.sql").write_text("CREATE TABLE first_table(id int);", encoding="utf-8")
-    (tmp_path / "002_second.sql").write_text("CREATE TABLE second_table(id int);", encoding="utf-8")
+    (tmp_path / "001_first.sql").write_text(
+        "CREATE TABLE first_table(id int);", encoding="utf-8"
+    )
+    (tmp_path / "002_second.sql").write_text(
+        "CREATE TABLE second_table(id int);", encoding="utf-8"
+    )
     connection = FakeConnection(applied={1})
 
     applied = apply_migrations(connection, tmp_path)
 
     assert applied == [2]
     assert any("CREATE TABLE second_table" in sql for sql, _ in connection.statements)
-    assert not any("CREATE TABLE first_table" in sql for sql, _ in connection.statements)
+    assert not any(
+        "CREATE TABLE first_table" in sql for sql, _ in connection.statements
+    )
     assert connection.applied == {1, 2}
     assert connection.commits == 2  # Metadatentabelle, danach Migration 002
     assert connection.rollbacks == 0
@@ -74,7 +80,16 @@ def test_applies_only_missing_migrations_and_records_each_version(tmp_path: Path
 
 def test_core_schema_is_additive_and_contains_long_term_fields():
     sql = Path("migrations/001_initial.sql").read_text(encoding="utf-8")
-    for table in ("job", "bom_line", "shop", "offer", "decision", "purchase", "purchase_item", "stock"):
+    for table in (
+        "job",
+        "bom_line",
+        "shop",
+        "offer",
+        "decision",
+        "purchase",
+        "purchase_item",
+        "stock",
+    ):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in sql
     for field in (
         "gesehen_am",
@@ -190,8 +205,13 @@ def test_shop_shipping_currency_migration_preserves_originals_and_allows_unknown
     sql = Path("migrations/015_shop_shipping_currency.sql").read_text(encoding="utf-8")
 
     for column in (
-        "versand_original", "gratis_ab_original", "mindestbestellwert_original",
-        "versand_waehrung", "versand_kurs", "versand_kurs_am", "versand_kurs_quelle",
+        "versand_original",
+        "gratis_ab_original",
+        "mindestbestellwert_original",
+        "versand_waehrung",
+        "versand_kurs",
+        "versand_kurs_am",
+        "versand_kurs_quelle",
     ):
         assert f"ADD COLUMN IF NOT EXISTS {column}" in sql
     assert "ALTER COLUMN versand_chf DROP NOT NULL" in sql
@@ -226,7 +246,9 @@ def test_shop_country_check_widens_instead_of_dropping_validation():
 
 
 def test_shop_platform_migration_is_additive_and_enforces_evidence():
-    sql = Path("migrations/009_shop_platform_and_product_ids.sql").read_text(encoding="utf-8")
+    sql = Path("migrations/009_shop_platform_and_product_ids.sql").read_text(
+        encoding="utf-8"
+    )
 
     assert "ADD COLUMN IF NOT EXISTS plattform TEXT" in sql
     assert "ADD COLUMN IF NOT EXISTS plattform_beleg TEXT" in sql
@@ -253,7 +275,10 @@ def test_stock_ledger_migration_creates_checked_foundation_and_backfill():
     assert "stock_id BIGINT NOT NULL REFERENCES stock(id)" in sql
     assert "line_id BIGINT REFERENCES bom_line(id) ON DELETE SET NULL" in sql
     assert "delta INTEGER NOT NULL CHECK (delta <> 0)" in sql
-    assert "grund <> 'korrektur' OR (kommentar IS NOT NULL AND btrim(kommentar) <> '')" in sql
+    assert (
+        "grund <> 'korrektur' OR (kommentar IS NOT NULL AND btrim(kommentar) <> '')"
+        in sql
+    )
     assert "idx_stock_bewegung_stock" in sql
     assert "idx_stock_bewegung_line" in sql
     assert "'uebernahme_migration', 'Backfill Migration 016'" in sql

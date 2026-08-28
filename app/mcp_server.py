@@ -74,9 +74,7 @@ def build_mcp(service: ProcurementService) -> FastMCP:
         excludes: list[int] | None = None,
     ) -> dict[str, Any]:
         """Die vollständige Szenariomatrix mit optionalem Tempo, Pins und Excludes über exakt dieselbe Serverfunktion wie die Job-UI berechnen (read-only). Totale enthalten den Abhol-Aufschlag je beteiligtem Nicht-Heim-Lieferziel, einmal pro Ziel und Plan (Feld aufschlaege); Wartezeiten des Ziels stecken in den Lieferzeiten. Das Preset «Nur Schweiz» (only_ch) verschmilzt mit dem Gesamtoptimum, solange kein Auslandsangebot gewinnt, und erscheint unvollständig mit deckt_nicht_ab, wenn der Heimmarkt nicht jede Zeile abdeckt. Das Feld einfuhr ist ein reiner Anzeige-Indikator zur Wertfreigrenze - es wird keine Steuer berechnet und nichts davon fliesst in ein Total."""
-        return service.plan_scenarios(
-            job_id, tempo=tempo, pins=pins, excludes=excludes
-        )
+        return service.plan_scenarios(job_id, tempo=tempo, pins=pins, excludes=excludes)
 
     @mcp.tool()
     def next_job() -> dict[str, Any] | None:

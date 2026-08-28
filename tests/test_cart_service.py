@@ -4,16 +4,12 @@ Hier liegt die Entscheidung, *ob* ein Erkennungsergebnis persistiert wird.
 Kein Test spricht mit einem echten Shop.
 """
 
-from decimal import Decimal
-
 import pytest
 
 from app.cart import CartTemporaryError, CartVerificationError
 from app.procurement import ProcurementService, ValidationError
-
 from tests.test_cart import (
     DUPONT_URL,
-    GERMAN_CART_HTML,
     HOME_HTML,
     PRODUCT_HTML,
     FakeResponse,
@@ -22,13 +18,16 @@ from tests.test_cart import (
     cart_row,
 )
 
-
 SHOP_URL = "https://www.bastelgarage.ch/"
-DUPONT_ROW = cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 5.90", "CHF 11.80", 42, "420027")
+DUPONT_ROW = cart_row(
+    DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 5.90", "CHF 11.80", 42, "420027"
+)
 
 
 class CartRepository:
-    def __init__(self, *, plattform=None, plattform_geprueft_am=None, shop_produkt_id=None):
+    def __init__(
+        self, *, plattform=None, plattform_geprueft_am=None, shop_produkt_id=None
+    ):
         self.shops = {
             1: {
                 "id": 1,
@@ -178,7 +177,9 @@ def test_an_unsupported_shop_is_a_result_not_an_error_and_silences_the_button():
     repository = CartRepository()
     service = ProcurementService(repository)
     session = FakeSession(
-        pages={SHOP_URL: '<html><body><link href="/wp-content/plugins/woocommerce/x.css"></body></html>'},
+        pages={
+            SHOP_URL: '<html><body><link href="/wp-content/plugins/woocommerce/x.css"></body></html>'
+        },
         cookies={"PHPSESSID": "x"},
     )
 
@@ -250,7 +251,15 @@ def test_a_mismatching_cart_blocks_the_handover():
     session = FakeSession(
         pages={SHOP_URL: HOME_HTML, DUPONT_URL: PRODUCT_HTML},
         cart_page=cart_html(
-            cart_row(DUPONT_URL, "Dupont Jumper Cable Set 10cm", 2, "CHF 6.10", "CHF 12.20", 42, "420027"),
+            cart_row(
+                DUPONT_URL,
+                "Dupont Jumper Cable Set 10cm",
+                2,
+                "CHF 6.10",
+                "CHF 12.20",
+                42,
+                "420027",
+            ),
             "CHF 12.20",
         ),
     )
