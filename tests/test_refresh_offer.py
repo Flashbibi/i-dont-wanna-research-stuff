@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Auffrischen: was sich geändert hat, und was ein Fehlschlag nicht anfasst.
 
 Die Angebotshistorie ist tagesgenau (Migration 004). Das Fake-Repository hier

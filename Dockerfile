@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1

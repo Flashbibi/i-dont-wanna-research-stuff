@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Reine, deterministische Bestelloptimierung ohne Datenbank- oder Netzwerkzugriff."""
 
 from __future__ import annotations

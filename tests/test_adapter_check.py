@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Das Werkzeug, mit dem ein Adapter gebaut wird.
 
 Der Fixture-Modus darf das Netz nicht anfassen, der Live-Modus muss durch

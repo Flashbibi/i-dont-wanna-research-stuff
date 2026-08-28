@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Die eine Tür zum Internet - geprüft, ohne sie zu benutzen.
 
 Kein Test hier fasst ein echtes Netz an: HTTP läuft über ``httpx.MockTransport``,

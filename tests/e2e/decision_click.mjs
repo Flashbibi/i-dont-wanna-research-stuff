@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (C) 2026 Flashbibi
 import {createRequire} from 'node:module';
 import assert from 'node:assert/strict';
 

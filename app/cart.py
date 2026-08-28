@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Warenkorb-Übergabe: deterministische Adapter pro Shop-Plattform.
 
 Reines HTTP, kein Browser und kein Modell - Warenkorb-Füllen ist so

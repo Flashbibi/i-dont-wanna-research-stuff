@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Update-Check und Banner - nie gegen echtes Netz."""
 
 import pytest

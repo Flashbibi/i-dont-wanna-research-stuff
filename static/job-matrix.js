@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (C) 2026 Flashbibi
 (() => {
   const host = document.getElementById("job-matrix");
   if (!host) return;

@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Update-Check gegen die Releases-API von GitHub.
 
 Nur Standardbibliothek, und still im Fehlerfall. Der Check hängt im

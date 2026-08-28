@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Adapter bauen und sofort sehen, was er liest.
 
 Die Schleife beim Bauen eines Shop-Adapters ist immer dieselbe: Seite ansehen,

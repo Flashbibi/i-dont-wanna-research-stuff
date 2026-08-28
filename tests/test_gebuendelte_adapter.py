@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Gebündelte Adapter müssen fehlerfrei laden - sonst bricht der Build."""
 from pathlib import Path
 

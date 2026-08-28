@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Die eine Tür zum Internet für Shop-Adapter.
 
 Jeder Adapter-Abruf läuft durch :func:`hole_seite`. Das ist kein Stilwunsch,

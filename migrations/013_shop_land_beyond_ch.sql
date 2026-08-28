@@ -1,5 +1,3 @@
--- SPDX-License-Identifier: AGPL-3.0-only
--- Copyright (C) 2026 Flashbibi
 -- Migration 001 hat shop.land auf 'CH' festgenagelt, weil es damals nur
 -- Schweizer Shops gab. Mit den Lieferzielen ist das Land eine Eigenschaft des
 -- Ziels geworden; welche Laender zulaessig sind, entscheidet jetzt die

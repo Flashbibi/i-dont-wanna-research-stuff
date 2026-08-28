@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Schema, Extraktion, Preis-Parser und Registry der deklarativen Adapter.
 
 Kein Netz, keine Datenbank: hier wird nur gelesen, was in Dateien steht.

@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Die Engine liest, die Engine schreibt - und sonst niemand.
 
 Der Weg von der Produkt-URL zum Angebot, komplett gegen Attrappen: HTTP läuft

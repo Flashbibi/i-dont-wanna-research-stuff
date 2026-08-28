@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Deklarative Shop-Adapter: Schema, Registry, Extraktion, Preis-Parser.
 
 Ein Adapter ist eine YAML-Datei mit CSS-Selektoren. Er beschreibt, **wo** auf

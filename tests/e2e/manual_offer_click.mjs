@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (C) 2026 Flashbibi
 //
 // Der Weg ohne AI-Client: URL eintragen, ehrlich scheitern, von Hand nachtragen.
 //

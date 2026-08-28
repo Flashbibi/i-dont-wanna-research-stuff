@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Dünner Integrationstest-Layer der Repository-Schicht gegen echtes Postgres.
 
 Warum es diese Datei gibt: die Fake-Repositories der übrigen Tests liefern

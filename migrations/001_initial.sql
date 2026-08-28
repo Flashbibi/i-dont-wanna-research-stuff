@@ -1,5 +1,3 @@
--- SPDX-License-Identifier: AGPL-3.0-only
--- Copyright (C) 2026 Flashbibi
 CREATE TABLE IF NOT EXISTS job (
     id BIGSERIAL PRIMARY KEY,
     erstellt_am TIMESTAMPTZ NOT NULL DEFAULT NOW(),

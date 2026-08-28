@@ -1,6 +1,3 @@
-<!-- SPDX-License-Identifier: AGPL-3.0-only -->
-<!-- Copyright (C) 2026 Flashbibi -->
-
 # Shop adapters
 
 An adapter is one YAML file per shop. It says **where** on a product page the

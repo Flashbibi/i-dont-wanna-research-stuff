@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Den Abschnitt einer Version aus CHANGELOG.md schneiden.
 
 Der Release-Body trägt den passenden Abschnitt, nicht die ganze Datei.

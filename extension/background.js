@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Copyright (C) 2026 Flashbibi
 /**
  * Setzt das Gast-Session-Cookie im Shop und öffnet den gefüllten Warenkorb.
  *

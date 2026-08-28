@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Flashbibi
 """Der Image-Pin im Compose-File muss die laufende Version nennen.
 
 Gepinnt bleibt gepinnt: ``docker compose pull`` soll niemanden zufällig auf
