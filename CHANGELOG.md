@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Project metadata, version, dependencies and tool configuration live in
+  `pyproject.toml`, the file Python already has for the purpose. `app/version.py`
+  reads the version from there instead of holding it, so a release touches one
+  place.
+- The local install is `pip install -e ".[dev]"`, which is what CI runs too.
+  Ruff comes with it, and CI lints and format-checks on every push.
+
+### Removed
+
+- The per-file `SPDX-License-Identifier` and copyright headers. The licence
+  covers the work, `LICENSE` in the root says so, and nobody copies single files
+  out of this repository.
+- `requirements.txt` and `requirements-dev.txt`; `pyproject.toml` names the
+  dependencies now.
+
 ### Fixed
 
 - The compose quick start pulls the current release image. The pin stays a pin -

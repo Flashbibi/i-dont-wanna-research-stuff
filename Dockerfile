@@ -6,22 +6,15 @@ WORKDIR /opt/beschaffung
 
 RUN useradd --create-home --uid 10001 beschaffung
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Nur was der Dienst zur Laufzeit liest. Tests und Historie bleiben draussen.
-# extension/ gehört dazu: /extension.zip zippt dieses Verzeichnis im Moment
-# des Abrufs, und ohne es fällt die Job-Seite auf den Kopierflow zurück.
-# LICENSE reist mit, weil die AGPL das Bereitstellen des Angebots verlangt.
-# adapters/ gehört dazu: die Registry liest gebündelte Adapter von dort, und
-# ohne das Verzeichnis hätte das Image keinen einzigen.
+# Nur was der Dienst zur Laufzeit liest; Tests und Historie bleiben draussen.
+COPY pyproject.toml LICENSE ./
 COPY app/ ./app/
+RUN pip install --no-cache-dir .
 COPY adapters/ ./adapters/
 COPY migrations/ ./migrations/
 COPY static/ ./static/
 COPY templates/ ./templates/
 COPY extension/ ./extension/
-COPY LICENSE ./
 
 USER beschaffung
 

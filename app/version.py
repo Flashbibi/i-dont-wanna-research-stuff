@@ -1,7 +1,7 @@
-"""Einzige Versionsquelle des Projekts.
+"""Die Version steht in pyproject.toml; hier wird sie nur gelesen."""
 
-Alles andere - /health, Footer, Docker-Tag-Guard, Update-Vergleich - liest hier
-ab. Wer eine Version woanders hartkodiert, baut den nächsten Drift.
-"""
+import tomllib
+from pathlib import Path
 
-__version__ = "0.2.0"
+_PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
+__version__: str = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))["project"]["version"]

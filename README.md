@@ -62,14 +62,16 @@ Voraussetzungen: Python 3.12+ und Docker.
 
 ```sh
 python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements-dev.txt   # Windows
-# .venv/bin/python -m pip install -r requirements-dev.txt     # Linux/macOS
+.venv/Scripts/python -m pip install -e ".[dev]"   # Windows
+# .venv/bin/python -m pip install -e ".[dev]"     # Linux/macOS
 ```
 
-Ausser `pytest` kommt nichts dazu. Der `TestClient` von Starlette 1.6 greift
-bevorzugt zu `httpx2`, fällt aber auf das ohnehin vorhandene `httpx` zurück -
-und genau darauf läuft die CI seit jeher, die nur `requirements.txt` und
-`pytest` installiert.
+`pyproject.toml` ist die einzige Projektdatei: Version, Dependencies und die
+Konfiguration von Ruff und Pytest stehen dort. Ausser `pytest` und `ruff` kommt
+nichts dazu. Der `TestClient` von Starlette 1.6 greift bevorzugt zu `httpx2`,
+fällt aber auf das ohnehin vorhandene `httpx` zurück - und genau darauf läuft
+die CI seit jeher, die mit `pip install -e ".[dev]"` dieselbe Installation
+fährt.
 
 ### 2. Postgres
 
@@ -111,11 +113,15 @@ Ein frisch migrierter Stand hat weder Shops noch Angebote. Ohne Shop-Profile
 kann der Optimierer nichts rechnen, Szenarien bleiben dann leer — das ist kein
 Fehler, sondern fehlende Datengrundlage.
 
-### 4. Tests
+### 4. Tests und Linter
 
 ```sh
 .venv/Scripts/python -m pytest
+.venv/Scripts/ruff check .
+.venv/Scripts/ruff format .
 ```
+
+Dieselben drei Befehle fährt die CI, `ruff format` dort als `--check`.
 
 Zwei Dinge, die sonst Zeit kosten:
 

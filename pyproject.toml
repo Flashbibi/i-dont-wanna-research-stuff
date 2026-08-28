@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beschaffung"
+version = "0.2.0"
+description = "Stückliste über mehrere Shops beschaffen: günstigste Aufteilung samt Versand und Lieferzeit."
+requires-python = ">=3.12"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+dependencies = [
+    "beautifulsoup4>=4.12,<5",
+    "fastapi>=0.115,<1",
+    "httpx>=0.28,<1",
+    "jinja2>=3.1,<4",
+    "mcp>=1.9,<2",
+    "psycopg[binary]>=3.2,<4",
+    "python-multipart>=0.0.20,<1",
+    "pyyaml>=6,<7",
+    "uvicorn>=0.34,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.16,<1"]
+
+[project.urls]
+Repository = "https://github.com/Flashbibi/i-dont-wanna-research-stuff"
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
