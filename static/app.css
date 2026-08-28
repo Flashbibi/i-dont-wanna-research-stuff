@@ -233,7 +233,7 @@ summary { cursor: pointer; }
 .shop-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 15px; }
 .inventory-note { margin-top: 34px; }
 
-/* Job matrix — structure and tokens from prototype/job-ui-c.html. */
+/* Job-Matrix */
 .job-head { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
 .job-head h1 { font-size:22px; margin:0; font-weight:700; letter-spacing:0; }
 .job-status { font-size:12px; font-weight:600; padding:3px 10px; border-radius:99px; background:var(--accent-bg); color:var(--accent-dark); }

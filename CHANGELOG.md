@@ -18,11 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- The per-file `SPDX-License-Identifier` and copyright headers. The licence
-  covers the work, `LICENSE` in the root says so, and nobody copies single files
-  out of this repository.
+- The per-file SPDX and copyright headers. The licence covers the work, `LICENSE`
+  in the root says so, and nobody copies single files out of this repository.
 - `requirements.txt` and `requirements-dev.txt`; `pyproject.toml` names the
   dependencies now.
+- `prototype/job-ui-c.html`. The job page has carried that layout since 0.2.0,
+  so the file was only a reference; it stays readable in the history.
 
 ### Fixed
 
