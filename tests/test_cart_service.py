@@ -1,8 +1,5 @@
-"""Service-Pfad der Warenkorb-Übergabe.
-
-Hier liegt die Entscheidung, *ob* ein Erkennungsergebnis persistiert wird.
-Kein Test spricht mit einem echten Shop.
-"""
+"""Service-Pfad der Warenkorb-Übergabe: hier liegt die Entscheidung, *ob* ein
+Erkennungsergebnis persistiert wird."""
 
 import pytest
 
@@ -238,9 +235,8 @@ def test_a_cached_product_id_is_not_written_again():
     result = service.fill_cart(5, 1, session_factory=session_factory(session))
 
     assert result["status"] == "uebergabe"
-    # Die ID kam aus dem Cache, es gibt nichts nachzutragen. Die Produktseite
-    # wird trotzdem einmal abgerufen - sie legt den Sprachkontext des Korbs
-    # fest (Vorfall 2026-08-11).
+    # Die Produktseite wird trotz gecachter ID einmal abgerufen - sie legt den
+    # Sprachkontext des Korbs fest.
     assert repository.saved_product_ids == []
     assert session.fetched.count(DUPONT_URL) == 1
 

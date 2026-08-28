@@ -293,11 +293,8 @@ def test_job_selection_is_saved_as_jsonb():
 
 
 def test_optimization_input_selects_the_columns_the_cart_handover_needs():
-    """Ohne plattform_geprueft_am kann der Füllknopf nie verschwinden.
-
-    Ein Fake-Repository liefert den Schlüssel immer mit, deshalb prüft dieser
-    Test die tatsächliche Spaltenliste statt des Verhaltens.
-    """
+    """Ohne plattform_geprueft_am kann der Füllknopf nie verschwinden - und weil ein
+    Fake-Repository den Schlüssel immer liefert, prüft dieser Test die Spaltenliste."""
     statements = []
 
     class ShopColumnConnection(Connection):

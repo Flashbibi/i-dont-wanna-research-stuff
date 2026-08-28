@@ -1,11 +1,5 @@
-"""Skalierung der Planaufzählung.
-
-Hintergrund: die Aufzählung lief als vollständiges kartesisches Produkt über
-alle Zeilen. Bei Job 10 mit 13 Positionen sind das Millionen Pläne, die alle
-gebaut und gehalten wurden - dreimal pro Seitenaufruf. Daran ist CT 104
-erstickt. Diese Tests halten fest, dass das nicht zurückkommt und dass die
-Ergebnisse dort exakt bleiben, wo die vollständige Aufzählung bezahlbar ist.
-"""
+"""Die Planaufzählung darf nicht wieder zum vollständigen kartesischen Produkt werden
+und muss exakt bleiben, wo dieses bezahlbar ist."""
 
 from decimal import Decimal
 from itertools import product
@@ -67,9 +61,7 @@ def aufbau(zeilen, kandidaten, shops, **shop_args):
     return _validated_inputs(offers, profile)
 
 
-# ---------------------------------------------------------------------------
 # Klein bleibt exakt
-# ---------------------------------------------------------------------------
 
 
 def test_a_job_within_the_budget_is_still_enumerated_exactly():
@@ -102,13 +94,10 @@ def test_the_optima_match_the_full_enumeration_within_the_budget():
         assert min(key(v) for v in jetzt) == min(key(v) for v in frueher), name
 
 
-# ---------------------------------------------------------------------------
 # Gross explodiert nicht mehr
-# ---------------------------------------------------------------------------
 
 
 def test_a_thirteen_line_job_no_longer_enumerates_millions():
-    """Job 10: 13 Positionen. Früher 1,6 Millionen Pläne, drei Mal pro Aufruf."""
     shops_by_id, offers_by_line = aufbau(13, 3, 13)
     lines = sorted(offers_by_line)
     assert 3**13 > KOMBINATIONS_BUDGET, "dieser Fall muss über dem Budget liegen"
@@ -131,17 +120,12 @@ def test_even_the_largest_allowed_job_stays_computable(zeilen, kandidaten):
     assert len(variants) < 1_000
 
 
-# ---------------------------------------------------------------------------
 # Die Schwellen müssen auch im grossen Fall greifen
-# ---------------------------------------------------------------------------
 
 
 def test_a_minimum_order_value_is_repaired_instead_of_dropping_the_plan():
-    """Die billigste Zuordnung kann unter dem Mindestbestellwert liegen.
-
-    Früher fiel der Plan dann einfach weg, obwohl es ihn zu einem etwas
-    höheren Warenwert gibt. Der teurere Einkauf muss gefunden werden.
-    """
+    """Der Plan darf nicht wegfallen, wenn es ihn zu einem höheren Warenwert über dem
+    Mindestbestellwert gibt."""
     shops_by_id, offers_by_line = _validated_inputs(
         [
             angebot(oid, line_id, 1, preis)
@@ -160,12 +144,7 @@ def test_a_minimum_order_value_is_repaired_instead_of_dropping_the_plan():
 
 
 def test_free_shipping_is_reached_by_buying_up_in_the_large_case():
-    """Teurer einkaufen kann billiger sein - auch jenseits des Budgets.
-
-    Rechnung: 13 Zeilen. Bei Shop 1 kostet die billigste Ware 13x3.00 = 39.00
-    plus 15.00 Versand = 54.00. Wer auf die Gratisgrenze von 50 aufstockt,
-    zahlt 51.00 und keinen Versand. Shop 2 liegt bei 13x4.00 + 9.90 = 61.90.
-    """
+    """Teurer einkaufen kann billiger sein - auch jenseits des Budgets."""
     guenstig = shop(1, versand="15.00", gratis="50")
     teuer = shop(2, versand="9.90", gratis=None)
     offers = []

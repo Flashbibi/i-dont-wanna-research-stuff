@@ -1,8 +1,5 @@
-"""Das Werkzeug, mit dem ein Adapter gebaut wird.
-
-Der Fixture-Modus darf das Netz nicht anfassen, der Live-Modus muss durch
-dieselbe Tür wie die Engine gehen - und beide dürfen keine Datenbank sehen.
-"""
+"""Der Fixture-Modus darf das Netz nicht anfassen, der Live-Modus muss durch dieselbe
+Tür wie die Engine gehen - und beide dürfen keine Datenbank sehen."""
 
 from __future__ import annotations
 
@@ -157,11 +154,8 @@ def test_a_fixture_that_is_not_utf8_fails_without_a_traceback(capsys, tmp_path):
 
 
 def test_the_tool_stays_clear_of_the_database():
-    """Abschnitt H, wörtlich: kein procurement, keine Datenbank.
-
-    Geprüft werden die Importe, nicht der Fliesstext - der Modul-Docstring darf
-    erklären, was er gerade nicht anfasst.
-    """
+    """Abschnitt H verlangt wörtlich, dass das Werkzeug weder procurement noch eine
+    Datenbank importiert."""
     baum = ast.parse(Path("app/adapter_check.py").read_text(encoding="utf-8"))
     module = set()
     for knoten in ast.walk(baum):

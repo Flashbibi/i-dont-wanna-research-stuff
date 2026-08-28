@@ -1,7 +1,5 @@
-"""Fremdwährung mit Provenienz.
-
-Kein Test ruft eine echte Kurs-API auf; der Abruf wird durchgehend gestubbt.
-"""
+"""Fremdwährung mit Provenienz - kein Test ruft eine echte Kurs-API auf, weil der
+Abruf durchgehend gestubbt wird."""
 
 import json
 from datetime import date
@@ -36,9 +34,7 @@ def antwort(rate="0.94"):
     )
 
 
-# ---------------------------------------------------------------------------
 # Abruf und Zwischenspeicher
-# ---------------------------------------------------------------------------
 
 
 def test_the_rate_is_read_from_the_source_with_its_url_as_evidence():
@@ -131,15 +127,13 @@ def test_the_home_currency_needs_no_source():
     assert kurs.kurs == Decimal("1")
 
 
-# ---------------------------------------------------------------------------
 # Rundung und Verfall
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     "original,kurs,erwartet",
     [
-        ("7.99", "0.94", "7.51"),  # 7.5106 -> kaufmännisch auf Rappen
+        ("7.99", "0.94", "7.51"),  # kaufmännisch auf Rappen
         ("10.00", "0.945", "9.45"),
         ("1.00", "0.9449", "0.94"),
         ("1.00", "0.9450", "0.95"),  # exakt halb -> aufgerundet
@@ -171,9 +165,7 @@ def test_the_evidence_line_names_rate_source_and_day():
     assert kurs.beleg() == "Kurs 0.9400 (EZB, 11.08.)"
 
 
-# ---------------------------------------------------------------------------
 # record_offer: der Server rechnet, nicht der Agent
-# ---------------------------------------------------------------------------
 
 
 def euro_service():
@@ -200,7 +192,7 @@ def test_record_offer_converts_server_side_and_keeps_the_evidence():
         waehrung="EUR",
     )
 
-    # Der Agent liefert 7.99 EUR; den CHF-Wert rechnet der Server.
+    # Den CHF-Wert rechnet der Server, nicht der Agent.
     assert gespeichert["preis_original"] == Decimal("7.99")
     assert gespeichert["waehrung"] == "EUR"
     assert gespeichert["preis_chf"] == Decimal("7.51")

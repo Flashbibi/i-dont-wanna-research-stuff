@@ -1,7 +1,5 @@
-"""Schema, Extraktion, Preis-Parser und Registry der deklarativen Adapter.
-
-Kein Netz, keine Datenbank: hier wird nur gelesen, was in Dateien steht.
-"""
+"""Schema, Extraktion, Preis-Parser und Registry der deklarativen Adapter - ohne
+Netz und ohne Datenbank."""
 
 from __future__ import annotations
 
@@ -312,7 +310,6 @@ def test_a_capture_group_that_catches_nothing_is_a_plain_error(tmp_path, seite):
     )
     geladen = lade_adapter(schreibe(tmp_path, mit_regex))
 
-    # Kein Absturz, kein Traceback - das Feld ist optional und bleibt leer.
     assert (
         extrahiere(geladen, seite.replace("an Lager (5 Stück)", "an Lager"))[
             "lager_text"
@@ -361,7 +358,7 @@ def test_the_price_parser_reads_the_common_notations(text, waehrung, erwartet):
 @pytest.mark.parametrize(
     "text, waehrung",
     [
-        # Ein in Spans zerlegter Preis kommt so aus der Extraktion. Lieber ein
+        # Ein in Spans zerlegter Preis kommt so aus der Extraktion - lieber ein
         # Fehler als stillschweigend die Rappen weglassen.
         ("19 ,99 €", "EUR"),
         ("CHF 12. 90", "CHF"),

@@ -1,8 +1,5 @@
-"""Adapter-Tests gegen gemockte HTTP-Antworten.
-
-Kein Test in dieser Datei spricht mit einem echten Shop. Die Fixtures bilden
-OpenCart-3-Markup nach, wie es Bastelgarage ausliefert.
-"""
+"""Adapter-Tests gegen gemockte OpenCart-3-Antworten, wie Bastelgarage sie
+ausliefert - kein Test in dieser Datei spricht mit einem echten Shop."""
 
 from decimal import Decimal
 
@@ -72,9 +69,7 @@ def cart_html(rows: str, zwischensumme: str) -> str:
     """
 
 
-# Wörtlich aus der echten Bastelgarage-Korbseite übernommen (Sondierung
-# 2026-08-10). Entscheidend: die Zeilenpreise sind brutto, der Summenblock
-# weist Sub-Total NETTO aus - 17.30 netto zu 18.70 brutto bei 8.1 % MWST.
+# Wörtlich aus der echten Korbseite - die Zeilenpreise brutto, der Sub-Total netto.
 BASTELGARAGE_CART_HTML = """
 <html><body>
 <table class="table table-bordered"><tbody>
@@ -109,13 +104,11 @@ BASTELGARAGE_CART_HTML = """
 
 BG_DUPONT = "https://www.bastelgarage.ch/dupont-jumper-cable-set-10cm-60-pieces"
 BG_BREADBOARD = "https://www.bastelgarage.ch/half-size-transparent-breadboard-zy-60"
-# Anderes Produkt als BG_BREADBOARD: das Lochraster-Board aus dem Sprach-Vorfall.
+# Anderes Produkt als BG_BREADBOARD - das Lochraster-Board aus dem deutschen Korb.
 BG_GRID = "https://www.bastelgarage.ch/breadboard-hole-grid-plug-in-board-half-size"
 
-# Echte Fehlantwort aus dem Vorfall vom 2026-08-11: derselbe Shop, dieselben
-# Produkt-IDs, aber der Korb rendert die Links in der Shop-Default-Sprache.
-# Die erfassten produkt_url sind die englischen Slugs - keiner davon kommt hier
-# vor, obwohl es exakt dieselben Produkte sind.
+# Derselbe Shop und dieselben Produkt-IDs, aber der Korb rendert die Links in der
+# Shop-Default-Sprache - kein erfasster englischer Slug kommt hier vor.
 GERMAN_CART_HTML = """
 <html><body>
 <table class="table table-bordered"><tbody>
@@ -212,7 +205,7 @@ class FakeResponse:
 
 
 class FakeSession:
-    """Attrappe. Kennt nur die Antworten, die ihr mitgegeben wurden."""
+    """Attrappe, die nur die ihr mitgegebenen Antworten kennt."""
 
     def __init__(self, pages=None, add_responses=None, cart_page=None, cookies=None):
         self.pages = dict(pages or {})
@@ -247,9 +240,7 @@ def adapter(**kwargs) -> tuple[OpenCartAdapter, FakeSession]:
     return OpenCartAdapter(session), session
 
 
-# ---------------------------------------------------------------------------
 # Betragsformate und Plattform-Erkennung
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -285,9 +276,7 @@ def test_unimplemented_and_unknown_platforms_keep_the_link_list():
             build_adapter(plattform, FakeSession())
 
 
-# ---------------------------------------------------------------------------
 # product_id-Extraktion
-# ---------------------------------------------------------------------------
 
 
 def test_product_id_comes_from_the_cart_form_not_from_related_products():
@@ -314,9 +303,7 @@ def test_product_id_extraction_refuses_to_choose_between_candidates():
     assert "96" in str(error.value) and "777" in str(error.value)
 
 
-# ---------------------------------------------------------------------------
 # Korb zurücklesen
-# ---------------------------------------------------------------------------
 
 
 def test_cart_readback_yields_positions_and_the_totals_block():
@@ -346,9 +333,7 @@ def test_a_row_without_an_amount_is_refused():
     assert "keinen Betrag" in str(error.value)
 
 
-# ---------------------------------------------------------------------------
 # Netto-Summenzeile: die Falle aus der Live-Abnahme
-# ---------------------------------------------------------------------------
 
 
 def test_the_real_cart_page_exposes_a_net_subtotal_next_to_gross_line_prices():
@@ -359,17 +344,15 @@ def test_the_real_cart_page_exposes_a_net_subtotal_next_to_gross_line_prices():
     assert brutto == Decimal("18.70")
     assert totals["Sub-Total"] == Decimal("17.30")
     assert totals["Total"] == Decimal("18.70")
-    # 8.1 % MWST - genau der Faktor, der die Live-Abnahme scheitern liess.
+    # 8.1 % MWST - genau der Faktor zwischen Netto- und Bruttosumme.
     assert (totals["Total"] / Decimal("1.081")).quantize(Decimal("0.01")) == totals[
         "Sub-Total"
     ]
 
 
 def test_a_net_subtotal_no_longer_fakes_a_price_change():
-    """Regression der Live-Abnahme: CHF 17.60 erfasst, Sub-Total meldete 16.28.
-
-    Verglichen wird brutto gegen brutto, deshalb geht der Korb durch.
-    """
+    """Verglichen wird brutto gegen brutto, damit ein Netto-Sub-Total keine
+    Preisänderung vortäuscht."""
     cart, _ = adapter(
         pages={BG_DUPONT: PRODUCT_HTML, BG_BREADBOARD: BREADBOARD_HTML},
         cart_page=BASTELGARAGE_CART_HTML,
@@ -444,9 +427,7 @@ def test_a_real_price_change_still_names_the_affected_position():
     assert "Dupont" not in message
 
 
-# ---------------------------------------------------------------------------
 # Füllen und Rückverifikation
-# ---------------------------------------------------------------------------
 
 
 def test_fill_adds_every_position_and_hands_over_the_verified_session():
@@ -482,10 +463,8 @@ def test_fill_adds_every_position_and_hands_over_the_verified_session():
 
 
 def test_cached_product_id_skips_the_lookup_but_still_pins_the_language():
-    """Vorfall 2026-08-11: bei warmem Cache wurde gar keine Produktseite mehr
-    besucht, der Shop rendert den Korb dann in seiner Default-Sprache und jede
-    Position gilt als fehlend. Ein Abruf einer erfassten URL stellt den
-    Sprachkontext her - die ID kommt weiterhin aus dem Cache."""
+    """Ein Abruf einer erfassten URL setzt den Sprachkontext, sonst rendert der Shop
+    den Korb in seiner Default-Sprache und jede Position gilt als fehlend."""
     cart, session = adapter(
         pages={DUPONT_URL: PRODUCT_HTML},
         cart_page=cart_html(DUPONT_ROW, "CHF 11.80"),
@@ -513,11 +492,8 @@ def test_a_cold_cache_does_not_fetch_the_first_page_twice():
 
 
 def test_the_article_number_anchors_across_languages():
-    """Die Fixture des Sprach-Vorfalls, jetzt über die Artikelnummer verankert.
-
-    Deutscher Korb, englisch erfasste URLs - der Slug passt nicht, die
-    shopinterne Nummer schon. Genau dafür ist der Anker da.
-    """
+    """Deutscher Korb gegen englisch erfasste URLs - der Slug passt nicht, die
+    shopinterne Artikelnummer schon."""
     cart, session = adapter(
         pages={BG_DUPONT: PRODUCT_HTML, BG_BREADBOARD: BREADBOARD_HTML},
         cart_page=GERMAN_CART_HTML,
@@ -594,11 +570,8 @@ def test_the_article_number_anchor_refuses_ambiguity():
 
 
 def test_a_cart_rendered_in_another_language_is_blocked_not_guessed():
-    """Die echte Fehlantwort des Vorfalls: gleiche Produkte, fremde Slugs.
-
-    Der strikte URL-Vergleich bleibt - lieber blockieren als eine Position
-    über Namensähnlichkeit erraten.
-    """
+    """Der strikte URL-Vergleich bleibt - lieber blockieren als eine Position über
+    Namensähnlichkeit erraten."""
     entries, _ = parse_opencart_cart(GERMAN_CART_HTML)
     hrefs = [entry.href for entry in entries]
 
@@ -640,8 +613,7 @@ def test_a_cart_rendered_in_another_language_is_blocked_not_guessed():
     message = str(error.value)
     assert "Position fehlt im Korb: Dupont Jumper Cable Set." in message
     assert "Position fehlt im Korb: Breadboard Half-Size." in message
-    # Artikelzahl stimmt - genau deshalb sah der Vorfall nach "leerer Korb" aus,
-    # war aber ein voller Korb mit fremdsprachigen Links.
+    # Artikelzahl stimmt - der Korb ist voll, nur die Links sind fremdsprachig.
     assert "Artikelzahl weicht ab" not in message
 
 
@@ -750,9 +722,7 @@ def test_shop_refusing_the_add_is_reported_without_a_cart():
     assert "Nicht verfügbar" in str(error.value)
 
 
-# ---------------------------------------------------------------------------
 # Gast-Session eröffnen und dabei erkennen
-# ---------------------------------------------------------------------------
 
 
 def test_starting_a_session_reports_the_completed_detection():
@@ -774,12 +744,8 @@ def test_a_shop_without_known_markers_is_a_completed_negative_result():
 
 
 def test_a_timeout_is_not_a_detection_result():
-    """Ein Netzwerkhänger darf nie als 'unbekannte Plattform' durchgehen.
-
-    Sonst würde ein einziger Timeout einen unterstützten Shop dauerhaft
-    stummschalten. Der Aufrufer muss diesen Fall vom echten Negativergebnis
-    unterscheiden können, deshalb eine eigene Fehlerklasse.
-    """
+    """Ein Netzwerkhänger darf nie als 'unbekannte Plattform' durchgehen, sonst
+    schaltet ein einziger Timeout einen unterstützten Shop dauerhaft stumm."""
 
     class TimingOutSession(FakeSession):
         def get(self, url):
@@ -801,9 +767,7 @@ def test_an_error_response_is_also_no_detection_result():
     assert "503" in str(error.value)
 
 
-# ---------------------------------------------------------------------------
 # Vertraulichkeit
-# ---------------------------------------------------------------------------
 
 
 def test_no_session_cookie_leaks_into_any_failure_message():

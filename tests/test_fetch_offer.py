@@ -1,10 +1,4 @@
-"""Die Engine liest, die Engine schreibt - und sonst niemand.
-
-Der Weg von der Produkt-URL zum Angebot, komplett gegen Attrappen: HTTP läuft
-über ``httpx.MockTransport``, die Seite ist die synthetische Fixture, und
-geschlafen wird nie. Was hier zählt, ist die Reihenfolge der Prüfungen und dass
-im Fehlerfall **nichts** geschrieben wird.
-"""
+"""Die Engine liest und schreibt - sonst niemand, im Fehlerfall auch sie nicht."""
 
 from __future__ import annotations
 

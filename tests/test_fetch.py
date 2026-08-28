@@ -1,9 +1,4 @@
-"""Die eine Tür zum Internet - geprüft, ohne sie zu benutzen.
-
-Kein Test hier fasst ein echtes Netz an: HTTP läuft über ``httpx.MockTransport``,
-Uhr und Schlaf sind eine Attrappe. Geschlafen wird trotzdem nie in Echtzeit, die
-Wartezeiten werden nur aufgezeichnet - sonst dauerte allein diese Datei Minuten.
-"""
+"""Die eine Tür zum Internet - geprüft ohne echtes Netz und ohne echte Wartezeit."""
 
 from __future__ import annotations
 
@@ -23,10 +18,8 @@ PRODUKT_URL = "https://shop.example.ch/produkt/servo"
 
 
 class Uhr:
-    """Monotone Zeit zum Anfassen: Schlafen springt vorwärts statt zu warten.
-
-    Mit Sperre, weil ein Test sie aus mehreren Threads benutzt.
-    """
+    """Monotone Zeit zum Anfassen - mit Sperre, weil ein Test sie aus mehreren
+    Threads benutzt."""
 
     def __init__(self, start: float = 1_000.0):
         self.zeit = start
@@ -421,7 +414,7 @@ def test_an_oversized_page_is_not_read_to_the_end(uhr, monkeypatch):
     geliefert: list[int] = []
 
     def endlos():
-        # Ein Shop, der nicht aufhört zu senden. Ohne Abbruch im Stream liefe
+        # Ein Shop, der nicht aufhört zu senden - ohne Abbruch im Stream liefe
         # das hier bis zum Speicherfehler statt bis zum Limit.
         while True:
             geliefert.append(haeppchen)
@@ -569,7 +562,8 @@ def test_an_absurd_crawl_delay_is_refused_instead_of_silently_shortened(
 
 
 def test_the_robots_lookup_happens_under_the_lock_of_its_origin(uhr, monkeypatch):
-    """Deterministischer Nachweis dessen, was der Thread-Test nur wahrscheinlich macht."""
+    """Deterministischer Nachweis dessen, was der Thread-Test nur wahrscheinlich
+    macht."""
 
     class Zaehlsperre:
         def __init__(self) -> None:

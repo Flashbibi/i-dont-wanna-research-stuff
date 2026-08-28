@@ -1,10 +1,5 @@
-"""Auffrischen: was sich geändert hat, und was ein Fehlschlag nicht anfasst.
-
-Die Angebotshistorie ist tagesgenau (Migration 004). Das Fake-Repository hier
-bildet genau das nach - eine Zeile je Zeile×URL×Beobachtungstag -, denn ohne
-diese Eigenschaft wäre die halbe Semantik von ``refresh_offer`` nicht prüfbar.
-Netz gibt es keines: HTTP läuft über ``httpx.MockTransport``.
-"""
+"""Ohne das tagesgenaue Raster im Fake-Repository wäre die halbe Semantik von
+``refresh_offer`` nicht prüfbar."""
 
 from __future__ import annotations
 

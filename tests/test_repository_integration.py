@@ -1,18 +1,5 @@
-"""Dünner Integrationstest-Layer der Repository-Schicht gegen echtes Postgres.
-
-Warum es diese Datei gibt: die Fake-Repositories der übrigen Tests liefern
-jeden Schlüssel mit, den der Service setzt - auch wenn das echte SQL ihn gar
-nicht schreibt oder eine Constraint ihn ablehnt. Diese Klasse hat dreimal
-zugeschlagen:
-
-* ``plattform_geprueft_am`` fehlte in ``optimization_input``
-* ``shop.land`` war im Schema noch auf ``'CH'`` festgenagelt
-* ``lieferziel_id`` wurde im INSERT von ``create_shop`` verworfen
-
-Statt weiterer SQL-String-Prüfungen fahren hier wenige echte Runden: schreiben,
-zurücklesen, vergleichen. Die Tests legen dafür eine eigene Wegwerf-Datenbank
-an und räumen sie wieder ab; ohne erreichbares Postgres überspringen sie sich.
-"""
+"""Echte Schreib-Lese-Runden gegen Postgres, weil die Fake-Repositories jeden
+Schlüssel mitliefern, den das echte SQL nicht schreibt oder eine Constraint ablehnt."""
 
 from __future__ import annotations
 
@@ -658,13 +645,8 @@ def test_deleting_a_stock_fulfilled_job_refunds_stock_and_preserves_history(
 
 @pytest.fixture
 def frische_datenbank():
-    """Eine eigene, frisch migrierte Datenbank pro Test.
-
-    Der Füllstand der Shoptabelle ist in den folgenden Tests der Prüfgegenstand.
-    Die Modul-Datenbank oben taugt dafür nicht: sie ist zu diesem Zeitpunkt
-    voller Shops aus den Tests davor, und «leer» wäre dort eine Frage der
-    Reihenfolge statt eine Zusicherung.
-    """
+    """Eigene, frisch migrierte Datenbank pro Test, weil der Füllstand der Shoptabelle
+    hier der Prüfgegenstand ist und die Modul-Datenbank davon schon voll ist."""
     try:
         with psycopg.connect(_admin_url(), connect_timeout=3, autocommit=True) as admin:
             admin.execute(f'DROP DATABASE IF EXISTS "{E2E_TEST_DB}"')

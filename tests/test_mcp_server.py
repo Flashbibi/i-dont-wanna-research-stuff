@@ -420,8 +420,8 @@ def test_get_cart_session_runs_the_same_adapter_path_as_the_ui():
 
 
 def test_mcp_e2e_lists_the_cart_tool_but_never_calls_it():
-    """Der Smoketest läuft gegen Produktion; get_cart_session würde dort einen
-    echten Shop kontaktieren und schreiben. Listen ja, aufrufen nein."""
+    """Der Smoketest läuft gegen Produktion, wo get_cart_session einen echten Shop
+    kontaktieren und dort schreiben würde."""
     source = Path("tests/e2e/mcp_tools_call.py").read_text(encoding="utf-8")
 
     assert '"get_cart_session",' in source
@@ -452,8 +452,8 @@ def test_mcp_e2e_calls_get_shops_and_checks_the_public_shop_id():
 
 
 def test_mcp_e2e_lists_fetch_offer_but_never_calls_it():
-    """Der Smoketest läuft gegen Produktion; fetch_offer würde dort einen echten
-    Shop abrufen und ein Angebot schreiben. Listen ja, aufrufen nein."""
+    """Der Smoketest läuft gegen Produktion, wo fetch_offer einen echten Shop abrufen
+    und ein Angebot schreiben würde."""
     source = Path("tests/e2e/mcp_tools_call.py").read_text(encoding="utf-8")
 
     assert '"fetch_offer",' in source

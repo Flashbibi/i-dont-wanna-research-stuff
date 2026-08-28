@@ -1,15 +1,4 @@
-"""Der Image-Pin im Compose-File muss die laufende Version nennen.
-
-Gepinnt bleibt gepinnt: ``docker compose pull`` soll niemanden zufällig auf
-einen neuen Stand heben - wann aktualisiert wird, entscheidet der Mensch, und
-dass es etwas Neues gibt, sagt der Update-Banner. Genau deshalb altert der Pin
-still, wenn ihn beim Versionsschnitt niemand ansieht: nach 0.2.0 zeigte er noch
-auf 0.1.0, und die Schnellstartanleitung versprach damit einen Stand, den sie
-nicht liefert.
-
-Dieser Test ist derselbe Stolperdraht wie das Versionsliteral im Footer-Test:
-die Version kann sich nicht bewegen, ohne dass jemand den Pin anfasst.
-"""
+"""Der Image-Pin im Compose-File muss die laufende Version nennen."""
 
 from pathlib import Path
 

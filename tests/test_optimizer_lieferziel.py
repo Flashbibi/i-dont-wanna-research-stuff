@@ -1,8 +1,5 @@
-"""Optimierer mit Lieferzielen.
-
-Die Leitidee: verglichen wird nie der Artikelpreis, sondern der ehrliche
-Endpreis pro Lieferziel - inklusive Abholaufwand und Wartezeit.
-"""
+"""Optimierer mit Lieferzielen: verglichen wird nie der Artikelpreis, sondern der
+ehrliche Endpreis pro Lieferziel - inklusive Abholaufwand und Wartezeit."""
 
 from decimal import Decimal
 
@@ -59,9 +56,7 @@ def angebot(offer_id, line_id, shop_id, preis, *, menge=1, tage=None):
     )
 
 
-# ---------------------------------------------------------------------------
 # Aufschlag einmal pro Ziel, nicht pro Shop
-# ---------------------------------------------------------------------------
 
 
 def test_two_german_shops_in_one_plan_cost_exactly_one_pickup():
@@ -75,7 +70,6 @@ def test_two_german_shops_in_one_plan_cost_exactly_one_pickup():
     variante = optimize_orders(offers, shops, tempo=0.0)[0]
 
     assert variante.shop_ids == (2, 3)
-    # 10 + 20 Ware, ein einziger Aufschlag von 25 - nicht zwei.
     assert variante.aufschlag_chf == Decimal("25.00")
     assert variante.total_chf == Decimal("55.00")
     assert [name for _, name, _ in variante.aufschlaege] == ["Postfach (DE)"]
@@ -109,22 +103,16 @@ def test_the_waiting_time_is_added_to_every_shop_of_that_target():
 
     variante = optimize_orders(offers, shops, tempo=0.0)[0]
 
-    # CH bleibt bei 2, DE wird 2 + 3 = 5; das Maximum bestimmt den Plan.
+    # Das Maximum ueber alle beteiligten Ziele bestimmt die Lieferzeit des Plans.
     assert variante.max_liefertage == 5
 
 
-# ---------------------------------------------------------------------------
 # Dominanzfilter arbeitet auf Totalen NACH Aufschlag
-# ---------------------------------------------------------------------------
 
 
 def test_a_german_plan_cheap_before_pickup_but_worse_after_is_filtered_out():
-    """Der Kern gegen «billig gewinnt immer».
-
-    Vor Aufschlag ist der DE-Plan billiger (30 statt 40). Nach Aufschlag ist er
-    teurer (55 statt 40) UND langsamer (5 statt 2 Tage) - also dominiert und
-    damit unsichtbar.
-    """
+    """Der Kern gegen «billig gewinnt immer»: nach Aufschlag teurer und langsamer
+    heisst dominiert und damit unsichtbar."""
     shops = [
         heimat(tage=2),
         deutsch(2, "Reichelt", tage=2, aufschlag="25.00", zuschlag=3),
@@ -164,15 +152,13 @@ def test_a_german_plan_that_stays_cheaper_after_pickup_survives():
 
     sichtbar = filter_dominated_variants([schweiz, deutschland])
 
-    # 125 statt 200 - der Umweg lohnt sich und bleibt sichtbar, obwohl langsamer.
+    # Der Umweg lohnt sich und bleibt darum sichtbar, obwohl er langsamer ist.
     assert deutschland.total_chf == Decimal("125.00")
     assert deutschland in sichtbar
     assert schweiz in sichtbar
 
 
-# ---------------------------------------------------------------------------
 # Nur-Schweiz-Preset
-# ---------------------------------------------------------------------------
 
 
 def test_only_ch_matches_the_overall_optimum_when_there_is_no_foreign_offer():
@@ -206,12 +192,8 @@ def test_only_ch_becomes_its_own_plan_once_a_foreign_offer_is_cheaper():
 
 
 def test_only_ch_appears_incomplete_and_names_the_lines_it_cannot_cover():
-    """Nicht verschwinden, sondern zeigen - wie «Ein Shop».
-
-    Die Liste der offenen Zeilen ist genau die Auskunft, welche Positionen ins
-    Ausland zwingen. Ein stillschweigend entfallendes Preset würde sie
-    unterschlagen.
-    """
+    """Das Preset verschwindet nicht, weil erst die Liste der offenen Zeilen sagt,
+    welche Positionen ins Ausland zwingen."""
     shops = [heimat(), deutsch(2, "Reichelt")]
     offers = [
         angebot(1, 10, 1, "10.00", tage=2),
@@ -238,9 +220,7 @@ def test_only_ch_stays_away_only_when_the_home_market_has_nothing_at_all():
     assert "only_ch" not in presets
 
 
-# ---------------------------------------------------------------------------
 # Wertfreigrenzen-Indikator (reine Anzeige)
-# ---------------------------------------------------------------------------
 
 
 def plan_mit_de(preis):
@@ -313,7 +293,7 @@ def test_a_plan_above_the_allowance_names_the_import_tax_without_computing_it():
     assert eintrag["ueber_freigrenze"] is True
     assert "über der Wertfreigrenze" in eintrag["text"]
     assert "8.1 % MwSt auf den Gesamtwert" in eintrag["text"]
-    # Keine Steuer im Total: 200 Ware + 25 Abholung, sonst nichts.
+    # Keine Steuer im Total, nur Ware und Abholung.
     assert plan["total_chf"] == "225.00"
 
 

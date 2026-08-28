@@ -479,9 +479,7 @@ def test_delivery_text_parser_uses_conservative_range_upper_bound():
 @pytest.mark.parametrize(
     "text, erwartet",
     [
-        # Screws & More schreibt genau das, und es fiel bisher auf None.
-        # (Der gebündelte Adapter liest den Satz in den Lagertext - das ist
-        # eine Frage des Adapters, nicht des Parsers.)
+        # Screws & More schreibt die Lieferzeit genau so.
         ("Lieferzeit: 1-2 Wochen", 14),
         ("1-2 Wochen", 14),
         ("1 Woche", 7),
@@ -671,12 +669,8 @@ def test_plan_scenarios_serializes_unknown_shipping_without_stringifying_none():
 
 
 def test_plan_scenarios_groups_identical_presets_and_keeps_badges():
-    """Ohne Auslandsangebote faellt «Nur Schweiz» mit dem Gesamtoptimum zusammen.
-
-    Genau dann darf es keine eigene Karte werden, sondern muss in die
-    Hauptkarte verschmelzen - eigenstaendig wird es erst, wenn es Angebote
-    ausserhalb der Heimat gibt.
-    """
+    """Ohne Auslandsangebote faellt «Nur Schweiz» mit dem Gesamtoptimum zusammen und
+    wird erst mit Auslandsangeboten zu einer eigenen Karte."""
     procurement = service()
 
     result = procurement.plan_scenarios(5)

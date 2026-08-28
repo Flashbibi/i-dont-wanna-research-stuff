@@ -1,8 +1,4 @@
-"""Lieferziele als Daten.
-
-Shop-Herkunftsland, Angebotswährung und beliefertes Ziel sind unabhängige
-Fakten. Entscheidend ist die belegte Lieferung an eine konfigurierte Adresse.
-"""
+"""Shop-Herkunftsland, Angebotswährung und beliefertes Ziel sind unabhängige Fakten."""
 
 from decimal import Decimal
 
@@ -17,9 +13,7 @@ def service():
     return ProcurementService(repository), repository
 
 
-# ---------------------------------------------------------------------------
 # Anlegen
-# ---------------------------------------------------------------------------
 
 
 def test_the_currency_follows_the_country_and_stays_overridable():
@@ -85,9 +79,7 @@ def test_the_home_address_is_marked_as_such():
     assert ziele["Postfach (DE)"]["ist_heimat"] is False
 
 
-# ---------------------------------------------------------------------------
 # Zuordnung beim Shop
-# ---------------------------------------------------------------------------
 
 
 def anlegen(procurement, name, url, land, **kwargs):
@@ -138,9 +130,7 @@ def test_an_unknown_target_is_refused():
         )
 
 
-# ---------------------------------------------------------------------------
 # Angebotswährung ist unabhängig von Shopland und Lieferziel
-# ---------------------------------------------------------------------------
 
 
 def euro_ready():
