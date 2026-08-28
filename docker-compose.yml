@@ -18,7 +18,7 @@ services:
 
   app:
     # Statt des Releases den lokalen Stand bauen: build: .
-    image: ghcr.io/flashbibi/i-dont-wanna-research-stuff:v0.1.0
+    image: ghcr.io/flashbibi/i-dont-wanna-research-stuff:v0.2.0
     depends_on:
       db:
         condition: service_healthy

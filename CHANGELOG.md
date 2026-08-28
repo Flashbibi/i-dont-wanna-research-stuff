@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The compose quick start pulls the current release image. The pin stays a pin -
+  upgrading is a decision, not something `docker compose pull` does to you - but
+  it had been left on v0.1.0 while v0.2.0 was published, so a fresh start got
+  the wrong version. A test now ties the pin to the application version.
+
 ## [0.2.0] - 2026-08-28
 
 ### Added
