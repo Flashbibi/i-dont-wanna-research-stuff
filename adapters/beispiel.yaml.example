@@ -1,6 +1,5 @@
-#
-# Vollständiges Beispiel für Schema 1. Die Endung .example hält die Datei aus
-# der Registry heraus - zum Bauen nach <shop>.yaml kopieren.
+# Die Endung .example hält die Datei aus der Registry heraus - zum Bauen nach
+# <shop>.yaml kopieren.
 schema: 1
 id: beispielshop            # ^[a-z0-9][a-z0-9-]{1,31}$
 domain: beispielshop.ch     # klein, ohne Schema, ohne Pfad

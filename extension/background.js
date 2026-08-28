@@ -1,11 +1,4 @@
-/**
- * Setzt das Gast-Session-Cookie im Shop und öffnet den gefüllten Warenkorb.
- *
- * Läuft in Chromium als service_worker, in Firefox als Hintergrundskript - das
- * Manifest trägt beide Schlüssel, dieser Code kommt ohne Unterschied aus.
- *
- * Cookie-Werte werden nie geloggt.
- */
+/** Cookie-Werte werden nie geloggt. */
 (() => {
   "use strict";
 

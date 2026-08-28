@@ -1,10 +1,5 @@
--- Migration 001 hat shop.land auf 'CH' festgenagelt, weil es damals nur
--- Schweizer Shops gab. Mit den Lieferzielen ist das Land eine Eigenschaft des
--- Ziels geworden; welche Laender zulaessig sind, entscheidet jetzt die
--- Konfiguration der Lieferadressen und nicht mehr das Schema.
---
--- Die alte Regel wird durch eine Formatpruefung ersetzt. Das erweitert nur,
--- was erlaubt ist - keine Zeile verliert dadurch ihre Gueltigkeit.
+-- Mit den Lieferzielen ist das Land eine Eigenschaft des Ziels und nicht mehr des
+-- Schemas, deshalb ersetzt eine Formatpruefung die CH-Festlegung aus Migration 001.
 ALTER TABLE shop DROP CONSTRAINT IF EXISTS shop_land_check;
 
 ALTER TABLE shop

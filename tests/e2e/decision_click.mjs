@@ -46,7 +46,6 @@ try {
   await waitForMatrix(page);
   assert.equal(await page.getByText('[E2E-TEST]', {exact: true}).count(), 1);
 
-  // Spalte wählen: sofort sichtbar und nach Reload persistent.
   const oneShop = planHeader(page, 'Ein Shop');
   await oneShop.getByRole('button', {name: 'Diesen Plan wählen'}).click();
   await oneShop.getByText('✓ Gewählt').waitFor();
@@ -63,11 +62,9 @@ try {
   await page.getByText('Unvollständige Pläne können nicht erfasst werden.').waitFor();
   evidence.incompletePurchaseBlocked = true;
 
-  // Vollplan über den prototypischen Reparaturlink wählen.
   await planHeader(page, 'Ein Shop').getByText('Vollplan wählen', {exact: false}).click();
   await page.locator('#matrix-root .chosenmark').filter({hasText: '✓ Gewählt'}).waitFor();
 
-  // Zeile aufklappen, alternativen Kandidaten pinnen, Matrix aktualisiert sich.
   await page.locator(`[data-row="${lineIds[0]}"]`).first().click();
   await page.locator(`#candidate-${offerIds[1]}`).waitFor();
   await page.locator(`#candidate-${offerIds[1]}`).getByRole('button', {name: 'Pinnen'}).click();
@@ -80,7 +77,6 @@ try {
   await page.locator(`#candidate-${offerIds[1]} .chip.pin`, {hasText: 'gepinnt'}).waitFor();
   evidence.pinPersisted = true;
 
-  // Eine konkrete Angebots-ID ausschliessen und Persistenz nach Reload prüfen.
   await page.locator(`[data-row="${lineIds[1]}"]`).first().click();
   await page.locator(`#candidate-${offerIds[2]}`).getByRole('button', {name: 'Ausschliessen'}).click();
   await page.locator(`#candidate-${offerIds[2]}`).waitFor({state: 'detached'});
@@ -101,7 +97,6 @@ try {
   await page.locator('#verdict').filter({hasText: /Ändert bei diesem Angebots-Pool nichts:|Eigene Gewichtung/}).waitFor();
   evidence.tempoVerdictVisible = true;
 
-  // Einen vollständigen Plan wählen, alle Shops abhaken und record_purchase auslösen.
   const completeHeaders = page.locator('#matrix-root .mc.chead').filter({has: page.locator('.labels')}).filter({hasNotText: 'Ein Shop'});
   const complete = completeHeaders.first();
   const chooseComplete = complete.getByRole('button', {name: 'Diesen Plan wählen'});

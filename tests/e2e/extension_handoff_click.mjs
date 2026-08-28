@@ -1,21 +1,5 @@
-/**
- * Klickpfad der Ein-Klick-Übergabe gegen die LAN-Instanz.
- *
- * Bevorzugte Variante: Chromium als persistenter Kontext mit --load-extension
- * auf extension/. Das braucht headful, in CT 103 also unter Xvfb:
- *
- *   xvfb-run -a env BASE_URL=http://192.168.1.60:8000 node tests/e2e/extension_handoff_click.mjs
- *
- * Lädt der Runner die Erweiterung nicht (kein Bereitschafts-Signal binnen
- * READY_TIMEOUT), fällt das Skript dokumentiert auf ein gestubtes ready-Signal
- * zurück und prüft dann nur die Nutzlast der Seite. Welche Variante lief, steht
- * als `mode` in der Ausgabe - die echte Erweiterung prüft Linus in dem Fall
- * manuell.
- *
- * Der Shop wird serverseitig gestubbt (?stub=), es wird kein echter Shop
- * kontaktiert. Das Cookie-Ziel bleibt die Shop-Origin (das Session-Cookie ist
- * Secure), nur das Tab-Ziel zeigt auf eine lokale Seite.
- */
+/** Der Shop wird serverseitig gestubbt und nur das Tab-Ziel umgebogen, weil das
+ * Session-Cookie Secure ist und auf der Shop-Origin bleiben muss. */
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
@@ -37,7 +21,7 @@ const waitForMatrix = async page => {
   await page.waitForLoadState('networkidle');
 };
 
-// Fill-Antwort abfangen: Tab-Ziel auf eine lokale Seite, Cookie-Ziel unverändert.
+// Nur das Tab-Ziel wird umgebogen, damit das Cookie-Ziel unverändert bleibt.
 const routeCartFill = async (page, stubMode) => {
   await page.route('**/shops/*/cart', async route => {
     const url = new URL(route.request().url());
@@ -79,7 +63,6 @@ try {
   const info = await (await fetch(`${baseUrl}/api/extension`)).json();
   evidence.serverExtensionVersion = info.version;
 
-  // --- 1) Ohne Erweiterung: nur der Kopierflow ---------------------------
   context = await chromium.launchPersistentContext('', {headless: true, executablePath});
   let page = await context.newPage();
   await routeCartFill(page, 'ok');
@@ -91,7 +74,6 @@ try {
   evidence.withoutExtensionCopyOnly = true;
   await context.close();
 
-  // --- 2) Mit geladener Erweiterung -------------------------------------
   context = await chromium.launchPersistentContext('', {
     headless: false,
     executablePath,
@@ -113,7 +95,6 @@ try {
   evidence.mode = loaded ? 'geladene-erweiterung' : 'gestubtes-ready-signal';
 
   if (!loaded) {
-    // Dokumentierter Rückfall: ready-Signal simulieren, Nutzlast der Seite prüfen.
     await page.evaluate(() => {
       window.__handoffPayload = null;
       window.addEventListener('message', event => {

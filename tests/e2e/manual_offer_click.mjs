@@ -1,10 +1,5 @@
-//
-// Der Weg ohne AI-Client: URL eintragen, ehrlich scheitern, von Hand nachtragen.
-//
-// Deterministisch und ohne Netz zum Shop: die Instanz hat keinen Adapter für
-// diese Domain, und AdapterFehlt greift vor jedem Abruf. Der Engine-Erfolgspfad
-// bleibt hier bewusst aussen vor - er bräuchte eine echte Produktseite; ihn
-// decken die Python-Tests mit MockTransport ab.
+// Deterministisch ohne Netz zum Shop, weil die Instanz für diese Domain keinen Adapter
+// hat und AdapterFehlt vor jedem Abruf greift.
 import {createRequire} from 'node:module';
 import assert from 'node:assert/strict';
 
@@ -18,10 +13,8 @@ let testJob = null;
 let context = null;
 let evidence = null;
 
-// Setup und Cleanup sind das Gerüst, nicht der Prüfgegenstand - und genau
-// deshalb müssen sie laut scheitern. Ein blosses «HTTP 422» hat einmal einen
-// halben Tag gekostet: die Antwort nannte den Grund, der Pfad druckte ihn nur
-// nicht. Also erst Status und Körper zeigen, dann abbrechen.
+// Setup und Cleanup sind nur das Gerüst, müssen aber laut scheitern, weil ein blosser
+// Status ohne Körper den Grund der Ablehnung verschweigt.
 async function erwarteAntwort(antwort, erwartet, was) {
   if (!antwort.ok) {
     const koerper = await antwort.text().catch(fehler => `<Körper nicht lesbar: ${fehler.message}>`);
@@ -39,9 +32,8 @@ try {
   assert.equal(testJob.marker, '[E2E-TEST]');
   const {job_id: jobId, line_ids: lineIds} = testJob;
 
-  // Eine Produktseite auf der Domain eines bekannten Shops: der Shop wird
-  // gefunden, ein Adapter für ihn gibt es nicht. Genau der Fall, den die
-  // Handerfassung auffangen soll.
+  // Produktseite auf der Domain eines bekannten Shops, damit der Shop gefunden wird,
+  // ein Adapter für ihn aber fehlt.
   const matrixResponse = await fetch(`${baseUrl}/api/jobs/${jobId}/scenarios`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -60,12 +52,8 @@ try {
     consoleErrors: [], failedRequests: [], badResponses: [],
     fetchResponses: [], recordResponses: [],
   };
-  // Chromium spiegelt die erwartete 422 des Engine-Versuchs zusätzlich als
-  // Konsolenfehler («Failed to load resource: ... 422 ...»). Genau dieses eine
-  // Echo wird verworfen: die 422 ist weiter unten Prüfgegenstand, kein Befund -
-  // sie hier zusätzlich als Konsolenfehler zu zählen, verlangte von derselben
-  // Antwort gleichzeitig, dass sie kommt und dass sie nicht kommt. Jeder andere
-  // Konsolenfehler bleibt scharf.
+  // Chromium spiegelt die erwartete 422 zusätzlich als Konsolenfehler; nur dieses eine
+  // Echo wird verworfen, jeder andere Konsolenfehler bleibt scharf.
   const istErwartetesEcho = message =>
     (message.location()?.url || '').endsWith('/offers/fetch')
     && message.text().includes('422');
@@ -87,17 +75,14 @@ try {
   await page.goto(`${baseUrl}/jobs/${jobId}`, {waitUntil: 'networkidle'});
   await page.locator('#matrix-root .labels').first().waitFor();
 
-  // Kandidatenansicht der ersten Position öffnen.
   const detail = page.locator('.detail');
   await page.locator(`.mc.rname[data-row="${lineIds[0]}"]`).click();
   await detail.waitFor();
 
-  // Erfassungsblock aufklappen, URL eintragen, lesen lassen.
   await detail.getByRole('button', {name: 'Angebot per URL hinzufügen'}).click();
   await detail.locator(`textarea[data-add-urls="${lineIds[0]}"]`).fill(produktUrl);
   await detail.getByRole('button', {name: 'Seiten lesen'}).click();
 
-  // Der ehrliche Fehler: kein Adapter, der manuelle Weg steht offen.
   const fehler = detail.locator('.addrow .warn');
   await fehler.waitFor();
   const fehlertext = (await fehler.first().innerText()).trim();
@@ -122,7 +107,6 @@ try {
   await form.getByRole('button', {name: 'Angebot erfassen'}).click();
   assert.equal((await recorded).status(), 200);
 
-  // Das Angebot steht in der Kandidatenliste - und trägt das Badge.
   const kandidat = page.locator('.cand').filter({hasText: '[E2E-TEST] Handerfassung'});
   await kandidat.first().waitFor();
   assert.equal(await kandidat.first().locator('.chip.unverified').count(), 1,
@@ -149,9 +133,8 @@ try {
   assert.deepEqual(evidence.fetchResponses, [422]);
   assert.deepEqual(evidence.recordResponses, [200]);
 } finally {
-  // Genau einmal, und im finally: bricht eine Assertion ab, ist die Evidence
-  // das Einzige, woran sich der Lauf nachvollziehen lässt - im try gedruckt
-  // wäre sie in genau dem Fall weg, in dem man sie braucht.
+  // Genau einmal und im finally, weil die Evidence sonst genau dann fehlt, wenn eine
+  // Assertion abbricht.
   if (evidence) console.log(JSON.stringify(evidence));
   if (context) await context.close();
   if (testJob) {

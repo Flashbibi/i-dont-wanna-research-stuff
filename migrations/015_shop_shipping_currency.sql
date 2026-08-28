@@ -7,9 +7,8 @@ ALTER TABLE shop
     ADD COLUMN IF NOT EXISTS versand_kurs_am DATE,
     ADD COLUMN IF NOT EXISTS versand_kurs_quelle TEXT;
 
--- Bestandsprofile waren als CHF-Normalwerte gespeichert. Diese belegte
--- Bedeutung bleibt erhalten; Fremdwaehrungsprofile werden danach ueber den
--- Service mit Originalbetrag und Tageskurs aktualisiert.
+-- Bestandsprofile behalten ihre belegte CHF-Bedeutung; Fremdwaehrungsprofile
+-- aktualisiert spaeter der Service.
 UPDATE shop
 SET versand_original = COALESCE(versand_original, versand_chf),
     gratis_ab_original = COALESCE(gratis_ab_original, gratis_ab_chf),

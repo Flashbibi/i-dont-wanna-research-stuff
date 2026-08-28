@@ -1,13 +1,5 @@
-/**
- * Klickpfad der Warenkorb-Übergabe gegen die LAN-Instanz.
- *
- * Der Shop wird serverseitig durch eine Attrappe ersetzt (`?stub=`), damit der
- * Lauf keinen echten Shop anfasst. Umgeschaltet wird erst hier im Test, nicht
- * in der Oberfläche - so durchläuft der Klick den echten Code inklusive
- * Zustandswechsel, Rendering und Rückverifikation.
- *
- * Der Stub-Weg schreibt nichts: weder Plattform noch Produkt-IDs.
- */
+/** Der Shop wird serverseitig gestubbt und erst im Test umgeschaltet, damit der Lauf
+ * keinen echten Shop anfasst, der Klick aber durch den echten Code läuft. */
 import {createRequire} from 'node:module';
 import assert from 'node:assert/strict';
 
@@ -39,10 +31,8 @@ try {
     consoleErrors: [], expectedConflictLogs: [], failedRequests: [], cartResponses: [],
   };
 
-  // Das Mismatch-Leg verlangt einen 409. Chrome protokolliert jeden fetch mit
-  // Fehlerstatus als "Failed to load resource" - Browserverhalten, von der App
-  // nicht unterdrückbar. Dieser eine Eintrag wird deshalb getrennt gezählt,
-  // eng auf die Cart-Fill-URL gescoped; für alles andere bleibt Null-Toleranz.
+  // Chrome protokolliert den erwarteten 409 als Konsolenfehler, der deshalb eng auf
+  // die Cart-Fill-URL gescoped gezählt wird - für alles andere gilt Null-Toleranz.
   const cartFillUrl = /\/api\/jobs\/\d+\/shops\/\d+\/cart(\?|$)/;
   const isExpectedConflict = (text, url) =>
     /Failed to load resource/i.test(text) && /\b409\b/.test(text) &&
@@ -89,7 +79,6 @@ try {
   await fillButton.waitFor();
   evidence.fillButtonVisible = true;
 
-  // Erfolgsfall: Zustandswechsel, geprüfter Korb, Cookie-Übergabe.
   const okResponse = page.waitForResponse(response => response.url().includes('/cart?stub=ok'));
   await fillButton.click();
   assert.equal((await okResponse).status(), 200);
@@ -127,10 +116,7 @@ try {
   await diff.waitFor();
   const diffText = (await diff.innerText()).trim();
 
-  // Seit der Netto/Brutto-Korrektur vergleicht die App pro Position gegen die
-  // Zeilenpreise des Korbs, nicht mehr gegen eine Summenzeile. Der Diff nennt
-  // deshalb JEDE betroffene Position mit beiden Beträgen - genau das ist der
-  // Mehrwert gegenüber der alten Form, und genau das wird hier erwartet.
+  // Der Diff nennt jede betroffene Position mit beiden Beträgen, keine Summenzeile.
   const positionen = [...diffText.matchAll(/([^.]+?): erfasst CHF (\d+\.\d{2}), Korb CHF (\d+\.\d{2})\./g)];
   assert.equal(positionen.length, 2, `Erwartet zwei benannte Positionen, erhalten: ${diffText}`);
   for (const [, name, erfasst, korb] of positionen) {

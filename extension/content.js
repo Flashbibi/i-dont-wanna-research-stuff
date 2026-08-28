@@ -1,12 +1,4 @@
-/**
- * Brücke zwischen Job-Seite und Hintergrund.
- *
- * Läuft ausschliesslich auf der Tool-Origin (siehe manifest "matches"). Der Weg
- * über window.postMessage statt externally_connectable ist Absicht:
- * externally_connectable gibt es nur in Chrome, dieses Muster trägt auch Firefox.
- *
- * Cookie-Werte werden hier nie geloggt.
- */
+/** window.postMessage statt externally_connectable, weil es das nur in Chrome gibt. */
 (() => {
   "use strict";
 
@@ -46,8 +38,8 @@
     );
   });
 
-  // Bereitschaft melden. Ohne dieses Signal zeigt die Seite den Ein-Klick-Knopf
-  // nicht und bleibt exakt beim Kopierflow.
+  // Ohne dieses Signal zeigt die Seite den Ein-Klick-Knopf nicht und bleibt exakt
+  // beim Kopierflow.
   post({type: READY, version: VERSION});
   document.addEventListener("DOMContentLoaded", () => post({type: READY, version: VERSION}));
 })();

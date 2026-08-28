@@ -14,9 +14,8 @@ CREATE TABLE IF NOT EXISTS lieferziel (
 ALTER TABLE shop
     ADD COLUMN IF NOT EXISTS lieferziel_id BIGINT REFERENCES lieferziel(id);
 
--- Die Heimadresse aus dem Bestand ableiten: alle bisherigen Shops sind CH und
--- liefern nach Hause. Keine fest verdrahteten Ziele - dieses eine entsteht aus
--- den vorhandenen Daten, alles Weitere legt Linus ueber die UI an.
+-- Das Heimziel wird aus dem Bestand abgeleitet und nicht fest verdrahtet; alle
+-- bisherigen Shops sind CH.
 INSERT INTO lieferziel(name, adresse, land, waehrung, aufschlag_chf, zuschlag_tage)
 SELECT 'Zuhause (CH)', 'Heimadresse', 'CH', 'CHF', 0, 0
 WHERE NOT EXISTS (SELECT 1 FROM lieferziel WHERE land = 'CH');

@@ -10,8 +10,8 @@
   const EXTENSION_READY = "beschaffung/extension-ready";
   const fromThisPage = (event) => event.source === window && event.origin === window.location.origin;
 
-  // Die Erweiterung meldet sich selbst. Ohne dieses Signal bleibt die Seite
-  // exakt beim Kopierflow - der ist der Fallback für jeden Browser ohne sie.
+  // Ohne dieses Signal der Erweiterung bleibt die Seite beim Kopierflow - dem Fallback
+  // für jeden Browser ohne sie.
   window.addEventListener("message", (event) => {
     if (!fromThisPage(event) || !event.data || event.data.type !== EXTENSION_READY) return;
     if (state.extension && state.extension.version === event.data.version) return;
@@ -92,9 +92,8 @@
     const kind = line.lieferzeit_geschaetzt || line.lieferzeit_bedingt ? "est" : "ok";
     return `<span class="chip ${kind}">${esc(line.lieferzeit_chip)}</span>`;
   };
-  // Das Schwache markieren, nicht das Starke dekorieren: ein leeres
-  // erfasst_via heisst «von Hand bzw. via KI erfasst» und wird als ungeprüft
-  // ausgewiesen. Hat die Engine die Seite gelesen, steht das leise daneben.
+  // Ein leeres erfasst_via heisst «von Hand bzw. via KI erfasst» und wird darum als
+  // ungeprüft ausgewiesen, statt den maschinellen Weg zu dekorieren.
   const erfasstBadge = (via) => (via
     ? `<span class="via" title="Die Engine hat diese Produktseite selbst gelesen">via ${esc(String(via).replace(/^adapter:/, "Adapter "))}</span>`
     : '<span class="chip unverified" title="Von Hand bzw. über einen AI-Client erfasst - niemand hat die Seite maschinell nachgelesen">ungeprüft</span>');
@@ -104,8 +103,7 @@
     catch { return ""; }
   };
 
-  // Vorbelegung des Währungsfelds: was dieser Job über den Shop schon weiss.
-  // Ist er hier noch nirgends vertreten, bleibt es bei CHF - geraten wird nicht.
+  // Vorbelegung nur aus bekannten Angeboten dieses Jobs; geraten wird nicht.
   const waehrungFuerUrl = (url) => {
     const domain = hostOf(url);
     if (!domain || !state.data) return "CHF";
@@ -144,8 +142,8 @@
   }
 
   async function loadCartShops() {
-    // Eignung pro Shop. Scheitert das (halbfertiger Job, kein Plan), bleibt die
-    // Bestellspalte einfach ohne Füllknopf - die Linkliste trägt weiterhin.
+    // Scheitert die Eignungsabfrage, bleibt die Bestellspalte ohne Füllknopf und die
+    // Linkliste trägt weiter.
     try {
       const rows = await json(`/api/jobs/${jobId}/cart-shops`);
       state.cartShops = Object.fromEntries(rows.map((row) => [String(row.shop_id), row]));
@@ -221,9 +219,8 @@
     box.results = urls.map((url) => ({ url, state: "wait" }));
     if (feld) feld.value = "";
     render();
-    // Nacheinander, nicht parallel: der Mindestabstand pro Domain sitzt im
-    // Server. Gleichzeitige Abrufe stünden dort nur an, und das Ergebnis je
-    // URL soll erscheinen, sobald es da ist.
+    // Nacheinander statt parallel, weil der Mindestabstand pro Domain im Server sitzt
+    // und jedes Ergebnis erscheinen soll, sobald es da ist.
     for (const entry of box.results) {
       entry.state = "busy";
       render();
@@ -318,9 +315,8 @@
       if (column.incomplete) {
         const missing = state.data.lines.filter((line) => column.missing_line_ids.includes(line.line_id)).map((line) => line.suchtext).join(", ");
         const extra = full ? Number(full.total_chf) - Number(column.total_chf) : 0;
-        // «Nur Schweiz» zeigt die offenen Zeilen, aber ohne Quick-Action: der
-        // Sprung auf den Vollplan IST hier die Auslandsentscheidung und gehört
-        // nicht als Nebenbei-Link daneben.
+        // Bei «Nur Schweiz» ist der Sprung auf den Vollplan die Auslandsentscheidung
+        // und gehört nicht als Nebenbei-Link daneben.
         const nurCh = (column.keys || []).includes("only_ch");
         const fix = full && !nurCh ? ` — <a href="#" data-fix="${esc(full.key)}">Vollplan wählen (+CHF ${chf(extra)})</a>` : "";
         warning = `<div class="warn">deckt ${esc(missing)} nicht ab${fix}</div>`;
@@ -530,8 +526,8 @@
     }
     if (!lauf) { box.hidden = true; box.innerHTML = ""; return; }
     box.hidden = false;
-    // Der Mindestabstand pro Domain steht im Server: fünfzehn Angebote beim
-    // selben Shop dauern gut eine Minute. Das zeigt die Zeile ehrlich an.
+    // Fünfzehn Angebote beim selben Shop dauern wegen des Mindestabstands pro Domain
+    // gut eine Minute, was die Zeile ehrlich anzeigt.
     const kopf = lauf.running
       ? `<div class="note">${lauf.done} von ${lauf.total} geprüft — noch ${lauf.total - lauf.done} offen. <button class="linklike" type="button" id="check-cancel">Abbrechen</button></div>`
       : `<div class="note">${lauf.cancelled ? "Abgebrochen" : "Fertig"}: ${lauf.done} von ${lauf.total} geprüft.</div>`;
@@ -702,8 +698,7 @@
     }
 
     if (cartFill) {
-      // Ein Knopfdruck: erkennen, füllen, zurücklesen. Fehler bleiben hier
-      // stehen statt in einem alert() zu verschwinden - der Diff ist der Punkt.
+      // Fehler bleiben hier stehen statt in einem alert() - der Diff ist der Punkt.
       event.preventDefault();
       const id = String(cartFill.dataset.cart);
       state.cart[id] = { state: "busy" };

@@ -1,5 +1,5 @@
--- NULL heisst weiterhin "von Hand bzw. via KI erfasst". Werte schreibt
--- ausschliesslich die Engine, in der Form adapter:<id>.
+-- NULL heisst weiterhin "von Hand bzw. via KI erfasst"; Werte schreibt
+-- ausschliesslich die Engine.
 ALTER TABLE offer
     ADD COLUMN IF NOT EXISTS erfasst_via TEXT;
 

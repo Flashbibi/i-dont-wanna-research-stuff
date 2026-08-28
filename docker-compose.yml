@@ -23,9 +23,9 @@ services:
     environment:
       - DATABASE_URL=postgresql://beschaffung:${POSTGRES_PASSWORD:-beschaffung}@db:5432/beschaffung
       - BESCHAFFUNG_UPDATE_CHECK=${BESCHAFFUNG_UPDATE_CHECK:-on}
-      # Eigene Shop-Adapter ohne Fork: Verzeichnis hereinreichen und hier
-      # nennen. Bei gleicher id gewinnt die eigene Datei über die gebündelte.
+      # Eigene Shop-Adapter ohne Fork: bei gleicher id gewinnt die eigene Datei.
       # - BESCHAFFUNG_ADAPTER_DIR=/adapters
+
     # volumes:
     #   - ./meine-adapter:/adapters:ro
     ports:

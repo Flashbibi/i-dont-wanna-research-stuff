@@ -362,8 +362,7 @@ summary { cursor: pointer; }
 .cartfill { margin-top:8px; width:100%; }
 .cartfill:hover { border-color:var(--accent); color:var(--accent-dark); }
 .cartbusy { color:var(--muted); font-style:italic; }
-/* Geprüfte, nicht unterstützte Plattform ist ein erwartbarer Ausgang und
-   bekommt deshalb bewusst kein Fehler-Styling. */
+/* Geprüfte, nicht unterstützte Plattform ist erwartbar und ohne Fehler-Styling. */
 .cartoff { color:var(--muted); }
 .cartok { margin-top:8px; font-weight:600; }
 .cartdiff { margin-top:8px; padding:7px 9px; border-radius:8px; background:var(--danger-soft); color:var(--danger); font-size:12px; line-height:1.5; }

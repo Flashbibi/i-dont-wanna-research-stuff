@@ -1,20 +1,6 @@
 #!/usr/bin/env python3
-"""Read-only production MCP smoke test.
-
-create_job is invoked only with invalid empty input, so this E2E never creates a real job.
-
-get_cart_session is listed but never called: it opens a guest session at a real
-shop and writes the platform finding plus the product-id cache. Keep it out of
-tools/call here.
-
-adjust_stock is listed but never called: it writes stock. Keep it
-out of tools/call here. check_stock is read-only but covered by
-the unit suite; the smoke test only asserts its presence.
-
-fetch_offer and refresh_offer are listed but never called: they reach a real
-shop over the network and write an offer. Keep them out of tools/call here.
-list_adapters is read-only and touches neither, so it is called.
-"""
+"""Smoke-Test gegen die Produktion, deshalb nur lesende Aufrufe und create_job allein
+mit ungültiger Eingabe."""
 
 from __future__ import annotations
 

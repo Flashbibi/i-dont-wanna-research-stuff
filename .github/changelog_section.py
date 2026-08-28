@@ -1,9 +1,4 @@
-"""Den Abschnitt einer Version aus CHANGELOG.md schneiden.
-
-Der Release-Body trägt den passenden Abschnitt, nicht die ganze Datei.
-
-    python3 .github/changelog_section.py v0.1.0 > release-notes.md
-"""
+"""Der Release-Body trägt nur den Abschnitt der Version, nicht die ganze Datei."""
 
 from __future__ import annotations
 
